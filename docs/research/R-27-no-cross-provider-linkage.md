@@ -510,3 +510,33 @@ Nothing here was edited. For the main agent to weigh:
 - The set of installed packages changes materially. The counts here describe this machine on this date, not a population.
 - Homebrew moves past 7.0.11-143-g874c46a or MacPorts past 2.12.6, particularly if either changes rpath or install-name handling, or `brew list --formula` / `port -q contents` output.
 - Before any `otool` staging is applied: re-run E-10 and E-12 (never the `SDKROOT` case of E-1).
+
+## The Rust reader against `otool` (2026-11-04)
+
+This is the agreement of `crates/adapters/src/macho.rs` itself, which is what part H's plan asks for. E-15's 2224 of 2224 was the Python prototype's. The harness lived in the session scratch directory and is not in the repository. Same machine and Homebrew as above; `/Library/Developer/CommandLineTools/usr/bin/otool` (cctools-1040) run directly, `SDKROOT` and `DEVELOPER_DIR` unset, stdin null, `cwd=/`. `xcrun_db`'s mtime and size were the same before and after. MacPorts' files were not in this run.
+
+**The reader alone, every regular file under `/usr/local/Cellar`, no spawn (139,759 files):**
+
+```
+thin refs: Execute 1226, Dylib 406, Bundle 423     fat refs 8     fat of archives 15
+skipped: Object 100, Archive 964
+script: absolute 622, env 422, relative 43         not an object 135524
+Malformed(FatTable) 3, TooLarge(Slices) 3          largest window total for one file 7016 bytes
+```
+
+The counts match E-2 (2155 thin including objects, 8 fat, 15 fat around archives, 964 archives). No real Mach-O answered an error, an unknown file type or an unknown `LC_REQ_DYLD` command, so the stricter refusals here than in the prototype (`sizeofcmds` must equal the commands walked, a name offset must be past the fixed structure, a name must be non-empty and NUL-terminated) cost nothing on this machine.
+
+**All 6 errors are Java `.class` files**, whose version reads as `nfat`: the 3 `Malformed` answers and the 3 `TooLarge`, in `gettext` and `nmap`. That is the plan's rule working as written: a `0xcafebabe` that is not a fat table is not "not Mach-O". Its cost is that those two packages answer `Unchecked` for a file no loader reads. Reported, not decided here.
+
+**Against `otool`, 200 files:** every fat file with references (8), 5 fat wrappers around archives, 5 archives, 5 objects, 5 scripts, 5 other non-objects, and 167 thin files at an even stride over the sorted list.
+
+```
+-arch all -l agrees 175 of 175     per slice, in order: each linking kind, LC_LOAD_DYLINKER, LC_RPATH; LC_ID_DYLIB excluded
+-arch all -L agrees 175 of 175     per slice, as a multiset, adding back the id -l names
+slices compared 191, of which 61 carry an id; load references 786; rpaths 144
+archives: 5 of 5 no tab lines      objects and fat wrappers: 10 of 10 no tab lines
+scripts and non-objects: 10 of 10 "is not an object file"
+disagreements 0                    otool nonzero exits 0
+```
+
+The 200 are a sample, not the sweep, and `otool` is the reference here as E-15 says, not `dyld`. No file here holds a cross-provider reference, a `LC_LAZY_LOAD_DYLIB`, a `LC_LOAD_UPWARD_DYLIB` or a `LC_DYLD_ENVIRONMENT` (E-3), so those kinds and detection itself are shown only on specimens built in `crates/adapters/tests/macho.rs`.
