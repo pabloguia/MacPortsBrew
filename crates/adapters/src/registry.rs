@@ -347,8 +347,14 @@ pub fn lock_probe(ctx: &RegistryContext<'_>) -> crate::lock_probe::SystemLockPro
         .into_iter()
         .filter_map(|id| {
             let Some(site) = detected_prefix_as(ctx, &id, replay) else {
-                let executable = derivation(&id)?.executable;
-                let site = crate::lock_probe::undetected_site(&candidate_prefixes(&id), executable);
+                // A known provider this build cannot derive is not left out.
+                let Some(derived) = derivation(&id) else {
+                    return Some((id, crate::lock_probe::LockSite::Unresolved));
+                };
+                let site = crate::lock_probe::undetected_site(
+                    &candidate_prefixes(&id),
+                    derived.executable,
+                );
                 return site.map(|site| (id, site));
             };
             Some((id, lock_site(&site)))

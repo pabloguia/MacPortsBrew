@@ -39,7 +39,7 @@ once at its own root; see "What an executor inherits".
 | `elevatedSteps` | array of integer, optional | The `index` of every step whose elevation is not `NONE` — that is, `REQUIRED` **or** `UNKNOWN`. Consult each command's own `elevation` to distinguish them: an `UNKNOWN` is not a known requirement, and rendering this set as "needs administrator rights" is the defect F-10 recorded. It is nonetheless the set to gate consent on, because an elevation nobody has established is not one that will not happen |
 | `policyVersion` | string | |
 | `dryRunOnly` | boolean | `true` in this build: whether the build that wrote the plan can run its mutating steps. A plan carrying `false` is refused for execution (`PLAN_NOT_DRY_RUN_ONLY`). It describes the build and is not the boundary — the gate and the absence of any mutating path are |
-| `concurrentProviderActivity` | `ConcurrentProviderActivity`, defined in [`migrate.v1.md`](migrate.v1.md) | Whether a provider may have been changing the machine while the input was read (obligation 5). Added to `schemaVersion` 1 after the schema was first documented, without a bump: additive, and every `plan --json` this build writes carries it, always last, after `dryRunOnly`; how to read its absence is in [`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity). It belongs to the `plan` command's document, not to `MigrationPlan`: `migrate` carries the plan under its own `plan` key *without* it and writes the flag once at its own root, and the execution gate neither reads nor requires it |
+| `concurrentProviderActivity` | `ConcurrentProviderActivity`, defined in [`migrate.v1.md`](migrate.v1.md) | Whether a provider's own lock was held right after the input was read (obligation 5). Added to `schemaVersion` 1 after the schema was first documented, without a bump: additive, and every `plan --json` this build writes carries it, always last, after `dryRunOnly`; how to read its absence is in [`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity). It belongs to the `plan` command's document, not to `MigrationPlan`: `migrate` carries the plan under its own `plan` key *without* it and writes the flag once at its own root, and the execution gate neither reads nor requires it |
 | `warnings` | array of message identifiers, optional | Written, when present, between `dryRunOnly` and `concurrentProviderActivity`. `["advanced.warning"]` when `enteredBy` is `ADVANCED` or `NAMED`; omitted otherwise. Derived from `enteredBy` when the document is written, never stored on the plan, and a closed set: `advanced.warning` is the only value this build writes. Since 2026-10-27, additive (DP-037). A script reads the identifier; the text is in the catalogue |
 
 ## `MigrationStep`
@@ -254,12 +254,13 @@ comments:
    half is met for `migrate`: every document carries
    `concurrentProviderActivity` (`migrate.v1.md`), the domain's
    `ConcurrentProviderActivity`, and its rule is that it never claims a check
-   that was not made. A live run says `NOT_CHECKED`, because nothing looks;
+   that was not made. A live run says what one sample of the providers' own locks
+   answered (`NONE_OBSERVED`, `OBSERVED`, `NOT_DETERMINED`);
    `--replay` and `--from-snapshot` say `UNKNOWABLE`, because a recording or a
-   snapshot file carries no process table and a replay must not read this
-   host's (INV-15). Both are possibly inconsistent, and the human output says
+   snapshot file carries no provider locks and a replay must not sample this
+   host's (INV-15), which is possibly inconsistent, and the human output says
    so in words (`the_concurrency_flag_never_claims_a_check_it_did_not_make`,
-   `invariant_15_a_replayed_run_cannot_observe_this_hosts_processes`).
+   `invariant_15_a_replayed_run_cannot_observe_this_hosts_locks`).
    `plan` and `analyze` carry the same flag from the same source: `plan --json`
    writes it at its root after the plan's own fields, `analysis.v1` carries it
    as a root field (so `status --json` and `list --json` do too), and the human
@@ -268,7 +269,7 @@ comments:
    domain's `ConcurrencyFlag`, writes it for every command, so the shape cannot
    drift between them
    (`every_command_that_carries_the_flag_shares_the_one_serialiser`,
-   `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_processes`,
+   `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_locks`,
    `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`).
    *A single-instance lock, and detection before mutating, refusing rather
    than interleaving* — the lock and the
@@ -278,11 +279,12 @@ comments:
    under it, reads the marker and writes it before the first mutating command.
    No shipped build takes the lock, because no shipped build has an allowance;
    the wiring's order is checked on every build, and its behaviour by
-   `crates/cli/tests/executor_wiring.rs` against fakes. **Detection before mutating is
-   unbuilt and inherited whole by the mutating pass**: no detection mechanism
-   exists, so nothing can answer `NONE_OBSERVED` or `OBSERVED`, and the run
-   loop's verification reads take no lock. Why each candidate mechanism was
-   deferred rather than chosen is SE-015 and DP-030.
+   `crates/cli/tests/executor_wiring.rs` against fakes. **Detection before mutating is built behind the same allowance** (work order 16
+   part G): the run refuses unless the probe answers `NONE_OBSERVED` under the lock,
+   and again before every mutating command
+   (`invariant_01_no_removal_dispatches_unless_the_lock_probe_answered_immediately_before_it`).
+   The run loop's verification reads take no lock, and the probe's limits are
+   04's (SE-015, DP-030).
 6. **Recognised is not evaluable.** A check this build can parse is not
    thereby one it can perform, and a step cannot pass on the checks it can
    read while ignoring the rest. Three have an evaluation today —

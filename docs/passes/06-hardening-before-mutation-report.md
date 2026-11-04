@@ -169,7 +169,7 @@ Invariants this pass touched, by test:
 - **INV-05** — `invariant_05_a_provider_is_never_updated_or_upgraded_from_the_spawn_site` (unchanged, green).
 - **INV-10** — `invariant_10_every_program_an_adapter_names_is_on_the_allowlist`, `invariant_10_a_plan_read_never_adopts_the_environment_it_carries` (unchanged, green). The `brew.env` gap cannot be tested from fixtures; it is DP-027's.
 - **INV-14** — the four `invariant_14_*` scans cover the new domain modules.
-- **INV-15** — new: `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_processes`, `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`, `invariant_15_a_hostile_reported_name_is_refused_identically_by_capture_and_by_load`, `…_at_capture_and_at_load`; `invariant_15_reproducible_recommendations_end_to_end` green.
+- **INV-15** — new: `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_locks`, `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`, `invariant_15_a_hostile_reported_name_is_refused_identically_by_capture_and_by_load`, `…_at_capture_and_at_load`; `invariant_15_reproducible_recommendations_end_to_end` green.
 - **INV-17** — the twelve `invariant_17_*` tests green; S2 is one table read by one function.
 - **INV-20** — `invariant_20_no_provider_deadline_is_written_into_source` green (U+2028/9 written in decimal).
 - **INV-02 / §3** — `every_plan_this_planner_builds_is_refused_for_execution_in_this_build` and its fixture counterpart, unmodified and green.

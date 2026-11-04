@@ -17,10 +17,12 @@ use macportsbrew_adapters::system::machine::{
     from_process_environment, language_preference, state_dir_override, SystemMachine,
 };
 use macportsbrew_application::{
-    analyze, capture, Analysis, AnalysisOptions, AnalysisSource, CaptureContext, DoctorReport,
+    analyze_sampled, capture, provider_lock_activity, Analysis, AnalysisOptions, AnalysisSource,
+    CaptureContext, DoctorReport,
 };
 use macportsbrew_domain::{
-    DomainError, ErrorId, HomeRedaction, Machine, MachineRead, ProviderId, Snapshot,
+    ConcurrentProviderActivity, DomainError, ErrorId, HomeRedaction, Machine, MachineRead,
+    ProviderId, ProviderLockProbe, Snapshot,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeSet;
@@ -32,6 +34,10 @@ use std::rc::Rc;
 pub struct Context {
     /// The snapshot being analysed.
     pub snapshot: Snapshot,
+    /// What the lock probe answered right after the capture, or `Unknowable`
+    /// for an input that is not this machine. Only for reporting: a run samples
+    /// again under its lock, and before every command.
+    pub provider_locks: ConcurrentProviderActivity,
     /// Policy data.
     pub policy: PolicyData,
     /// Messages in the resolved locale.
@@ -296,6 +302,7 @@ impl Context {
                 policy,
                 messages,
                 today,
+                provider_locks: ConcurrentProviderActivity::Unknowable,
                 source: AnalysisSource::Snapshot,
                 home,
                 // A snapshot file was redacted when it was captured, so it is
@@ -380,16 +387,24 @@ impl Context {
                 )?;
             }
         }
+        let source = if replay {
+            AnalysisSource::Snapshot
+        } else {
+            AnalysisSource::Live
+        };
+        // One sample, one instant, after the capture it speaks for (R-17 rule 4;
+        // G item 5). The probe answers a replay without looking.
+        let provider_locks = source.activity_given(provider_lock_activity(
+            registry::lock_probe(&parts.context(&policy)).sample(),
+            &snapshot,
+        ));
         Ok(Self {
             snapshot,
             policy,
             messages,
             today,
-            source: if replay {
-                AnalysisSource::Snapshot
-            } else {
-                AnalysisSource::Live
-            },
+            source,
+            provider_locks,
             home,
             redaction: home_redaction,
             registry: Some(parts),
@@ -443,7 +458,13 @@ impl Context {
 
     /// Runs the analysis on the context's snapshot.
     pub fn analyze(&self, options: &AnalysisOptions) -> Analysis {
-        analyze(&self.snapshot, &self.policy, options, self.source)
+        analyze_sampled(
+            &self.snapshot,
+            &self.policy,
+            options,
+            self.source,
+            self.provider_locks.clone(),
+        )
     }
 }
 

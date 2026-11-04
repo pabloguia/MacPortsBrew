@@ -29,7 +29,7 @@ and who closes each:
 | `the_switch_needs_the_executed_plan_tied_to_the_one_shown` (now a positive check), and `crates/cli/tests/migrate.rs`'s `invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown` | slice 7, part A (+ DP-049): **done** — the interactive route (work order 16 E-2) and the digest route (E-4); the failing-on-flip assertion removed in E-4 |
 | `the_switch_needs_consent_wired` (now a positive check) | slice 7, part B: **done** (work order 16 E-3); unreachable until part J admits elevation |
 | `the_switch_needs_release_builds_free_of_the_test_support_feature` (≈1256) | work order 15 (a guarded-script check) |
-| `mutations_cannot_dispatch_while_a_live_run_still_says_not_checked` (≈482) | slice 9 (DP-030) |
+| `mutations_cannot_dispatch_while_a_live_run_still_says_not_checked` (≈518) | slice 9 (DP-030) — **done** (work order 16 part G): rewritten to a check held whatever the switch is, that the product's probe comes from the registry and only the probe can construct the clearing answer |
 
 Plus `this_build_does_not_dispatch_mutations`, which the flip edits on purpose.
 

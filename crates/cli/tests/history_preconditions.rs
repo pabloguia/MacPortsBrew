@@ -36,7 +36,6 @@
 //! wiring pass and, there, a behavioural test of the executor with a recording
 //! fake — owed with the wiring (SE-092).
 
-use macportsbrew_application::AnalysisSource;
 use macportsbrew_domain::plan::THIS_BUILD_DISPATCHES_MUTATIONS;
 use std::path::Path;
 
@@ -66,14 +65,33 @@ fn executor_files() -> Vec<SourceFile> {
     files
 }
 
-/// The executable code of a file: no test module (the convention is that it is
-/// last), no comment of any kind, no string literal's content. A token inside
-/// any of those is not wiring.
+/// The executable code of a file: no test module, no comment of any kind, no
+/// string literal's content. A token inside any of those is not wiring.
 fn code_of(text: &str) -> String {
-    // Cut at the test module only: an earlier `#[cfg(test)]` helper must not
-    // hide the rest of the file from the scans (slice 4 review).
-    let before_tests = text.split("#[cfg(test)]\nmod").next().unwrap_or("");
-    let chars: Vec<char> = before_tests.chars().collect();
+    // Comments first, so a commented `#[cfg(test)]` hides nothing, and then only
+    // the test modules themselves: production code can follow one, and an earlier
+    // `#[cfg(test)]` helper must not hide the rest of the file (slice 4 review;
+    // G-3 review, S1).
+    without_test_modules(&stripped(text))
+}
+
+/// How long the character literal at the start of `chars` is, if one is there.
+/// `'a` with no closing quote is a lifetime.
+fn char_literal_at(chars: &[char]) -> Option<usize> {
+    if chars.first() != Some(&'\'') {
+        return None;
+    }
+    if chars.get(1) == Some(&'\\') {
+        // '\n', '\'', '\u{1F600}'.
+        let close = chars.iter().skip(3).take(10).position(|c| *c == '\'')?;
+        return Some(close + 4);
+    }
+    (chars.get(2) == Some(&'\'') && chars.get(1) != Some(&'\'')).then_some(3)
+}
+
+/// `text` without comments or string contents.
+fn stripped(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
     let is_ident = |c: char| c.is_alphanumeric() || c == '_';
     let mut out = String::with_capacity(chars.len());
     let mut i = 0;
@@ -91,10 +109,11 @@ fn code_of(text: &str) -> String {
                 i += 1;
             }
             i += 2;
-        } else if c == '\'' && chars.get(i + 1) == Some(&'"') && chars.get(i + 2) == Some(&'\'') {
-            // A character literal holding a quote must not open a string.
+        } else if let Some(len) = char_literal_at(&chars[i..]) {
+            // A character literal holds no code: a quote in one must not open a
+            // string, nor a brace in one count as a block.
             out.push_str("' '");
-            i += 3;
+            i += len;
         } else if c == 'r'
             && matches!(next, Some('"' | '#'))
             && !out.chars().next_back().is_some_and(is_ident)
@@ -215,6 +234,7 @@ const DISPATCH: &str = "mutation_dispatch(";
 const WRITE_RECORD: &str = "history_store::write_record(";
 const MARKER_CLEAR: &str = "run_marker::clear(";
 const RECHECK: &str = "recheck_provider_configuration(";
+const LOCK_SAMPLE: &str = "provider_lock_sample(";
 
 /// Every way the executor shell, with mutations on, fails to take the lock,
 /// write the marker and publish the record in the order a mutating run needs,
@@ -408,6 +428,80 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
             boundary = d;
         }
     }
+    // The providers' own locks: once under the run lock before the marker is
+    // read, and between each dispatch's own re-check and that dispatch, so it is
+    // the freshest fact a command goes out on (DP-030 (b); G item 6).
+    if ordered {
+        let samples = calls_of(code, LOCK_SAMPLE);
+        if samples.is_empty() {
+            violations.push(format!("[locks] {name} never calls {LOCK_SAMPLE}"));
+        }
+        if let (Some(a), Some(r)) = (acquire, read) {
+            if !samples.iter().any(|s| *s > a && *s < r) {
+                violations.push(format!(
+                    "[locks] {name}: no sample between the lock and the marker read"
+                ));
+            }
+        }
+        // A sample whose answer is thrown away is no sample (G-3 review, S2): the
+        // consent path has no behavioural test until part J makes it reachable.
+        for at in &samples {
+            if !sample_answer_is_used(code, *at) {
+                violations.push(format!("[locks] {name}: a sample's answer is discarded"));
+            }
+        }
+        // Each capture under the lock has a sample before and after it: what it
+        // reads, a snapshot among it, must not be a provider's work in progress.
+        for capture in calls_of(code, "(io.recapture)(") {
+            if !samples.iter().any(|s| *s < capture) || !samples.iter().any(|s| *s > capture) {
+                violations.push(format!(
+                    "[locks] {name}: a capture without a sample on each side"
+                ));
+            }
+        }
+        let captures = calls_of(code, "(io.recapture)(");
+        // Before whatever a capture feeds next: the next capture, or the snapshot
+        // written from it. No later sample can stand in for that one.
+        let snapshots = calls_of(code, "take_snapshot(");
+        for capture in &captures {
+            let next = captures
+                .iter()
+                .chain(&snapshots)
+                .filter(|at| *at > capture)
+                .min();
+            if let Some(next) = next {
+                if !samples.iter().any(|s| s > capture && s < next) {
+                    violations.push(format!(
+                        "[locks] {name}: a capture is used before a sample follows it"
+                    ));
+                }
+            }
+        }
+        for pair in captures.windows(2) {
+            if samples
+                .iter()
+                .filter(|s| **s > pair[0] && **s < pair[1])
+                .count()
+                < 2
+            {
+                violations.push(format!("[locks] {name}: no samples between two captures"));
+            }
+        }
+        let rechecks = calls_of(code, RECHECK);
+        for d in calls_of(code, DISPATCH) {
+            let last = rechecks
+                .iter()
+                .filter(|r| **r < d)
+                .max()
+                .copied()
+                .unwrap_or(0);
+            if !samples.iter().any(|s| *s > last && *s < d) {
+                violations.push(format!(
+                    "[locks] {name}: a dispatch is not preceded by a sample after its re-check"
+                ));
+            }
+        }
+    }
     // Some clear must follow a record: the marker outlives the record's write.
     if let (true, Some(first_record), false) = (ordered, record.first(), clear.is_empty()) {
         if !clear.iter().any(|c| c > first_record) {
@@ -486,21 +580,574 @@ fn the_shells_order_is_probe_lock_marker_dispatch_record_then_clear() {
 #[test]
 fn mutations_cannot_dispatch_while_a_live_run_still_says_not_checked() {
     // SE-015 asks for the detection of a concurrently running `brew` or `port`
-    // before mutating, and refusing. No detector exists (R-17, DP-030), so a
-    // live run answers NOT_CHECKED and every live run is possibly
-    // inconsistent. A build that turns mutations on must have a live check, not
-    // a different label: `Unknowable` is not a check either. Only the owner
-    // relaxes this (DP-030); an agent that weakens this test breaks the work
-    // order's rule against weakening a gate.
-    if THIS_BUILD_DISPATCHES_MUTATIONS {
-        assert!(
-            AnalysisSource::Live
-                .concurrent_provider_activity()
-                .was_checked(),
-            "mutations dispatch and a live run still does not check for a concurrently \
-             running provider; see DP-030 in docs/decisions-pending.md"
-        );
+    // before mutating, and refusing (DP-030 (b)). A build that turns mutations
+    // on must have a live check, not a different label: `Unknowable` is not a
+    // check either, and a stub answering `NoneObserved` would be a different
+    // label too. So, on every build: every run's probe comes from the registry;
+    // only the probe's own module implements the trait or builds the clearing
+    // answer, and nothing but an unsampled analysis says `NotChecked`; and a live
+    // analysis carries the sample. How a dispatching loop treats each answer is
+    // `executor_wiring.rs`. Only the owner relaxes this (DP-030); an agent that
+    // weakens this test breaks the work order's rule against weakening a gate.
+    let v = production_lock_probe_violations(&source_files());
+    assert!(
+        v.is_empty(),
+        "a run could dispatch without a real probe: {v:#?}"
+    );
+}
+
+const LOCK_PROBE_DIR: &str = "crates/adapters/src/lock_probe/";
+const DOMAIN_TYPE: &str = "crates/domain/src/concurrency.rs";
+
+/// Where the block `text` opens with ends, just past its closing brace.
+fn block_end(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, c) in text.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
     }
+    None
+}
+
+/// Whether the sample called at `at` has its answer acted on. An allowlist of the
+/// exact forms, because any search for a `?` nearby can be satisfied by something
+/// that swallows the answer first (G-3 review): `?` straight after the call, or
+/// after the one `map_err` that keeps the refusal, as a statement of its own; or an
+/// `if let Err` whose body leaves. Neither inside a closure, whose `?` leaves only
+/// the closure.
+fn sample_answer_is_used(code: &str, at: usize) -> bool {
+    let before = code[..at].trim_end();
+    let tested = before.ends_with("if let Err(refusal) =");
+    let own_statement = before.is_empty() || before.ends_with([';', '{', '}']);
+    if !(tested || own_statement) || in_a_closure(before) {
+        return false;
+    }
+    let call = &code[at..];
+    let Some(open) = call.find('(') else {
+        return false;
+    };
+    let mut depth = 0usize;
+    let mut after = None;
+    for (i, c) in call[open..].char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    after = Some(call[open + i + 1..].trim_start());
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let Some(after) = after else {
+        return false;
+    };
+    if tested {
+        return after.starts_with('{')
+            && block_end(after).is_some_and(|end| {
+                after[..end]
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .any(|word| word == "break" || word == "return")
+            });
+    }
+    let flat: String = after.split_whitespace().collect();
+    flat.starts_with("?;") || flat.starts_with(".map_err(|refusal|refusal.error())?;")
+}
+
+/// Whether the block `before` ends inside was opened by a closure, at any depth.
+fn in_a_closure(before: &str) -> bool {
+    let mut depth = 0usize;
+    for (i, c) in before.char_indices().rev() {
+        match c {
+            '}' => depth += 1,
+            '{' if depth > 0 => depth -= 1,
+            '{' => {
+                let head = before[..i].rsplit([';', '{', '}']).next().unwrap_or("");
+                if head.contains('|') && !head.contains("||")
+                    || head.trim_start().starts_with("||")
+                    || head.contains("= ||")
+                    || head.contains("(||")
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// `code` without its `#[cfg(test)] mod` items, matched by brace. Only those:
+/// production code can follow a test module.
+fn without_test_modules(code: &str) -> String {
+    let mut out = String::new();
+    let mut rest = code;
+    while let Some(at) = rest.find("#[cfg(test)]") {
+        let after = rest[at + "#[cfg(test)]".len()..].trim_start();
+        out.push_str(&rest[..at]);
+        if let Some(body) = after.strip_prefix("mod ") {
+            // `mod x;` is a declaration: it ends there, and what follows is kept.
+            let open = body
+                .find(['{', ';'])
+                .expect("a test module with no body or semicolon");
+            if body[open..].starts_with(';') {
+                rest = &body[open + 1..];
+                continue;
+            }
+            // Never to the end of the file on a miscount: that would hide
+            // whatever follows, which is how this scan fails silently.
+            let end = open + block_end(&body[open..]).expect("a test module's braces balance");
+            rest = &body[end..];
+        } else {
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Every `.rs` under `crates/*/src`, as a path relative to the repository and
+/// its code: comments and strings removed, test modules gone.
+fn source_files() -> Vec<SourceFile> {
+    fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<SourceFile>) {
+        for entry in std::fs::read_dir(dir).expect("a source directory") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let relative = path.strip_prefix(root).expect("under the root");
+                // The one file that is a test module declared elsewhere.
+                if relative != std::path::Path::new("crates/application/src/executor/tests.rs") {
+                    let text = std::fs::read_to_string(&path).expect("readable");
+                    out.push((relative.display().to_string(), code_of(&text)));
+                }
+            }
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("the repository");
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(root.join("crates")).expect("crates") {
+        let src = entry.expect("an entry").path().join("src");
+        if src.is_dir() {
+            walk(&root, &src, &mut out);
+        }
+    }
+    out
+}
+
+/// Every place `token` stands as a whole word in `code`, with what follows it.
+fn word_uses<'a>(code: &'a str, token: &str) -> Vec<&'a str> {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    code.match_indices(token)
+        .filter(|(at, _)| !code[..*at].chars().next_back().is_some_and(word))
+        .map(|(at, _)| code[at + token.len()..].trim_start())
+        .filter(|after| !code.is_empty() && !after.starts_with(word))
+        .collect()
+}
+
+/// Whether a use of a variant is a pattern: what follows it is an arm or an
+/// alternative. Anything else builds the value, or names it for an import.
+fn is_a_pattern(after: &str) -> bool {
+    after.starts_with("=>") || (after.starts_with('|') && !after.starts_with("||"))
+}
+
+/// What would let a run dispatch with no real lock probe behind it.
+fn production_lock_probe_violations(files: &[SourceFile]) -> Vec<String> {
+    let mut v = Vec::new();
+    let mut runs = 0;
+    for (name, code) in files {
+        let in_probe = name.starts_with(LOCK_PROBE_DIR);
+        let in_type = name == DOMAIN_TYPE;
+        if !in_probe && !in_type {
+            for after in word_uses(code, "NoneObserved") {
+                if !is_a_pattern(after) {
+                    v.push(format!("{name}: builds or imports the clearing answer"));
+                }
+            }
+        }
+        // `RunFacts::NotChecked` is another type, about the marker, and it is
+        // declared in `doctor.rs`.
+        if !in_type && name != "crates/application/src/analysis.rs" {
+            let word = |c: char| c.is_alphanumeric() || c == '_';
+            let elsewhere = code
+                .match_indices("NotChecked")
+                .filter(|(at, _)| !code[..*at].chars().next_back().is_some_and(word))
+                .filter(|(at, token)| !code[at + token.len()..].starts_with(word))
+                .filter(|(at, _)| !code[..*at].ends_with("RunFacts::"))
+                .filter(|(at, token)| !is_a_pattern(code[at + token.len()..].trim_start()));
+            let declared = usize::from(name == "crates/application/src/doctor.rs");
+            if elsewhere.count() > declared {
+                v.push(format!("{name}: says nobody looked"));
+            }
+        }
+        if name != "crates/application/src/analysis.rs"
+            && code.contains(".concurrent_provider_activity()")
+        {
+            v.push(format!("{name}: asks a source with no sample"));
+        }
+        let flat: String = code.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !in_probe && flat.contains("ProviderLockProbe for ") {
+            v.push(format!("{name}: implements the probe outside its module"));
+        }
+        if flat.contains("ProviderLockProbe as ") {
+            v.push(format!("{name}: renames the probe's trait"));
+        }
+        if flat.contains(".locks =") {
+            v.push(format!("{name}: replaces a run's probe"));
+        }
+        if name != "crates/cli/src/executor/mod.rs" {
+            for after in word_uses(code, "MutatingRun") {
+                if !after.starts_with('{') {
+                    v.push(format!("{name}: names a run other than by building it"));
+                }
+            }
+        }
+        for at in calls_of(code, "analyze(") {
+            // `ctx.analyze(` is the context's method, which carries the sample.
+            let a_method = code[..at].ends_with('.');
+            let arguments = call_arguments(code, at).join(" ");
+            if !a_method
+                && name != "crates/application/src/analysis.rs"
+                && !arguments.contains("Snapshot")
+            {
+                v.push(format!("{name}: analyses unsampled, not as a snapshot"));
+            }
+        }
+        for (at, _) in code.match_indices("MutatingRun {") {
+            runs += 1;
+            let mut depth = 0usize;
+            let mut end = code.len();
+            for (i, c) in code[at..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = at + i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let body: String = code[at..end].split_whitespace().collect();
+            if !body.contains("locks:&macportsbrew_adapters::registry::lock_probe(") {
+                v.push(format!(
+                    "{name}: a run's probe does not come from the registry"
+                ));
+            }
+        }
+    }
+    if runs == 0 {
+        v.push("no product code builds a MutatingRun".to_string());
+    }
+    let context = files
+        .iter()
+        .find(|(n, _)| n == "crates/cli/src/app/context.rs");
+    let carried = context.is_some_and(|(_, code)| {
+        calls_of(code, "registry::lock_probe(").len() == 1
+            && code.contains("provider_lock_activity(")
+            && code.contains("analyze_sampled(")
+            && code.contains("self.provider_locks.clone()")
+    });
+    if !carried {
+        v.push("the context does not sample once and carry it into the analysis".to_string());
+    }
+    v
+}
+
+fn a_good_product() -> Vec<SourceFile> {
+    vec![
+        (
+            "crates/cli/src/app/migrate.rs".to_string(),
+            "x(MutatingRun { start: S { id }, live: true, locks: &macportsbrew_adapters::registry::lock_probe(r), }, y);"
+                .to_string(),
+        ),
+        (
+            "crates/cli/src/app/context.rs".to_string(),
+            "let s = provider_lock_activity(registry::lock_probe(&c).sample(), n); analyze_sampled(a, self.provider_locks.clone());"
+                .to_string(),
+        ),
+    ]
+}
+
+#[test]
+fn the_probe_tripwire_names_each_way_it_is_broken() {
+    assert_eq!(
+        production_lock_probe_violations(&a_good_product()),
+        Vec::<String>::new()
+    );
+    let planted = |name: &str, code: &str| {
+        let mut files = a_good_product();
+        files.push((name.to_string(), code.to_string()));
+        production_lock_probe_violations(&files)
+    };
+    let cli = "crates/cli/src/executor/mod.rs";
+    for (what, name, code) in [
+        (
+            "built",
+            cli,
+            "let s = ConcurrentProviderActivity::NoneObserved;",
+        ),
+        (
+            "right of an arm",
+            cli,
+            "match x { _ => ConcurrentProviderActivity::NoneObserved, }",
+        ),
+        (
+            "an alias",
+            cli,
+            "use ConcurrentProviderActivity as A; let s = A::NoneObserved;",
+        ),
+        (
+            "a glob",
+            cli,
+            "use ConcurrentProviderActivity::*; let s = NoneObserved;",
+        ),
+        (
+            "split lines",
+            cli,
+            "let s = ConcurrentProviderActivity::\n    NoneObserved;",
+        ),
+        (
+            "an import",
+            cli,
+            "use ConcurrentProviderActivity::NoneObserved;",
+        ),
+        (
+            "a name that holds the path",
+            "crates/cli/src/lock_probe_stub.rs",
+            "let s = A::NoneObserved;",
+        ),
+        ("a stub probe", cli, "impl ProviderLockProbe for Stub {}"),
+        (
+            "a stub on two lines",
+            cli,
+            "impl ProviderLockProbe\n  for Stub {}",
+        ),
+        (
+            "says nobody looked",
+            cli,
+            "let s = ConcurrentProviderActivity::NotChecked;",
+        ),
+        (
+            "an unsampled analysis",
+            "crates/cli/src/app/x.rs",
+            "analyze(a, b, c, AnalysisSource::Live);",
+        ),
+        (
+            "a second run",
+            "crates/cli/src/app/x.rs",
+            "y(MutatingRun { locks: &Stub, }, z);",
+        ),
+        (
+            "a renamed trait",
+            cli,
+            "use d::ProviderLockProbe as P; impl P for Stub {}",
+        ),
+        (
+            "a replaced probe",
+            "crates/cli/src/app/x.rs",
+            "run.locks = &stub;",
+        ),
+        (
+            "a turbofish",
+            "crates/cli/src/app/x.rs",
+            "MutatingRun::<M> { locks: &Stub };",
+        ),
+        (
+            "an alias of the run",
+            "crates/cli/src/app/x.rs",
+            "type R<'a> = MutatingRun<'a>;",
+        ),
+        (
+            "a source with no sample",
+            "crates/cli/src/app/x.rs",
+            "of(ctx.source.concurrent_provider_activity());",
+        ),
+        (
+            "not the marker's",
+            "crates/application/src/doctor.rs",
+            "enum RunFacts { NotChecked, } let s = A::NotChecked;",
+        ),
+    ] {
+        assert!(!planted(name, code).is_empty(), "{what} was not caught");
+    }
+    for (what, name, code) in [
+        (
+            "the marker's own",
+            "crates/cli/src/app/interrupted.rs",
+            "return RunFacts::NotChecked;",
+        ),
+        (
+            "the marker's type",
+            "crates/application/src/doctor.rs",
+            "enum RunFacts { NotChecked, }",
+        ),
+        (
+            "a pattern",
+            "crates/cli/src/app/human.rs",
+            "match a { ConcurrentProviderActivity::NoneObserved => b, }",
+        ),
+        (
+            "an alternative",
+            "crates/cli/src/app/human.rs",
+            "match a { A::NotChecked | A::Unknowable => b, }",
+        ),
+        (
+            "the probe's own",
+            "crates/adapters/src/lock_probe/mod.rs",
+            "let s = A::NoneObserved; impl ProviderLockProbe for P {}",
+        ),
+        (
+            "a longer word",
+            "crates/cli/src/app/x.rs",
+            "let s = NoneObservedYet;",
+        ),
+        (
+            "a snapshot analysis",
+            "crates/application/src/planner.rs",
+            "analyze(a, b, c, AnalysisSource::Snapshot);",
+        ),
+    ] {
+        assert_eq!(planted(name, code), Vec::<String>::new(), "{what}");
+    }
+    assert!(
+        !production_lock_probe_violations(&[]).is_empty(),
+        "no product at all"
+    );
+    let mut uncounted = a_good_product();
+    uncounted[1].1 = uncounted[1].1.replace("provider_lock_activity(", "keep(");
+    assert!(
+        !production_lock_probe_violations(&uncounted).is_empty(),
+        "broken not counted"
+    );
+    let unsampled = vec![a_good_product().remove(0)];
+    assert!(
+        !production_lock_probe_violations(&unsampled).is_empty(),
+        "no context"
+    );
+}
+
+#[test]
+fn a_test_module_is_removed_and_what_follows_it_is_kept() {
+    // Through `code_of`, the composition every scan uses (G-3 review, S1).
+    for (what, module) in [
+        (
+            "braced",
+            "#[cfg(test)]\nmod tests { fn t() { if x { y(); } } }\n",
+        ),
+        ("declared", "#[cfg(test)]\nmod tests;\n"),
+        ("declared on one line", "#[cfg(test)] mod tests;\n"),
+        ("commented", "// #[cfg(test)]\n// mod real { }\n"),
+        (
+            "a brace in a character",
+            "#[cfg(test)]\nmod t { const C: char = '{'; fn t() {} }\n",
+        ),
+        (
+            "a quote in a character",
+            "#[cfg(test)]\nmod t { const C: char = '\"'; fn t() {} }\n",
+        ),
+        (
+            "an escaped quote",
+            "#[cfg(test)]\nmod t { const C: char = '\\''; fn t() {} }\n",
+        ),
+    ] {
+        let kept = code_of(&format!("fn a() {{}}\n{module}fn b() {{}}\n"));
+        assert!(
+            kept.contains("fn a()") && kept.contains("fn b()"),
+            "{what}: {kept}"
+        );
+        assert!(!kept.contains("fn t()"), "{what}: {kept}");
+    }
+    let lifetimes = code_of("#[cfg(test)]\nmod t { fn t<'a>(x: &'a u8) {} }\nfn b() {}\n");
+    assert!(lifetimes.contains("fn b()"), "{lifetimes}");
+    let helper = code_of("#[cfg(test)]\nfn c() {}\nfn d() {}\n");
+    assert!(
+        helper.contains("fn c()") && helper.contains("fn d()"),
+        "{helper}"
+    );
+    // And what the scan is for: a stub below a test module does not hide.
+    let mut files = a_good_product();
+    files.push((
+        "crates/cli/src/app/x.rs".to_string(),
+        code_of("#[cfg(test)]\nmod t;\nimpl ProviderLockProbe for Stub {}\n"),
+    ));
+    assert!(!production_lock_probe_violations(&files).is_empty());
+}
+
+#[test]
+fn status_and_list_each_ask_whether_an_overview_shows_the_answer() {
+    // G-3 review: replay and snapshot runs are quiet there anyway, so no fixture
+    // would notice these calls going.
+    let files = source_files();
+    let (_, code) = files
+        .iter()
+        .find(|(n, _)| n == "crates/cli/src/app/mod.rs")
+        .expect("the commands");
+    for (arm, next) in [
+        ("Command::Status =>", "Command::Analyze"),
+        ("Command::List", "Command::Explain"),
+    ] {
+        let from = code.find(arm).expect("the arm");
+        let to = from + code[from..].find(next).expect("the next arm");
+        let arm_code = &code[from..to];
+        assert_eq!(
+            calls_of(arm_code, "human::an_overview_shows(").len(),
+            1,
+            "{arm}"
+        );
+        assert_eq!(calls_of(arm_code, "human::concurrency(").len(), 1, "{arm}");
+    }
+}
+
+#[test]
+fn invariant_15_a_snapshot_context_has_nothing_to_sample_with() {
+    // The behaviour is
+    // `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`;
+    // this holds why: the one call of the probe is on the path that captured, and
+    // the path that loads a file has no registry to build one from.
+    let files = source_files();
+    let (_, code) = files
+        .iter()
+        .find(|(n, _)| n == "crates/cli/src/app/context.rs")
+        .expect("the context");
+    let call = calls_of(code, "registry::lock_probe(");
+    assert_eq!(call.len(), 1, "one sample");
+    let capture = code.find("parts.capture(").expect("the capture");
+    assert!(capture < call[0], "the sample follows the capture");
+    let flat: String = code.split_whitespace().collect();
+    let answer = flat
+        .find("provider_locks:ConcurrentProviderActivity::Unknowable,")
+        .expect("a loaded file looks at nothing");
+    let literal = &flat[answer..];
+    let end = literal.find("})").expect("the end of the literal");
+    assert!(
+        literal[..end].contains("registry:None"),
+        "that path holds no registry"
+    );
+}
+
+#[test]
+fn mutations_cannot_dispatch_without_sampling_the_providers_locks() {
+    let v = violations_with("locks");
+    assert!(
+        v.is_empty(),
+        "mutations dispatch without a lock sample: {v:?}"
+    );
 }
 
 // --- the tripwires, tested with the flag true --------------------------------
@@ -510,9 +1157,11 @@ const GOOD: &str = r"
 fn run_with() {
     history_store::probe(&state, uid)?;
     let lock = run_lock::acquire(&state, uid)?;
+    provider_lock_sample(locks, &snapshot)?;
     let earlier = run_marker::read(&lock, &state, uid)?;
     run_marker::write(&lock, &state, &run, uid)?;
     let checked = recheck_provider_configuration(&step.provider, &snapshot, &fresh)?;
+    provider_lock_sample(locks, &now)?;
     let results = mutation_dispatch(step, &site, checked);
     history_store::write_record(&state, &record, uid)?;
     run_marker::clear(&lock, &state, &run, uid)?;
@@ -548,6 +1197,7 @@ fn removing_any_one_call_is_a_violation_of_its_own_kind() {
         ("history_store::write_record", "[record]"),
         ("run_marker::clear", "[marker]"),
         ("recheck_provider_configuration", "[config]"),
+        ("provider_lock_sample", "[locks]"),
     ] {
         let v = violations_of(&without(call));
         assert!(
@@ -784,6 +1434,122 @@ fn the_marker_must_be_cleared_after_a_record_and_not_only_before_one() {
 }
 
 #[test]
+fn a_lock_sample_misplaced_or_shared_by_two_dispatches_is_a_violation() {
+    let locks = |text: &str| -> Vec<String> {
+        violations_of(text)
+            .into_iter()
+            .filter(|v| v.starts_with("[locks]"))
+            .collect()
+    };
+    assert_eq!(locks(GOOD), Vec::<String>::new());
+    let sample = "    provider_lock_sample(locks, &now)?;\n";
+    let recheck =
+        "    let checked = recheck_provider_configuration(&step.provider, &snapshot, &fresh)?;\n";
+    let dispatch = "    let results = mutation_dispatch(step, &site, checked);\n";
+    // Before the command's own re-check: a fact older than the one it checks.
+    let early = GOOD
+        .replace(sample, "")
+        .replace(recheck, &format!("{sample}{recheck}"));
+    assert!(!locks(&early).is_empty(), "before the re-check");
+    let second = "    let more = mutation_dispatch(next, &site, checked_again);\n";
+    let again = recheck.replace("checked", "checked_again");
+    let shared = GOOD.replace(dispatch, &format!("{dispatch}{again}{second}"));
+    assert!(!locks(&shared).is_empty(), "one sample for two dispatches");
+    let under = "    provider_lock_sample(locks, &snapshot)?;\n";
+    let not_under_the_lock = GOOD.replace(under, "");
+    assert!(
+        !locks(&not_under_the_lock).is_empty(),
+        "none under the lock"
+    );
+    let captured = GOOD.replace(under, &format!("{under}    (io.recapture)();\n{under}"));
+    assert_eq!(
+        locks(&captured),
+        Vec::<String>::new(),
+        "a sample on each side"
+    );
+    let no_sample_before = GOOD.replace(under, "    (io.recapture)();\n").replace(
+        "    let earlier =",
+        "    provider_lock_sample(locks, &snapshot)?;\n    let earlier =",
+    );
+    assert!(
+        !locks(&no_sample_before).is_empty(),
+        "none before the capture"
+    );
+    let twice = GOOD.replace(
+        under,
+        &format!("{under}    (io.recapture)();\n{under}    (io.recapture)();\n{under}"),
+    );
+    assert!(
+        !locks(&twice).is_empty(),
+        "the second capture needs its own sample first"
+    );
+    let unsampled_snapshot = GOOD.replace(
+        under,
+        &format!("{under}    (io.recapture)();\n    take_snapshot(state);\n{under}"),
+    );
+    assert!(
+        !locks(&unsampled_snapshot).is_empty(),
+        "a snapshot before its sample"
+    );
+    let discarded = GOOD.replace(
+        "    provider_lock_sample(locks, &now)?;",
+        "    let _ = provider_lock_sample(locks, &now);",
+    );
+    assert!(!locks(&discarded).is_empty(), "an answer thrown away");
+    let tested = GOOD.replace(
+        "    provider_lock_sample(locks, &now)?;",
+        "    if let Err(refusal) = provider_lock_sample(locks, &now) { return halt(refusal); }",
+    );
+    assert_eq!(locks(&tested), Vec::<String>::new(), "an answer tested");
+    let mapped = GOOD.replace(
+        "    provider_lock_sample(locks, &now)?;",
+        "    provider_lock_sample(locks, &now).map_err(|refusal| refusal.error())?;",
+    );
+    assert_eq!(locks(&mapped), Vec::<String>::new(), "the refusal kept");
+    for (what, form) in [
+        (
+            "an empty body",
+            "    if let Err(refusal) = provider_lock_sample(locks, &now) {}",
+        ),
+        (
+            "a body that stays",
+            "    if let Err(refusal) = provider_lock_sample(locks, &now) { drop(refusal); }",
+        ),
+        (
+            "swallowed first",
+            "    provider_lock_sample(locks, &now).map_err(|r| r.error()).or_else(|_| Ok::<(), E>(()))?;",
+        ),
+        (
+            "a closure's `?`",
+            "    let _ = (|| -> R { provider_lock_sample(locks, &now)?; Ok(()) })();",
+        ),
+        (
+            "a closure in a statement of its own",
+            "    let f = |x| { provider_lock_sample(locks, &now)?; Ok(()) };",
+        ),
+        (
+            "another statement's `?`",
+            "    if provider_lock_sample(locks, &now).is_err() {}\n    (io.recapture)()?;",
+        ),
+    ] {
+        let used_nowhere = GOOD.replace("    provider_lock_sample(locks, &now)?;", form);
+        assert!(
+            locks(&used_nowhere).iter().any(|v| v.contains("answer is discarded")),
+            "{what}"
+        );
+    }
+    let sampled_snapshot = GOOD.replace(
+        under,
+        &format!("{under}    (io.recapture)();\n{under}    take_snapshot(state);\n"),
+    );
+    assert_eq!(
+        locks(&sampled_snapshot),
+        Vec::<String>::new(),
+        "the sample first"
+    );
+}
+
+#[test]
 fn a_re_check_that_is_discarded_misplaced_or_shared_by_two_dispatches_is_a_violation() {
     let line =
         "    let checked = recheck_provider_configuration(&step.provider, &snapshot, &fresh)?;";
@@ -842,7 +1608,7 @@ fn a_re_check_that_is_discarded_misplaced_or_shared_by_two_dispatches_is_a_viola
     let each = GOOD.replace(
         "    let results = mutation_dispatch(step, &site, checked);",
         &format!(
-            "    let results = mutation_dispatch(step, &site, checked);\n{}\n    let more = mutation_dispatch(next, &site, checked_again);",
+            "    let results = mutation_dispatch(step, &site, checked);\n{}\n    provider_lock_sample(locks, &now)?;\n    let more = mutation_dispatch(next, &site, checked_again);",
             line.replace("checked", "checked_again")
         ),
     );

@@ -87,7 +87,7 @@ prompts go to stderr. Non-TTY output is plain, unstyled and stable.
 ```
 0 success · 1 generic failure · 2 usage error · 3 partial success
 4 blocked by a safety check · 5 provider unavailable/unhealthy
-6 user aborted · 7 lock held by another instance · 8 stale/unusable input
+6 user aborted · 7 lock held by another instance or a provider · 8 stale/unusable input
 ```
 
 Exit 6 (`USER_ABORTED`) is a person declining a question that must be
@@ -105,7 +105,11 @@ unreadable exits 8; a restore plan that contains a `MANUAL_REVIEW` step exits
 4 when executed, with the step named; a mutating command that refuses to start
 because an interrupted run has not been looked at exits 4 and names the run
 (`RUN_INTERRUPTED`); a mutating command that finds another MacPortsBrew run
-holding the single-instance lock exits 7 (`RUN_LOCK_HELD`);
+holding the single-instance lock exits 7 (`RUN_LOCK_HELD`); one that finds a
+provider's own lock held exits 7 (`PROVIDER_LOCK_HELD`, DP-030 (b)), and one that
+cannot determine it exits 4 (`PROVIDER_LOCKS_NOT_DETERMINED`); both are execution
+only, not reachable in this build, and after the snapshot step either halts the
+command, which exits 3;
 and `migrate` reports *nothing to move*, exit 0, when another provider was not
 detected, naming it in the text and in `notDetected` (SE-092, DP-026). Another
 provider that is broken refuses as `PROVIDER_UNHEALTHY` (exit 5), and one

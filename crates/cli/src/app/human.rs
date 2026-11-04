@@ -15,7 +15,8 @@ use macportsbrew_application::{
 use macportsbrew_domain::{
     ArtifactAvailability, ConcurrentProviderActivity, ErrorId, ExpectationError, FailureCause,
     MigrationPlan, Outcome, Ownership, PackageClass, ProviderId, ProviderPresence,
-    SourceBuildReason, StepKind, SuccessSemantic, SupportTier, Translation, VerificationCheck,
+    SourceBuildReason, StepKind, SuccessSemantic, SupportTier, Translation, UndeterminedCause,
+    VerificationCheck,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -970,7 +971,88 @@ pub fn concurrency(ctx: &Context, activity: &ConcurrentProviderActivity) -> Stri
             ]),
         ),
     };
-    format!("\n{line}\n")
+    format!("\n{line}\n{}", cause_lines(ctx, activity))
+}
+
+/// What to do about each provider that could not be answered for.
+fn cause_lines(ctx: &Context, activity: &ConcurrentProviderActivity) -> String {
+    let mut text = String::new();
+    if let ConcurrentProviderActivity::Observed { undetermined, .. }
+    | ConcurrentProviderActivity::NotDetermined { undetermined } = activity
+    {
+        for (provider, cause) in undetermined {
+            let cause = ctx.messages.render(
+                undetermined_cause_key(*cause),
+                &params(&[("provider", provider.to_string())]),
+            );
+            text.push_str("  ");
+            text.push_str(&cause);
+            text.push('\n');
+        }
+    }
+    text
+}
+
+/// What stopped a run: the sample was taken immediately before a command, so it
+/// says that, not when the machine was read.
+fn locks_at_halt(ctx: &Context, activity: &ConcurrentProviderActivity) -> String {
+    let line = match activity {
+        ConcurrentProviderActivity::Observed { providers, .. } => {
+            let providers = providers
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            ctx.messages.render(
+                "migrate.locks_at_halt.held",
+                &params(&[("providers", providers)]),
+            )
+        }
+        ConcurrentProviderActivity::NotDetermined { undetermined } => {
+            let providers = undetermined
+                .keys()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            ctx.messages.render(
+                "migrate.locks_at_halt.not_determined",
+                &params(&[("providers", providers)]),
+            )
+        }
+        ConcurrentProviderActivity::NotChecked
+        | ConcurrentProviderActivity::Unknowable
+        | ConcurrentProviderActivity::NoneObserved => {
+            return cause_lines(ctx, activity);
+        }
+    };
+    format!("  {line}\n{}", cause_lines(ctx, activity))
+}
+
+/// Whether `status` and `list`, which are overviews and do not otherwise carry
+/// the flag in text, show this answer: a held lock or one that could not be
+/// determined is something to act on before trusting the rest (04's MUST). An
+/// input that could not look, or no held lock seen, adds nothing to an overview.
+#[must_use]
+pub fn an_overview_shows(activity: &ConcurrentProviderActivity) -> bool {
+    match activity {
+        ConcurrentProviderActivity::Observed { .. }
+        | ConcurrentProviderActivity::NotDetermined { .. } => true,
+        ConcurrentProviderActivity::NotChecked
+        | ConcurrentProviderActivity::Unknowable
+        | ConcurrentProviderActivity::NoneObserved => false,
+    }
+}
+
+/// What to tell a person about each cause: what happened, and what to do.
+fn undetermined_cause_key(cause: UndeterminedCause) -> &'static str {
+    match cause {
+        UndeterminedCause::Unresolved => "concurrency.cause.unresolved",
+        UndeterminedCause::UnexpectedShape => "concurrency.cause.unexpected_shape",
+        UndeterminedCause::OverBound => "concurrency.cause.over_bound",
+        UndeterminedCause::Unreadable => "concurrency.cause.unreadable",
+        UndeterminedCause::Changed => "concurrency.cause.changed",
+        UndeterminedCause::ProviderBroken => "concurrency.cause.provider_broken",
+    }
 }
 
 /// `migrate` in execute mode, after the plan: how the run ended, the gate's
@@ -987,6 +1069,10 @@ pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> St
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "migrate.execution_heading"));
     let _ = writeln!(out, "  {}", outcome_line(ctx, &report.outcome));
+    // Which provider and why, not only that a lock stopped the run.
+    if let Some(activity) = &report.provider_locks_at_halt {
+        out.push_str(&locks_at_halt(ctx, activity));
+    }
     if matches!(report.outcome, RunOutcome::Refused { .. }) {
         for refusal in execution_refusals(plan).refusals() {
             let _ = writeln!(out, "    - {}", gate_refusal_line(ctx, refusal));
@@ -1261,6 +1347,10 @@ fn precondition_key(why: Precondition) -> &'static str {
     match why {
         Precondition::NoProvider => "migrate.precondition.no_provider",
         Precondition::LockLost => "migrate.precondition.lock_lost",
+        Precondition::ProviderLockHeld => "migrate.precondition.provider_lock_held",
+        Precondition::ProviderLocksNotDetermined => {
+            "migrate.precondition.provider_locks_not_determined"
+        }
         Precondition::ConfigurationUnreadable => "migrate.precondition.configuration_unreadable",
         Precondition::ConfigurationDrift => "migrate.precondition.configuration_drift",
         Precondition::WrongProviderToken => "migrate.precondition.wrong_provider_token",
@@ -1538,6 +1628,24 @@ fn site_refusal_line(ctx: &Context, refusal: &RenderedRefusal) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_overview_shows_only_what_there_is_to_act_on() {
+        use macportsbrew_domain::{ProviderId, UndeterminedCause as C};
+        use std::collections::{BTreeMap, BTreeSet};
+        use ConcurrentProviderActivity as A;
+        let a = ProviderId::new("a");
+        assert!(an_overview_shows(&A::Observed {
+            providers: BTreeSet::from([a.clone()]),
+            undetermined: BTreeMap::new(),
+        }));
+        assert!(an_overview_shows(&A::NotDetermined {
+            undetermined: BTreeMap::from([(a, C::Changed)]),
+        }));
+        for quiet in [A::NoneObserved, A::Unknowable, A::NotChecked] {
+            assert!(!an_overview_shows(&quiet), "{quiet:?}");
+        }
+    }
+
     #[test]
     fn a_plan_word_is_quoted_unless_no_shell_would_read_it_specially() {
         use super::shell_word;
@@ -1893,6 +2001,7 @@ mod tests {
         ] {
             for outcome in &outcomes {
                 let report = RunReport {
+                    provider_locks_at_halt: None,
                     outcome: outcome.clone(),
                     records: records.clone(),
                     refusal: Some(RenderedRefusal {

@@ -88,11 +88,10 @@ for a later release.
 it is the decision, in order, with the reasons attached. A plan with a step
 that needs a human decision exits 4 and names the step.
 
-**The last line says what the read cannot vouch for.** Whether a package
-manager was changing the machine while it was read is not something this build
-checks, so the output of `plan`, `analyze` and `migrate` ends by saying it may be
-inconsistent and why — here, because a recording cannot show what was running
-beside it. `--json` carries the same answer as `concurrentProviderActivity`.
+**The last line says what the read cannot vouch for.** Live, the last line says
+what one sample of the providers' own locks answered. Here it says a recording
+cannot show that. `--json` carries the same answer as
+`concurrentProviderActivity`.
 
 Add `--json` for the machine-readable form — see
 [`../docs/schemas/plan.v1.md`](../docs/schemas/plan.v1.md).

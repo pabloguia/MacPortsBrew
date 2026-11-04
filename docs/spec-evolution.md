@@ -383,19 +383,16 @@ change is made. Silent deviation remains the one unrecoverable error.
   without network is useless to someone on a laptop with a broken Homebrew.
 - Evidence: design judgement; no external fact involved. The rationale is the
   argument, and the entry stands or falls on it.
-- **Addendum, the read-only flag without a detector, 2026-10-01
-  (05-THE-EXECUTOR, slice S7).** The MUST's last clause — read-only analysis
-  proceeds *flagged as possibly inconsistent* — is met for `migrate`, and
-  nothing else of this entry is. The flag is the domain type
-  `ConcurrentProviderActivity` (`NOT_CHECKED`, `UNKNOWABLE`, `NONE_OBSERVED`,
-  `OBSERVED { providers }`), decided by `AnalysisSource::concurrent_provider_activity`
-  in `application` from where the input came from, never by looking: a live run
-  says `NOT_CHECKED`, `--replay` and `--from-snapshot` say `UNKNOWABLE` (both
-  are `AnalysisSource::Snapshot`). Only a check that ran may say the last two,
-  and none exists, so every answer this build gives is possibly inconsistent.
+- **Addendum, the read-only flag, 2026-10-01 (05-THE-EXECUTOR, slice S7);
+  what a live run answers is the 2026-11-03 amendment below.** The MUST's last
+  clause — read-only analysis proceeds *flagged as possibly inconsistent* — is
+  the domain type `ConcurrentProviderActivity`, decided in `application` from
+  where the input came from: `--replay` and `--from-snapshot` say `UNKNOWABLE`
+  without looking (both are `AnalysisSource::Snapshot`), and only a check that ran
+  may say `NONE_OBSERVED` or `OBSERVED`.
   Telling *nobody looked* from *nobody could have looked* is the point: a
-  recording carries no process table and a replay must not consult this host's
-  (INV-15), so a replayed run reporting this host's processes would be a lie
+  recording carries no provider locks and a replay must not consult this host's
+  (INV-15), so a replayed run reporting this host's locks would be a lie
   about the recorded machine, not a check. `migrate.v1.md` carries it as
   `concurrentProviderActivity` with `possiblyInconsistent`, the human output
   ends with a catalogue sentence for it, and `plan.v1.md` obligation 5 is
@@ -422,12 +419,11 @@ change is made. Silent deviation remains the one unrecoverable error.
   consumer reads its absence as possibly inconsistent. The human output of
   `plan` and `analyze` ends with `migrate`'s sentence, whose catalogue keys
   moved from `migrate.concurrency.*` to a neutral `concurrency.*`; `status`
-  and `list` do not repeat it in words — an overview and an inventory rather
-  than an answer to act on, and `status` has two documented samples (README,
-  Getting Started) that would change for no reader's benefit — while their `--json`
-  carries it. Tests: `crates/cli/tests/concurrency_flag.rs` (replay and
+  and `list` are an overview and an inventory rather than an answer to act on, so
+  their text shows it only when there is something to act on (the amendment
+  below), while their `--json` always carries it. Tests: `crates/cli/tests/concurrency_flag.rs` (replay and
   snapshot halves for both commands, in JSON and in words;
-  `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_processes`
+  `invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_locks`
   and `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`
   re-run under another `HOME` and `PATH` and compare bytes;
   `every_command_that_carries_the_flag_shares_the_one_serialiser` compares the
@@ -444,8 +440,8 @@ change is made. Silent deviation remains the one unrecoverable error.
   `Snapshot` in `Context::build` now decides a sentence a person reads, and no
   test can drive a live run (INV-05), so only the replay and snapshot halves
   are pinned end to end; and the `OBSERVED` sentence joins provider ids with a
-  separator outside the catalogue, which is unreachable today and is owed a
-  catalogue list form with the detector that first reaches it.
+  separator outside the catalogue, which the detector now reaches and whose
+  catalogue list form is deferred (the amendment below).
 
   **`explain` and `doctor` carry it since 2026-10-03 (pass 07)**, at the root
   of explain.v1 and doctor.v1 after every field they already had, and as the
@@ -460,46 +456,36 @@ change is made. Silent deviation remains the one unrecoverable error.
   reader of that analysis's flag would report `UNKNOWABLE` on a live run.
   `ConcurrentProviderActivity` has no fallback for an `activity` value it does
   not know, so a new value would not be additive under
-  `docs/schemas/README.md`'s rule; true before this pass, and the detector
-  that adds one owes the fallback. `ConcurrencyFlag`'s reader refuses a
+  `docs/schemas/README.md`'s rule; the fallback the detector owed is waived, for
+  the reason in the amendment below. `ConcurrencyFlag`'s reader refuses a
   `possiblyInconsistent` that contradicts its `activity`, which enforces what
   `migrate.v1.md` already defines and changes no wire format.
 
-  **No detection mechanism is built, and each candidate is deferred for a
-  reason that is recorded rather than rediscovered.** (1) *Spawning `ps`*
-  widens `PERMITTED_PROGRAMS` (`crates/adapters/src/process/mod.rs`), the
-  six-entry allowlist the one spawn site enforces; a seventh program is a
+  **The detection mechanisms rejected, recorded rather than rediscovered.** (1)
+  *Spawning `ps`* widens `PERMITTED_PROGRAMS` (`crates/adapters/src/process/mod.rs`),
+  the six-entry allowlist the one spawn site enforces; a seventh program is a
   security-review change to the most guarded file in the tree, and its output
-  would be one more format to parse strictly — not something to add for a flag
-  whose answer this build cannot act on. (2) *Provider lock files* are a
-  provider fact — where each provider keeps one, when it holds it, whether a
-  stale one is distinguishable from a live one — so they need a research note
-  under `docs/research/` before any code, and reading one is a filesystem read
-  a replay must not make on this host (INV-15), so under `--replay` the answer
-  would be `UNKNOWABLE` anyway. (3) *`sysctl`*: `sysctl(8)` is on the
+  would be one more format to parse strictly. (2) *`sysctl`*: `sysctl(8)` is on the
   allowlist for the machine probes, but it cannot print the process table —
   observed on this machine 2026-10-01, `sysctl kern.proc.all` answers
   "couldn't find format of oid" — so enumeration means `sysctl(3)` through
-  FFI, which is `unsafe` code (`unsafe_code = "forbid"` in the workspace
-  lints) or a new dependency through ADR-0004's gate, the same weighing
-  ADR-0006 already made against `libc`. **The detector lands with the
-  mutation it guards** (the lock was built ahead of it, in pass 08 slice 2 —
-  the addendum below): until a mutating step can be dispatched, the refusal path the MUST describes is
-  unreachable and so untestable, and a mechanism chosen now would be chosen
-  without the one caller that decides its shape.
+  FFI, more `unsafe` than the one `fcntl` call SE-110 admits. The mechanism chosen,
+  *provider lock files*, needed R-17 first, because where each provider keeps one and
+  when it holds it are provider facts.
 
   **Proved by mutation**, each in a scratch copy with its own target directory,
-  the source restored and compared with `diff -r` afterwards:
+  the source restored and compared with `diff -r` afterwards (run 2026-10-01; a live
+  sample arrives through `AnalysisSource::activity_given` since part G):
 
   | Rule | Mutation | Test that failed |
   |---|---|---|
-  | a live run did not check | `Live` answers `NONE_OBSERVED` | `the_concurrency_flag_never_claims_a_check_it_did_not_make` |
-  | a recording or snapshot file cannot be checked | `Snapshot` answers `NOT_CHECKED` | `the_concurrency_flag_never_claims_a_check_it_did_not_make`, `invariant_15_a_replayed_run_cannot_observe_this_hosts_processes`, `a_migrate_from_a_snapshot_file_cannot_observe_this_hosts_processes_either` |
+  | an analysis nobody sampled did not check | unsampled `Live` answers `NONE_OBSERVED` | `the_concurrency_flag_never_claims_a_check_it_did_not_make` |
+  | a recording or snapshot file cannot be checked | `Snapshot` answers `NOT_CHECKED` | `the_concurrency_flag_never_claims_a_check_it_did_not_make`, `invariant_15_a_replayed_run_cannot_observe_this_hosts_locks`, `a_migrate_from_a_snapshot_file_cannot_observe_this_hosts_processes_either` |
   | only `NONE_OBSERVED` is consistent | `possibly_inconsistent` true only for `NOT_CHECKED` | `only_a_check_that_saw_nothing_is_consistent`, `the_concurrency_flag_never_claims_a_check_it_did_not_make`, both end-to-end tests above |
   | only an observation is a check | `was_checked` true for `UNKNOWABLE` | `an_unchecked_or_unknowable_answer_is_not_a_check`, `the_concurrency_flag_never_claims_a_check_it_did_not_make` |
-  | `migrate` asks the source, not a constant | `migrate.rs` passes `NOT_CHECKED` | `invariant_15_a_replayed_run_cannot_observe_this_hosts_processes`, `a_migrate_from_a_snapshot_file_cannot_observe_this_hosts_processes_either`, `invariant_16_migrating_a_package_already_at_its_destination_changes_nothing_and_says_so` |
+  | `migrate` asks the source, not a constant | `migrate.rs` passes `NOT_CHECKED` | `invariant_15_a_replayed_run_cannot_observe_this_hosts_locks`, `a_migrate_from_a_snapshot_file_cannot_observe_this_hosts_processes_either`, `invariant_16_migrating_a_package_already_at_its_destination_changes_nothing_and_says_so` |
   | the human output says it | `human::concurrency` returns nothing | the same three |
-- **Addendum, the lock and the marker built; the detector not, 2026-10-05
+- **Addendum, the lock and the marker, 2026-10-05
   (pass 08, slice 2).** Plan and reviews: `docs/passes/08-slice-2-plan.md`;
   evidence: R-17 and R-18. **Built (adapters, not yet reached by the
   executor):** a single-instance lock — an exclusive advisory `try_lock` on
@@ -507,20 +493,15 @@ change is made. Silent deviation remains the one unrecoverable error.
   drop or by the kernel on death (so there is no stale lock to clean up), a held
   lock being exit 7 — and an interrupted-run marker naming the run, written
   before the first provider change, cleared after the record is published,
-  refusing the next mutating command with exit 4 naming the run. **Not built:
-  the "detect a concurrently running `brew` or `port` before mutating and
-  refuse" half of this entry's MUST** (a Tier 3 deviation, recorded here
-  rather than left implicit). R-17: neither provider has a stale lock, a lock
+  refusing the next mutating command with exit 4 naming the run. The "detect a
+  concurrently running `brew` or `port` before mutating and refuse" half of this
+  entry's MUST was left to part G (the amendment below), for these reasons. R-17: neither provider has a stale lock, a lock
   file's presence proves nothing, and the one probe that cannot disturb a
   provider is `fcntl(F_GETLK)`; `std` has none, the workspace forbids `unsafe`
   and a `libc` dependency is new. The alternative in `std`, `try_lock_shared`,
   was established, from Homebrew 7.0.4's `lock_file.rb` (R-17, read 2026-10-05; not observed in a live run), to make Homebrew abort when it races an exclusive taker, and a
   process listing needs `ps`/`pgrep`/`lsof`, which grows the spawn allowlist —
-  the owner's. So a live run still answers `NOT_CHECKED`, a replay
-  `UNKNOWABLE` (INV-15), **every live run is still "possibly inconsistent"**,
-  and the refusal-before-mutating is owed; **a test fails the build that sets
-  `THIS_BUILD_DISPATCHES_MUTATIONS` while a live run still answers
-  `NOT_CHECKED`**, so it is a gate. The owner's options are DP-030. The
+  the owner's. The owner's options were DP-030, ruled (b). The
   MacPortsBrew-against-MacPortsBrew lock excludes nothing about `brew` or
   `port`; it is not the detector and must not be described as one.
 - **Addendum, 2026-10-18 (pass 14, item H).** R-18 had left open whether a
@@ -530,6 +511,58 @@ change is made. Silent deviation remains the one unrecoverable error.
   `run_lock` creates its file — and `docs/spec/09-research-checklist.md`'s R-18
   entry says so, qualified to one machine and toolchain; std's source was not
   read, and a toolchain bump re-checks it.
+- Amendment (2026-11-03, work order 16 part G; DP-030 (b)): the detector is built, and this is the current behaviour.
+  **The sample ships ahead of the mutation it guards.** A live command samples the providers' own locks once, right
+  after its capture, and carries the answer in `concurrentProviderActivity`; every live command of every build runs the
+  `unsafe` probe. The refusal is behind `THIS_BUILD_DISPATCHES_MUTATIONS`, off, so not reachable in this build.
+  `NOT_CHECKED` is produced by no command, only by an analysis given no sample inside the code and by older documents.
+  In text, `analyze`, `plan`, `migrate`, `explain`, `doctor` and `restore` always render it; `status` and `list` render
+  it only for `OBSERVED` or `NOT_DETERMINED`, because they are overviews whose README samples would change for no
+  reader's benefit, while 04's MUST is about something to act on; `--json` of each carries it; `history` asks no provider.
+  **A mutating run refuses unless the answer is `NONE_OBSERVED`**, under the lock before and after every capture, the
+  consent capture included, because the snapshot is written from it, and immediately before every mutating command. Exit
+  7 widens to "another MacPortsBrew run, or a provider's own lock" (`PROVIDER_LOCK_HELD`). The unknown fallback is
+  `PROVIDER_LOCKS_NOT_DETERMINED`, exit 4, a new identifier rather than `SAFETY_UNVERIFIABLE`, because a plan was built
+  and the fact is about this machine, where `SAFETY_UNVERIFIABLE` says no plan was built and the fact is missing from
+  the input. Mechanism: SE-110. **The order before a command** as built is the destination configuration re-check and
+  re-read, lock confirmation, configuration re-check, sample, dispatch; the pair swapped against G item 6 is lock and
+  configuration, and the sample being last is what binds. **A halt at the first command** comes after the snapshot step,
+  so it ends a partial success, exit 3, like every other halt there; it writes no record and leaves no marker, and an
+  unreferenced snapshot stays (G item 8 said 7 or 4 "before anything mutates", which holds for the samples under the
+  lock). **R-17 rule 4 ("attempt the provider's own lock-taking command, not a pre-check")** is read as how a mutating
+  command behaves anyway: Homebrew's `OperationInProgressError` after a clean sample is a failed mutating command, and a
+  MacPorts command waiting for its lock ends at the process timeout (ADR-0006). **Schema deviation, deliberate:**
+  `NOT_DETERMINED` is added and `NONE_OBSERVED` and `OBSERVED` are narrowed in `*.v1` without a bump, against
+  `docs/schemas/README.md`'s compatibility rule, and `possiblyInconsistent` flips to `false` for a live `NONE_OBSERVED`,
+  where every earlier document said `true`. That `false` stays in the contract and means only "this one sample showed no
+  held lock", not "the read was consistent". No earlier build wrote those two tags: `migrate.v1.md` and `analysis.v1.md`
+  said "Never", and `the_concurrency_flag_never_claims_a_check_it_did_not_make` held every source to it. An external
+  consumer treats an unknown activity as possibly inconsistent. **The fallback the 2026-10-03 addendum owed is waived
+  for this project's own reader:** a `grep` of `crates/` (2026-11-04) finds no production path that deserialises
+  `ConcurrencyFlag`, `ConcurrentProviderActivity` or `Analysis`, only `crates/domain/src/concurrency.rs`'s tests, so a
+  catch-all would be code nothing runs. **The tripwire**, `mutations_cannot_dispatch_while_a_live_run_still_says_not_checked`
+  through `production_lock_probe_violations`, holds on every build, over scanned tokens rather than lines: outside the
+  probe's module and the domain type nothing builds or imports `NoneObserved`; outside the domain type and `analysis.rs`
+  nothing builds this type's `NotChecked` or asks a source with no sample; only the probe's module implements
+  `ProviderLockProbe`, and nothing renames it; an unsampled `analyze(` is only a snapshot's; outside the shell `MutatingRun`
+  is only ever built, with the registry's probe, and no probe is reassigned; the context samples once, counts broken
+  providers and carries it; and `[locks]` holds each sample's place and that its answer is acted on, by an allowlist of
+  exact forms: `?` on the call or after the one `map_err`, or an `if let Err` whose body leaves, none in a closure. "Only the owner
+  relaxes this" stays. Its rewrite is recorded here because it is a gate: it asks more than before. **Declared limit:**
+  it reads source text, so it raises the cost of a mistake and does not prove the absence of a determined one: serde's
+  `Deserialize` can construct the value, a macro or a `#[path]` outside `src/` is not read, and each review round found
+  new ways past earlier versions. What stands behind it is the behaviour in `executor_wiring.rs`, except on the consent
+  path, which no plan reaches in this build and part J owes a test.
+  **Deferred:** the `OBSERVED` and `NOT_DETERMINED` sentences, a halted run's two among them, still join provider ids with a
+  hard-coded `.join(", ")` in `crates/cli/src/app/human.rs`, the catalogue list form owed "with the detector"; both catalogues read correctly with it
+  today, and `add-locale` is where it binds. **Declared:** any local account that can read a lock file can hold a `flock`
+  on it and block every mutating run indefinitely; there is no override and no holder is named, because a holder cannot be
+  told apart (04). **INV-17 review:** each provider has work no lock shows: a MacPorts `sync`, `selfupdate` or `clean`
+  (R-17 finding 2); a Homebrew cask operation or cleanup (R-17 finding 1). MacPorts' lock is narrower, since only
+  registry-writing actions take it. That is the providers' asymmetry, declared in 04 rather than equalised by inventing a
+  lock; the probe branches on the data's shape, and both directions are refused by the same code
+  (`invariant_17_a_provider_lock_refuses_before_anything_is_written_in_both_directions`,
+  `invariant_17_the_lock_probe_names_no_provider`). 04's MUST is met partially, its false negatives listed there.
 
 ## SE-016 — Privilege model made concrete
 - Status: accepted
@@ -2816,7 +2849,7 @@ change is made. Silent deviation remains the one unrecoverable error.
   confined to one `adapters` module; four crates keep `forbid` by the compiler.
 - Compatibility impact: deployment floors re-checked on both targets in E-4 (2026-11-01: 10.12 x86_64, 11.0 arm64,
   unchanged) and again in G (`scripts/check-deployment-target.sh`); every added crate `MIT OR Apache-2.0`.
-- Amendment (2026-11-03, part G-1, interim; G-3 writes the final text): the lint split is built — the workspace
+- Amendment (2026-11-03, part G-1): the lint split is built — the workspace
   `unsafe_code = "deny"`, `#![forbid(unsafe_code)]` at the five roots (`domain`, `policy`, `application`, `cli`'s
   `lib.rs` and `main.rs`). `crates/cli/tests/unsafe_scan.rs` reads every `.rs` under `crates/` with comments and
   strings stripped and admits `unsafe` at most once and only in `crates/adapters/src/lock_probe/getlk.rs` (G-2 makes
@@ -2834,21 +2867,19 @@ change is made. Silent deviation remains the one unrecoverable error.
   that module" is corrected in its status line. **Limit, declared:** Cargo configuration outside the repository
   (a parent directory, `$CARGO_HOME`) is not read; it is the developer's machine, and CI has none. The test alone is
   the check (no `validate.sh` stage staged): `validate.sh`'s default mode and CI both run it.
-- Amendment (2026-11-03, part G-2, interim; G-3 writes the final text): the probe is built, and nothing calls it yet.
+- Amendment (2026-11-03, part G-2): the probe is built; G-3 calls it (SE-015's amendment).
   `libc` is direct in `crates/adapters` alone; `crates/adapters/src/lock_probe/getlk.rs` holds the one `unsafe` block,
   an `F_GETLK` with a complete `flock` literal, and the one `allow`, on `held`; the scan now requires exactly one of
   each. `ProviderLockProbe` is the domain's trait. `ConcurrentProviderActivity` gains `NotDetermined { undetermined }`,
   and `Observed` gains `undetermined`, omitted when empty: both map a provider to a closed `UndeterminedCause` token
-  (`UNRESOLVED`, `UNEXPECTED_SHAPE`, `OVER_BOUND`, `UNREADABLE`, `CHANGED`), never a path, so a refusal can say what to do
-  and a held lock does not hide another provider (G items 1, 7, 20 N5, N6). No `--json` document can carry them before
-  G-3. Locations are in `data/policy/provider-locks.toml`, read only by `registry`, policy version `2026.10.18-2`.
+  (`UNRESOLVED`, `UNEXPECTED_SHAPE`, `OVER_BOUND`, `UNREADABLE`, `CHANGED`, `PROVIDER_BROKEN`), never a path, so a refusal
+  can say what to do and a held lock does not hide another provider (G items 1, 7, 20 N5, N6). Locations are in `data/policy/provider-locks.toml`, read only by `registry`, policy version `2026.10.18-2`.
   `registry::lock_probe` is the only constructor. It answers `Unknowable` for a replay or a filesystem that is not this
   machine, reading the scope as requested rather than through `effective_scope`, because that collapse exists to stop an
   unprobed prefix being executed, and for a probe the contradiction resolves towards not looking. A provider detection
   missed only because its executable could not be checked (`is_file` turns every error into "no") is sampled as
-  `UNRESOLVED` rather than left out (`absence_is_certain`). **Handed to G-3, recorded here:** a provider whose presence
-  is `Broken` has a detected prefix and is sampled normally; item 7 needs it `NotDetermined`, and G-3 combines presence
-  at the application seam. Evidence: R-17's addendum (2026-11-03), and `crates/adapters/tests/lock_probe_cross_process.rs`,
+  `UNRESOLVED` rather than left out (`absence_is_certain`). A provider whose presence is `Broken` has a detected prefix
+  and is sampled; `application::provider_lock_activity` counts it `PROVIDER_BROKEN` (G-3). Evidence: R-17's addendum (2026-11-03), and `crates/adapters/tests/lock_probe_cross_process.rs`,
   which holds the lock from a re-executed test binary (G item 20 N1). That file and
   `crates/adapters/tests/lock_probe_shapes.rs` compile the site's module again through `#[path]`; each is a second
   compilation of the same file, not a second site, and the scan pins those two as the only ones.

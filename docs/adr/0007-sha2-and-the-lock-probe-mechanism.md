@@ -15,7 +15,7 @@
   only under `src/lock_probe/`. The one `unsafe` block and its one
   `#[allow(unsafe_code)]`, on `held`, are in `lock_probe/getlk.rs`, and the scan
   now requires exactly one of each. The zero-`l_type` behaviour this ADR asked G
-  to confirm is confirmed (R-17, addendum). The refusal is G-3.
+  to confirm is confirmed (R-17, addendum). The refusal landed in G-3 (SE-015).
 - **Date:** 2026-10-30
 - **Pass:** 16-complete-mutating-product, part E
 - **Supersedes:** ADR-0006, **for the `sha2` dependency and the lock probe

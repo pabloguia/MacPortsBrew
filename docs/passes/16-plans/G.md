@@ -272,6 +272,16 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
 
 | `security-reviewer`, G-2 code | `wo16/G-2-probe`, uncommitted, 2026-11-03 | Approve with changes: the `unsafe` read line by line against libc 0.2.191 and the SDK, no defect. F1 a detection error left out, then `NoneObserved`; F2 live runner with `Elsewhere` looked; F3 undetermined lost under a held lock; F4 a held lock lost to a stray entry; F5 the holder test could lock any readable file; F6 `HOME` and `PORTSRC` false negatives; F7 mutants 17–19 and sockets; F8 declarations, `nlink`, R-17 wording | F1–F5, F7 fixed; F6 and F8 item 21. `nlink` not checked: a hard link can only cause a false `Held`, by someone who can already write there |
 | `spec-guardian`, G-2 code | `wo16/G-2-probe`, uncommitted, 2026-11-03 | Approve with changes: 1 a `Broken` provider sampled as healthy; 2, 3 `Observed` drops the undetermined and no cause is carried; 4 policy version; 5 records behind; 6 mutants 3, 3b, 17; 7 who may `#[path]` the site; 8 test accuracy; 9 notes | 1 handed to G-3, recorded in SE-110; 2–8 fixed; 9 item 21 |
+| `spec-guardian`, G-3 code | `wo16/G-3-refusal`, uncommitted, 2026-11-03 | `status` and `list` silent, tripwire bypasses, no live-path test, consent sample deviation unrecorded, INV-15 snapshot half, refusal text | Fixed in `9ed61e9` and the documents; declared: no test drives a live run (SE-015) |
+| `security-reviewer`, G-3 code | `wo16/G-3-refusal`, uncommitted, 2026-11-03 | Tripwire bypasses, consent capture unsampled before the snapshot, any-local-account blocking, refusal text false, halt names no provider, presence as of capture, sampled set, marker assertions, no timeout | Fixed in `9ed61e9` and the documents; declared in 04, SE-015 or "As built": any-local-account blocking, presence as of capture, sampled set, no timeout, `Deserialize` constructing the value. Halt names no provider: fixed, `providerLocksAtHalt` and the text |
+| `docs-auditor`, G-3 | `wo16/G-3-refusal`, uncommitted, 2026-11-03 | 38 items | Fixed in the documents |
+
+| `spec-guardian`, G-3 round 2 | `523b895`, 2026-11-04 | Approve with changes: tripwire bypasses left (`mod x;` hides the next item, `tests.rs`, aliases, `NotChecked` file-wide), SE-015 overstates it; nothing guards the `status`/`list` wiring; low: a doc comment, a thin INV-15 test, the halt's instant, an imprecise deviation, a comment overclaiming | All fixed; SE-015 now states the tripwire's limit |
+| `security-reviewer`, G-3 round 2 | `523b895`, 2026-11-04 | No product defect, every dispatch preceded by a clearing sample. S1 `code_of` cut the file first; S2 a sample's answer can be discarded on the consent path; S3 alias, turbofish, reassignment; S4 the halt's instant | S1, S3, S4 fixed. S2: text check that the answer is used; the behavioural test stays owed by part J. A token consumed by dispatch was considered and not built, since the behavioural tests already catch a discard there |
+| `spec-guardian`, G-3 round 3 | `c90ef7b`, 2026-11-04 | Approve with changes: four new refusals have no planted test (an unasserted replace of mine did not apply); the halt's sentences unasserted; an empty `if let Err` body passes; the `status`/`list` check only counted | All fixed; the deferred note names the two new joins |
+| `security-reviewer`, G-3 round 3 | `c90ef7b`, 2026-11-04 | No product defect. S2 not closed: an `if let Err` that stays, and another statement's `?`, both pass, proved by mutants. A char literal `'{'` still cut the file | The check now requires `?` on the call's own expression or a body that leaves; char literals are blanked; unbalanced braces panic instead of reaching the end of the file |
+| `docs-auditor`, G-3 | `c90ef7b`, 2026-11-04 | Clean; low: lock behaviour in the wiki carries no date | Dated to R-17 |
+| `security-reviewer`, G-3 round 4 | `4440f22`, 2026-11-04 | S2's mutants refused, two new forms pass: an `or_else` swallowing the answer before `?`, and a closure's `?` | The check became an allowlist of exact forms, none in a closure, so a new spelling is refused rather than searched for |
 
 ## Changes from review round 1 (binding; they override the Design above where they differ)
 
@@ -526,3 +536,46 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
   and reaching that needs a seam inside the listing. It is defence in depth, and a
   stale listing's open is still checked by each re-check after it. Each new test was
   re-run against its mutant by hand.
+
+## As built (G-3)
+
+- The sample is one field of the CLI's context, taken after the capture; analysis takes
+  it as an argument (`analyze_sampled`) and `Snapshot` forces `UNKNOWABLE` whatever is
+  passed. `AnalysisSource`'s shape is unchanged. `analyze` without a sample keeps
+  `NOT_CHECKED`, for tests and for `explain` and the planner, which analyse as a
+  snapshot.
+- `application::provider_locks_clear` decides, `provider_lock_activity` adds item 21's
+  `PROVIDER_BROKEN`; the shell's one call is `provider_lock_sample(`, and
+  `wiring_violations` holds its place under `[locks]`.
+- **Deviations, all in SE-015:** the order of the two checks before the sample, which
+  stays as built; a halt at the first command ends a partial success, since the snapshot
+  step was carried out; a dedicated error identifier, `PROVIDER_LOCKS_NOT_DETERMINED`,
+  deviating from Design 1, which had `SAFETY_UNVERIFIABLE` with that name as its reason
+  (item 8 and Design 4 already name it, exit 4), because a plan was built and the fact is about this machine. It samples around the capture after
+  the consent question too, because the snapshot is written from that capture.
+- `an_overview_shows` decides what `status` and `list` render: `OBSERVED` and
+  `NOT_DETERMINED` only.
+- **The halt's lock field:** what the sample that halted a run answered reaches `--json`
+  as `providerLocksAtHalt`, and the text through its own sentences, which say the instant was
+  immediately before the command, and the same cause lines.
+- `provider_lock_activity` reads presence as of the last capture, declared in 04: a
+  provider that broke after it is not seen.
+- **No plan-versus-sampled comparison:** every detected provider is sampled, which is
+  stricter than item 7's touched providers and will refuse a future single-provider
+  restore over the other provider's state. Recorded for the restore part.
+- An unreferenced snapshot after a first-command halt stays, like every other
+  first-command halt.
+- **Item 13:** the tripwire is held on every build, not only under the switch. It is
+  stricter than the plan's: the plan had it fail only if the flag were on.
+- **`concurrency.not_checked` stays in the catalogues:** `NotChecked` is still a value
+  and still rendered, though no command of this build produces it.
+- **Mutation proof (isolated worktree, a subagent; removed afterwards), on `9ed61e9`:** 34
+  mutants, including the plan's 10 and 11, 32 killed. Survivors 11f (the sample after the
+  consent capture) and 22c (a live sample with broken providers not counted) got tripwire
+  checks and were re-run by hand. **Thin, declared:** 11b, 11e, 11f, 22, 22b, 22c, 22d and
+  24 die to source-text checks only. No test drives a live `Context`, because a live capture
+  would read the machine (INV-05). No test answers a consent question through the sampled
+  path, because no plan elevates in this build. Part J, which makes elevation reachable,
+  owes a behavioural test that a lock seen after the consent capture refuses before the
+  snapshot.
+

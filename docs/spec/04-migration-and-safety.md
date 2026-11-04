@@ -348,12 +348,13 @@ Detect a concurrently running `brew` or `port` before mutating and refuse
 rather than interleave. Read-only analysis may proceed, flagged as possibly
 inconsistent.
 
-**Status (2026-10-17): the lock and the marker exist and are wired behind a
-mutation allowance no shipped build has; the detector does not.** Pass 08
-slice 4 put them in the run loop in the order below, checked on every build by
-the wiring tripwires and behaviourally against fakes
-(`crates/cli/tests/executor_wiring.rs`); a shipped build takes neither, because
-its gate refuses every plan with a mutating step. The lock is an exclusive advisory
+**Status (2026-11-03): the lock, the marker and the detector exist.** The sample
+runs on every live command of every build; the refusal, like the lock and the
+marker, is behind the allowance (`THIS_BUILD_DISPATCHES_MUTATIONS`), which is off,
+so no build reaches them: its gate refuses every plan with a mutating step. Pass 08
+slice 4 put the lock and the marker in the run loop and work order 16 part G built
+the detector, in the order below, checked on every build by the wiring tripwires
+and behaviourally against fakes (`crates/cli/tests/executor_wiring.rs`). The lock is an exclusive advisory
 `flock` on `run.lock` in the state root (`persistence::run_lock`), taken only by
 a run that will dispatch a provider-mutating step — after the execution gate
 and the history probe, before the interrupted-run marker — and held for the
@@ -386,20 +387,68 @@ back before it removes the marker, and keeps the marker for a record it cannot
 read (pass 08 slice 5, SE-092; this changes the earlier rule that no path
 deletes a marker but the run's own).
 
-**The detector is not built, and the refusal it serves is owed (SE-015,
-DP-030).** No filesystem read can tell that a provider is mutating without
-`fcntl(F_GETLK)` (R-17), which needs `unsafe` or a new dependency, and the
-alternatives disturb a provider or grow the process allowlist. A live run says
-`NOT_CHECKED`; a test fails the build that turns mutations on while it does.
+**The detector is built (work order 16 part G; DP-030 (b); SE-015). The sample runs
+on every live command of every build; the refusal, like the lock and the marker, is
+behind the allowance.** `crates/adapters/src/lock_probe/` samples each detected
+provider's own locks with `fcntl(F_GETLK)` (R-17, read 2026-10-05: Homebrew 7.0.4,
+MacPorts 2.12.6; probe addendum 2026-11-03), locations in
+`data/policy/provider-locks.toml`. It acquires nothing and creates nothing. A live
+command takes one sample right after its capture and carries it, and goes on. `analyze`,
+`plan`, `migrate`, `explain`, `doctor` and `restore` always show it in text; `status`
+and `list`, which are overviews, show it only for `OBSERVED` or `NOT_DETERMINED`;
+the `--json` of each carries it; `history` asks no provider. A mutating run refuses
+unless the sample says no held lock was observed: under the run lock before and after
+each capture (the first and, when a consent question was asked, the second), and again
+immediately before every mutating command, the last thing before it goes out. A lock
+seen held is `PROVIDER_LOCK_HELD`, exit 7; anything else (`NOT_DETERMINED`, or nothing
+looked) is `PROVIDER_LOCKS_NOT_DETERMINED`, exit 4, its own identifier rather than
+`SAFETY_UNVERIFIABLE`, because a plan was built and the fact is about this machine.
+After the snapshot step the same answers halt the command (`PRECONDITION_FAILED`),
+which ends a partial success, exit 3; a halt at the first command leaves no marker and
+writes no record. A replay or a snapshot file answers `UNKNOWABLE` without looking
+(INV-15), and so could never go on.
+
+**This meets the MUST partially, and says what it does not see.** The claim is "some
+process holds a provider's lock right now", never "a provider is mutating", "idle" or
+"safe". **False negatives, declared (R-17):** Homebrew cask and cleanup operations and
+the instants between per-formula locks; a MacPorts `sync`, `selfupdate` or `clean`, and
+any `port` that takes no registry lock; a lock held during the capture and released
+before the sample; a lock file created after the listing; an entry listed and gone at
+its open, which reads as not held, provided the directory's identity re-check passes;
+a provider at a prefix that was not detected; a provider that broke after the last
+capture, because presence is read as of that capture; a MacPorts database moved by
+`PORTSRC`, or by the configuration under a different `HOME` (an elevated `port`
+elsewhere), where the probe reads the default; a standing symlink at an ancestor of the
+location, which is followed as the provider follows it, and a dangling one, which reads
+as missing. A `portdbpath` the probe can see is not the default refuses. **Conservative
+refusals, declared:** a subdirectory, symlink or other stray entry in a lock directory
+refuses every run until it is removed, and the refusal names the provider and the cause,
+never the entry; a held lock can be a grandchild of this run's own timed-out command or
+an inherited descriptor (R-17 finding 3), so a refusal implies no outside cause; a held
+lock need not be a mutation (R-17): a Homebrew `DownloadLock` wait, a MacPorts
+`upgrade --dry-run`-class action, or another tool on the same file. **Any local account
+that can read a lock file can hold a `flock` on it and block every mutating run
+indefinitely.** There is no override and no holder is named, by design: `F_GETLK`
+returns no holder identity (R-17 finding 4), a holder cannot be told apart, and a
+`flock` has no "stale" state (R-17 finding 3). A window remains where the lock
+directory's ancestor is swapped and restored between two identity checks. **A sample has
+no timeout:** `read_dir`, `open` and `F_GETLK` take none, so on a stalled network or FUSE
+volume a live command can block; a thread for it is not worth it. **The asymmetry is
+the providers' (INV-17):** each provider has work no lock shows: a MacPorts `sync`,
+`selfupdate` or `clean`; a Homebrew cask operation or cleanup. MacPorts' lock is
+narrower, since only registry-writing actions take it. It is declared rather than
+equalised by inventing a lock, and the probe branches on the data's shape, never on a
+provider. Unverified on Apple Silicon, and against a lock a real provider holds (R-17;
+owner items).
+
 **Done with the wiring (slice 4):** under the lock the machine is captured
 again and re-planned, and any difference from the validated plan refuses,
 naming the fact that moved (SE-092, D6); the lock is confirmed before every
 mutating command. **Done in slice 5:** a stranded marker in `doctor`. **Still owed,
-each a precondition of the flag-flip proposal and each behind a tripwire:** the
-application-level refusal on an observed or unchecked provider; and **a
+a precondition of the flag-flip proposal and behind a tripwire: a
 residual the re-plan does not close** — between `VERIFY_DESTINATION` and
-`REMOVE_SOURCE` a concurrent `brew` or `port` could remove the destination,
-unseen while the detector does not exist (slice 4 review, M6a). The check
+`REMOVE_SOURCE` a concurrent `brew` or `port` could remove the destination
+(slice 4 review, M6a). The check
 before the removal is now built behind the switch (work order 16 part S-1;
 the paragraph below), and what remains after it is accepted (DP-048).
 
@@ -417,8 +466,8 @@ removal (`DESTINATION_NOT_REVERIFIED`). **Not yet met:** it will be bounded by m
 (`--remove-source`, with a confirmation stronger than an install's) and by
 dispatching `REMOVE_SOURCE` only when the re-read ran, DP-030's probe
 answered, and all six destination checks were evaluated for that package. The
-re-read exists (part S); the opt-in, the probe and the checks do not yet — work
-order 16 parts K, G and H build them — and the switch stays off until they do.
+re-read (part S) and the probe (part G) exist; the opt-in and the checks do not yet — work
+order 16 parts K and H build them — and the switch stays off until they do.
 
 ## Privilege
 

@@ -290,7 +290,7 @@ pub(super) fn restore(
         }
         Some(report)
     };
-    let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
+    let concurrency = ConcurrencyFlag::of(ctx.provider_locks.clone());
     let io = |e: std::io::Error| DomainError::new(ErrorId::Io, e.to_string());
     let mode = if plan_only {
         Mode::Render
@@ -366,7 +366,7 @@ fn nothing_to_restore(
     reason: NothingToRestoreReason,
     stdout: &mut dyn Write,
 ) -> Result<i32, DomainError> {
-    let concurrency = ConcurrencyFlag::of(ctx.source.concurrent_provider_activity());
+    let concurrency = ConcurrencyFlag::of(ctx.provider_locks.clone());
     let io = |e: std::io::Error| DomainError::new(ErrorId::Io, e.to_string());
     if cli.json {
         let document = Document {

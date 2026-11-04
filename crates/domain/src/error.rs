@@ -86,6 +86,18 @@ pub enum ErrorId {
     /// held by another instance". No process is named: none is recorded, and
     /// the lock belongs to whoever holds it, not to a pid.
     RunLockHeld,
+    /// A provider's own mutation lock was held when this run was about to
+    /// change something (DP-030 (b); R-17): the claim is "held right now", never
+    /// that the provider is mutating. The same exit as [`ErrorId::RunLockHeld`]
+    /// (a lock is held; wait and run again), a different identifier because a
+    /// different program holds it.
+    ProviderLockHeld,
+    /// Whether a provider's own lock is held could not be determined when this
+    /// run was about to change something. Separate from
+    /// [`ErrorId::ProviderLockHeld`] because nothing was seen held, and from
+    /// [`ErrorId::SafetyUnverifiable`] because a plan was built and the fact is
+    /// about this machine, not missing from an input.
+    ProviderLocksNotDetermined,
     /// A previous mutating run left its marker and was never accounted for
     /// (`06-cli-and-ux.md`: "exits 4 and names the run"). Separate from
     /// [`ErrorId::SafetyBlocked`] for the remediation: the user looks at the
@@ -150,10 +162,11 @@ impl ErrorId {
             | ErrorId::SafetyUnverifiable
             | ErrorId::ProviderPresenceUnproven
             | ErrorId::RunInterrupted
+            | ErrorId::ProviderLocksNotDetermined
             | ErrorId::PlanNotShown
             | ErrorId::PrimaryNeedsShim => 4,
             ErrorId::UserAborted => 6,
-            ErrorId::RunLockHeld => 7,
+            ErrorId::RunLockHeld | ErrorId::ProviderLockHeld => 7,
             ErrorId::ProviderNotFound
             | ErrorId::ProviderUnhealthy
             | ErrorId::ProviderOutputChanged
@@ -189,6 +202,8 @@ impl ErrorId {
             ErrorId::HistoryUnusable => "error.history_unusable",
             ErrorId::RunNotFound => "error.run_not_found",
             ErrorId::RunLockHeld => "error.run_lock_held",
+            ErrorId::ProviderLockHeld => "error.provider_lock_held",
+            ErrorId::ProviderLocksNotDetermined => "error.provider_locks_not_determined",
             ErrorId::RunInterrupted => "error.run_interrupted",
             ErrorId::SafetyBlocked => "error.safety_blocked",
             ErrorId::PlanNotShown => "error.plan_not_shown",
@@ -219,6 +234,8 @@ impl ErrorId {
             ErrorId::HistoryUnusable,
             ErrorId::RunNotFound,
             ErrorId::RunLockHeld,
+            ErrorId::ProviderLockHeld,
+            ErrorId::ProviderLocksNotDetermined,
             ErrorId::RunInterrupted,
             ErrorId::SafetyBlocked,
             ErrorId::PlanNotShown,
@@ -295,6 +312,8 @@ mod tests {
         // being unreadable (pass 08 slice 5).
         assert_eq!(ErrorId::RunNotFound.exit_code(), 8);
         assert_eq!(ErrorId::RunLockHeld.exit_code(), 7);
+        assert_eq!(ErrorId::ProviderLockHeld.exit_code(), 7);
+        assert_eq!(ErrorId::ProviderLocksNotDetermined.exit_code(), 4);
         assert_eq!(ErrorId::RunInterrupted.exit_code(), 4);
         // A plan that is not the one shown is a safety stop; a declined
         // question is the user's abort (work order 16 part E).
@@ -335,7 +354,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding an identifier. The exhaustive
     /// matches above will already have refused to compile.
-    const NUMBER_OF_ERROR_IDS: usize = 24;
+    const NUMBER_OF_ERROR_IDS: usize = 26;
 
     #[test]
     fn every_id_has_a_distinct_message() {
