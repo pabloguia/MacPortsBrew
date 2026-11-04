@@ -84,6 +84,33 @@ pub enum UncheckedCause {
     /// A file of the package could not be parsed, so nothing of the package's
     /// was run.
     MalformedFile,
+    /// A provider read failed, timed out, or answered in a shape not recognised.
+    ReadFailed,
+    /// No allowed read lists this package's files: an inactive image, several
+    /// versions with none selected, an application.
+    FileListNotKnown,
+    /// The package lists a path outside the prefix, which was not tested.
+    ListsOutsidePrefix,
+    /// The package's file list passed the read's cap.
+    ListOverCap,
+    /// A path's `stat` failed with something other than "does not exist".
+    StatFailed,
+    /// The provider's record of the package's dependencies could not be told.
+    DependenciesNotTold,
+    /// A one-hop link is the package's and its final file lies outside it.
+    OwnerLeavesKeg,
+    /// A reference lies under a documented prefix where no provider was
+    /// detected, so it is nobody's for certain.
+    UnderUndetectedPrefix,
+    /// An `@rpath` name with no candidate, or an `@executable_path` that cannot
+    /// be resolved from the file alone.
+    RpathUnresolved,
+    /// An `env` shebang on the executable list: `PATH` decides at run time.
+    InterpreterResolvedAtRunTime,
+    /// A file could not be opened and read.
+    UnreadableFile,
+    /// The walk passed its bound, or reached a file it did not examine.
+    WalkOverBound,
 }
 
 /// One thing a `VERIFY_DESTINATION` could not tell: which check, about which

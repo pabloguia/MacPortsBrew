@@ -120,6 +120,7 @@ read_on = "2026-09-02"
         runtime_managers: MANAGERS,
         curated_mappings: MAPPINGS,
         cross_provider_advice: ADVICE,
+        liveness_probes: "",
     })
     .expect("the symmetric fixture must parse")
 }

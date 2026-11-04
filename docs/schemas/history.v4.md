@@ -25,7 +25,7 @@ Work order 16 part H-1. A check on `VERIFY_DESTINATION` now answers `HOLDS`, `FA
 - `status` for that ending is `PARTIAL` when a mutation was dispatched and `NO_CHANGE` otherwise, **never `SUCCESS`** (`04-migration-and-safety.md`). So a re-run re-verifies an unchecked destination rather than recognising it as done (`recognise_retained_run` still refuses anything but `SUCCESS`, INV-16).
 - `UncheckedEntry` is as in [`migrate.v2.md`](migrate.v2.md).
 
-A version 3 record reads as before, and one stating anything above is refused (`HISTORY_UNUSABLE`). Part H-2 adds its unchecked causes to this version before anything is released. A version 2 record still reads as [`history.v3.md`](history.v3.md) says.
+A version 3 record reads as before, and one stating anything above is refused (`HISTORY_UNUSABLE`). Part H-2's unchecked causes are in [`migrate.v2.md`](migrate.v2.md)'s list, and belong to this version: nothing has been released under it. A version 2 record still reads as [`history.v3.md`](history.v3.md) says.
 
 **What did not change** is everything else: the rest of this document is version 3's. Its own history of how version 3 differed from version 2 follows.
 

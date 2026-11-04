@@ -900,7 +900,12 @@ fn the_command_line_crate_builds_no_command_spec_and_no_read_site_outside_the_lo
         // would be a way to read on a plan the gate never saw (review of S5).
         let in_loop = Path::new(&file).starts_with(&executor);
         if !in_loop {
-            for banned in ["planreadsites", "plan_read_sites"] {
+            for banned in [
+                "planreadsites",
+                "plan_read_sites",
+                "destinationsites",
+                "destination_sites",
+            ] {
                 assert_ne!(word, banned, "{file} builds a read site outside the loop");
             }
             if !file.contains("/app/") {
@@ -1867,8 +1872,8 @@ fn the_switch_needs_the_destination_contract_observed() {
     };
     assert!(evaluable_in_this_build(StepKind::VerifyDestination, &skip));
     assert!(observed_by_this_build(&skip));
-    // Exactly DP-051's four checks of 04's contract are not observed, and each
-    // is answered through the destination site.
+    // DP-051's four checks of 04's contract are each answered through the
+    // destination site.
     let dp_051: BTreeSet<String> = [
         "ProviderIntegrityCheck",
         "ExecutablesOwnedByDestination",
@@ -1887,15 +1892,24 @@ fn the_switch_needs_the_destination_contract_observed() {
         probe,
     ];
     for check in &four {
-        assert!(!observed_by_this_build(check), "{check:?}");
+        // Three have their observer since H-2; the probe's is H-3's, behind the
+        // owner-applied admission.
+        assert_eq!(
+            observed_by_this_build(check),
+            !matches!(check, VerificationCheck::LivenessProbe { .. }),
+            "{check:?}"
+        );
         assert!(is_site_answered(StepKind::VerifyDestination, check));
         assert!(evaluable_in_this_build(StepKind::VerifyDestination, check));
     }
     assert_eq!(four.iter().map(kind_of).collect::<BTreeSet<_>>(), dp_051);
-    // What the planner's plan lacks an observer for is DP-051's, and only it:
-    // three of the four here (this fixture records no executable list).
+    // What lacks an observer is DP-051's, and only the probe of it.
     assert!(not_observed.is_subset(&dp_051));
-    assert_eq!(not_observed, dp_051);
+    assert_eq!(
+        not_observed,
+        BTreeSet::from(["LivenessProbe".to_owned()]),
+        "the switch stays off for the check nothing here runs"
+    );
 }
 
 #[test]
@@ -1947,4 +1961,24 @@ fn no_workspace_crate_depends_on_libc_directly() {
             "{name}: sha2 is the application crate's alone"
         );
     }
+}
+
+/// The read-only loop passes no destination site, so nothing it does can reach a
+/// program or a walk: a site exists only under the run's lock (the design note;
+/// `.claude/rules/executor.md` rule 1).
+#[test]
+fn analysis_and_dry_run_never_reach_a_probe() {
+    let text =
+        std::fs::read_to_string(root().join("crates/cli/src/executor/mod.rs")).expect("the shell");
+    let calls: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains("destination_sites(ctx"))
+        .collect();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    let read_only = &text[text.find("pub fn run_with_resolutions").unwrap()..];
+    let read_only = &read_only[..read_only.find("\n}\n").unwrap()];
+    assert!(read_only.contains("|| NothingObserved"), "{read_only}");
+    let mutating = &text[text.find("pub fn run_mutating").unwrap()..];
+    let mutating = &mutating[..mutating.find("\n}\n").unwrap()];
+    assert!(mutating.contains("destination_sites(ctx"), "{mutating}");
 }

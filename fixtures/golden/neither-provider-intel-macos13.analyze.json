@@ -17,9 +17,9 @@
     "translation": "NATIVE"
   },
   "packages": [],
-  "policyReadOn": "2026-09-17",
+  "policyReadOn": "2026-11-04",
   "policyStale": false,
-  "policyVersion": "2026.10.18-2",
+  "policyVersion": "2026.11.04-1",
   "providers": {
     "homebrew": {
       "capabilities": {

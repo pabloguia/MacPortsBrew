@@ -2009,8 +2009,8 @@ fn check_has_no_answering_read_is_unchanged() {
 fn liveness_probes_plus_recorded_skips_equal_the_list() {
     // SG2-N3 (spec 04 check 4: a probe is "skippable with a recorded
     // reason"). Probes and recorded skips together must equal the list: one
-    // per executable, none for a name outside it. In this build the planner
-    // writes a skip per executable (no curated row exists until H-2). A plan
+    // per executable, none for a name outside it. The planner writes a probe
+    // from a row and a skip otherwise. A plan
     // that carries no ownership check at all agrees only when the list is
     // empty (spec-guardian review of F-3, R-2).
     let base = with_decision(nothing_to_change());

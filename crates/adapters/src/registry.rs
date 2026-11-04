@@ -14,9 +14,14 @@ use crate::prefixes;
 use crate::process::{CommandSpec, Invocation, PlanReadRefusal, ProcessRunner};
 use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::{
+    DestinationFacts, DestinationProbe, DestinationQuery, ExecutableName, PackageIdentity,
+    PrefixClass, PrefixTable, ProbeObservation, UncheckedCause,
+};
+use macportsbrew_domain::{
     DomainError, ErrorId, PlanCommand, ProviderConfiguration, ProviderId, ProviderRead,
 };
 use std::collections::BTreeMap;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 /// The provider ids this build knows, in a stable order.
@@ -312,6 +317,140 @@ pub fn plan_read_sites<'r>(ctx: &RegistryContext<'r>) -> PlanReadSites<'r> {
             .iter()
             .filter_map(|id| detected_prefix(ctx, id))
             .collect(),
+    }
+}
+
+/// What answers the destination checks of a run (work order 16 part H), after the
+/// gate and under the run's lock.
+///
+/// **The one place a liveness probe can come from**, which is why it is not a
+/// method of [`ProviderRead`] and why it takes the lock: any other holder of an
+/// adapter could otherwise start a third-party program (the design note).
+/// `crates/cli/tests/executor.rs` keeps the constructor in the loop's module.
+pub struct DestinationSites<'c, 'r> {
+    ctx: &'c RegistryContext<'r>,
+    /// A replay, or a filesystem that is not the machine described: nothing here
+    /// consults the disk, and every answer is `NOT_OBSERVED` (INV-15). As asked of
+    /// the context, not through [`effective_scope`]: that collapse stops an
+    /// unprobed prefix being executed, and here the contradiction of a live runner
+    /// and `Elsewhere` resolves towards not looking, as the lock probe's does.
+    live: bool,
+    /// The state root the staged probe sweeps and scratches under.
+    _state: &'c crate::persistence::StateDir,
+}
+
+/// The destination sites `ctx` describes. Safe only after the execution gate has
+/// passed the plan. `_lock` is the proof this run holds the lock, which is what
+/// makes the staged probe's sweep of leftovers safe; it is not kept.
+pub fn destination_sites<'c, 'r>(
+    ctx: &'c RegistryContext<'r>,
+    state: &'c crate::persistence::StateDir,
+    _lock: &crate::persistence::run_lock::RunLock,
+) -> DestinationSites<'c, 'r> {
+    DestinationSites {
+        ctx,
+        live: !ctx.runner.is_replay() && ctx.filesystem.is_this_machine(),
+        _state: state,
+    }
+}
+
+impl DestinationSites<'_, '_> {
+    /// What `provider` observes for `query` about `package`, on an adapter built
+    /// for this question, so nothing read before a step's install can answer
+    /// after it. A provider not detected observes nothing.
+    fn facts(
+        &self,
+        provider: &ProviderId,
+        package: &str,
+        query: &DestinationQuery<'_>,
+    ) -> DestinationFacts {
+        if !self.live || detected_prefix(self.ctx, provider).is_none() {
+            return DestinationFacts::NotObserved;
+        }
+        let identity = PackageIdentity::new(provider.clone(), package);
+        build(self.ctx)
+            .iter()
+            .find(|adapter| adapter.id() == provider)
+            .map_or(DestinationFacts::NotObserved, |adapter| {
+                adapter.destination_facts(&identity, query)
+            })
+    }
+
+    /// `EXECUTABLES_OWNED_BY_DESTINATION` for one leaf.
+    #[must_use]
+    pub fn ownership(
+        &self,
+        provider: &ProviderId,
+        package: &str,
+        leaf: &ExecutableName,
+    ) -> DestinationFacts {
+        self.facts(provider, package, &DestinationQuery::Ownership { leaf })
+    }
+
+    /// `PROVIDER_INTEGRITY_CHECK`.
+    #[must_use]
+    pub fn integrity(&self, provider: &ProviderId, package: &str) -> DestinationFacts {
+        self.facts(provider, package, &DestinationQuery::Integrity)
+    }
+
+    /// `NO_CROSS_PROVIDER_LINKAGE`, against where every provider is right now.
+    #[must_use]
+    pub fn linkage(&self, provider: &ProviderId, package: &str) -> DestinationFacts {
+        if !self.live {
+            return DestinationFacts::NotObserved;
+        }
+        let prefixes = self.prefix_table(provider);
+        self.facts(
+            provider,
+            package,
+            &DestinationQuery::Linkage {
+                prefixes: &prefixes,
+            },
+        )
+    }
+
+    /// The destination's prefix, each other detected prefix, and then every
+    /// documented candidate no provider was detected at, the last only where
+    /// nothing stronger claimed the path. Each as written and canonically, so a
+    /// canonical load target is measured against a canonical prefix.
+    fn prefix_table(&self, destination: &ProviderId) -> PrefixTable {
+        let mut table = PrefixTable::default();
+        let mut add = |path: &Path, class: PrefixClass| {
+            table.add(path.as_os_str().as_bytes(), class);
+            if let Ok(real) = std::fs::canonicalize(path) {
+                table.add(real.as_os_str().as_bytes(), class);
+            }
+        };
+        let ids = known_provider_ids();
+        if let Some(site) = detected_prefix(self.ctx, destination) {
+            add(site.prefix(), PrefixClass::Destination);
+        }
+        for id in ids.iter().filter(|id| *id != destination) {
+            if let Some(site) = detected_prefix(self.ctx, id) {
+                add(site.prefix(), PrefixClass::DetectedOther);
+            }
+        }
+        for id in &ids {
+            for candidate in candidate_prefixes(id) {
+                add(&candidate, PrefixClass::UndetectedCandidate);
+            }
+        }
+        table
+    }
+}
+
+impl DestinationProbe for DestinationSites<'_, '_> {
+    /// No program starts in this build. The admission is staged, because it
+    /// touches the frozen process module (`docs/passes/16-liveness-design.md`,
+    /// Staging), and until it is applied every probe is `NOT_OBSERVED`: the source
+    /// is kept and the run says so.
+    fn liveness_probe(
+        &self,
+        _package: &str,
+        _leaf: &ExecutableName,
+        _argv: &[String],
+    ) -> ProbeObservation {
+        ProbeObservation::NotRun(UncheckedCause::NotObserved)
     }
 }
 

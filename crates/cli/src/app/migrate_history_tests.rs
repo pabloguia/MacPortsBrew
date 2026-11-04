@@ -599,6 +599,7 @@ fn a_run_halted_by_a_provider_lock_names_the_provider_and_the_cause_and_no_path(
             run_id: None,
             snapshot_file: None,
             record_read_back: None,
+            check_bases: Vec::new(),
         },
     };
     let undetermined =
@@ -670,6 +671,7 @@ fn every_run_that_handed_a_mutating_step_over_prints_the_command_to_plan_the_way
                     run_id: Some(RECORD_ID.into()),
                     snapshot_file: Some("snapshot-20261004T120000Z.json".into()),
                     record_read_back: None,
+                    check_bases: Vec::new(),
                 },
                 outcome,
             ),

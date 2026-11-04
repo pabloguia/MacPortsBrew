@@ -43,6 +43,7 @@ the adapter can observe; add one for what it cannot.
 | `bottle-tags.toml` | Which prebuilt-artifact tags satisfy a machine |
 | `runtime-managers.toml` | Runtime families and the managers to suggest |
 | `stateful-packages.toml` | Families that own persistent data outside their prefix |
+| `liveness-probes.toml` | The curated probes: observed rows only, keyed `(provider, package, executable)`. The gate compares a plan's argv with it, and a package any stateful family lists under any provider is a load error (DP-051, `docs/passes/16-liveness-design.md`) |
 
 ## Bumping the version
 

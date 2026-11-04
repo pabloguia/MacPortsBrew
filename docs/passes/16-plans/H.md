@@ -265,6 +265,25 @@ Deviations from the text above, each reviewed below:
 8. **`invariant_15_*` moves to H-2.** Under `--replay` a `VERIFY_DESTINATION` halts before any read (SE-107 C1), and `--yes` with `--from-snapshot` is a usage error, so no run in H-1 reaches the site. `a_check_with_no_observation_is_unchecked_never_holds` carries the substance, under its own name.
 9. **Left as it is:** `.claude/hooks/stop-gate.sh:129` and its generated copy still point at `plan.v1.md`, a guarded file, and the frozen `crates/adapters/src/process/mod.rs` does too. `plan.v1.md` still exists and holds the same obligations.
 
+## As built (H-2)
+
+Deviations from the text above:
+
+1. **The closure takes the lock and keeps nothing of it.** `run_with_mutations(cleared, sites, destination, io, home)`, `destination: FnOnce(&RunLock) -> D`, replaces `MutatingRun.destination`; `registry::destination_sites` takes `&RunLock` as proof and does not hold it, since a site that borrowed it could not be returned by a closure a test also implements. `run_mutating` is the only caller in the product, so the constructor stays in the shell, and the word scan bans it elsewhere.
+2. **R-28's row 8 did not land**, so the table is 12 rows: 6 and 6, not the 6 and 7 INV-17 above expects. See R-28's last section.
+3. **`MAX_WALK_FILES` counts every regular file of the list, as written**, so a package with over 4096 regular files answers `WALK_OVER_BOUND`. R-27's 340 was a closure of Mach-O files. Larger kegs stay unchecked until someone measures whether the number should move.
+4. **`basis` is `checkBases` on the receipt**, a sorted set for the run, not a field per check. `Holds` carries no payload, and a per-check field would have reached 54 matches and `history.v4` for a statement one set makes. Not recorded in history.
+5. **A relative shebang on the executable list counts as an `env` one**: `#! .` names nothing that can be tested, so it is `INTERPRETER_RESOLVED_AT_RUN_TIME` and not a `Holds`.
+6. **A relative install name is `RPATH_UNRESOLVED`**, the loader's search, not a reference to nothing. Any `MachoError` is `MALFORMED_FILE`, the over-a-cap ones included, so each also stops the probe.
+7. **An `@rpath` candidate that does not exist is not `RPATH_UNRESOLVED`** when the file has candidates: R-27 finding 3 asks whether any lies under the other prefix, not which loads. An absolute reference into the destination that cannot be resolved is `WALK_OVER_BOUND`, including a weak one.
+8. **Ownership on an unknown MacPorts name:** `provides` names no version, so the version is the `(active)` row's, and with no active row the judge answers `ACTIVE_RECORD_DIFFERS`. A MacPorts link is asked twice, entry and final file; the `select` case answers empty, so `Fails` (R-26 finding 2, source only).
+9. **The snapshot's version is normalised by shape, with no provider named:** one provider's version carries its revision and the other's does not, so `_<revision>` is appended only when absent. A linked keg older than the formula's revision reads as different: `OWNER_VERSION_DIFFERS`, the safe direction, not observed here.
+10. **`runtime_dependencies` is now optional in the parser**: `null` or absent parsed before as a document error or as `[]`, and now reaches the check as `DEPENDENCIES_NOT_TOLD`. The rest of the parse is unchanged. `oldnames` is parsed for the first time.
+11. **`DestinationProbe` and `ProbeObservation` land with `NotRun` only.** The rest of the observation table is H/01's. The read-only loop keeps `NothingObserved`, so a dry run walks nothing.
+12. **`~/Library` was searched by name, not whole:** a full walk did not finish in over an hour. R-28's last section says what was left out, which the design note's "`~/Library` searched" asks more of.
+13. **The filesystem tests are in `crates/adapters/tests/destination_reads.rs`,** so the module is `pub` and exposes what they need: the stop gate's token scan covers non-comment code under `src/`, and they plant links.
+14. **What this slice cannot show:** no run reaches the machine site in this build, since the gate refuses every plan, and no recording holds these reads. The judges, the walk and the parsers are tested; the site's sequence on a live machine is not. `invariant_10_*` and the eleven `admit` refusals are H/01's.
+
 ## Slices
 
 | Slice | Branch | What | Depends on |

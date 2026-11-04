@@ -46,8 +46,9 @@ that drifts into the shell is a decision no unit test sees.
 
 ## The gate reads only the plan
 
-`execution_refusals` is pure and reads nothing but the plan and the compiled
-command table. A fact the gate must act on travels *in* the plan: a provider's
+`execution_refusals` is pure and reads nothing but the plan and compiled data:
+the command table and, since part H-2, `data/policy/liveness-probes.toml`, which
+a `LIVENESS_PROBE`'s argv must equal so a plan cannot bring its own. A fact the gate must act on travels *in* the plan: a provider's
 own configuration that outranks the invocation is a `provider_configuration`
 risk the planner writes, and the gate refuses every mutating step against that
 provider from it (DP-027 (b)). Adding an input to the gate's signature is a

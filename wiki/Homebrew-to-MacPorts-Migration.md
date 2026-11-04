@@ -110,7 +110,8 @@ this order, and the order is enforced rather than conventional:
    records of itself is on disk, its executables belong to it when read, no file
    refers to the other package manager's directory, and a curated probe exits 0
    where one exists. What cannot be told is reported as unchecked, the source is
-   kept, and the run exits 3. This version observes none of the last four yet.
+   kept, and the run exits 3. This version reads the integrity, ownership and linkage
+   checks and runs no probe yet, so a probe answers unchecked.
 4. **Set primary** — decide which copy actually runs. See
    [Primary Provider](Primary-Provider.md).
 5. **Verify resolution** — confirm it does.

@@ -14,6 +14,7 @@
 
 mod argv;
 pub mod configuration;
+pub mod destination_reads;
 pub mod entropy;
 pub mod filesystem;
 pub mod homebrew;

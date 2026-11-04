@@ -1080,6 +1080,9 @@ pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> St
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "migrate.execution_heading"));
     let _ = writeln!(out, "  {}", outcome_line(ctx, &report.outcome));
+    for basis in &report.receipt.check_bases {
+        let _ = writeln!(out, "  {}", label(ctx, basis_key(*basis)));
+    }
     // Which provider and why, not only that a lock stopped the run.
     if let Some(activity) = &report.provider_locks_at_halt {
         out.push_str(&locks_at_halt(ctx, activity));
@@ -1254,6 +1257,18 @@ fn destination_check_key(value: DestinationCheck) -> &'static str {
     })
 }
 
+/// The catalogue key for what a check that held rests on. Exhaustive, so a basis
+/// cannot reach a reader without its own sentence (R-25 finding 15).
+fn basis_key(value: macportsbrew_domain::CheckBasis) -> &'static str {
+    use macportsbrew_domain::CheckBasis;
+    match value {
+        CheckBasis::RecordedFileList => "migrate.basis.recorded_file_list",
+        CheckBasis::GeneratedFileList => "migrate.basis.generated_file_list",
+        CheckBasis::ReferencesExamined => "migrate.basis.references_examined",
+        CheckBasis::NoLoadCommands => "migrate.basis.no_load_commands",
+    }
+}
+
 fn unchecked_key(value: UncheckedCause) -> &'static str {
     match value {
         UncheckedCause::NotObserved => "migrate.unchecked.not_observed",
@@ -1261,6 +1276,20 @@ fn unchecked_key(value: UncheckedCause) -> &'static str {
         UncheckedCause::NoExecutableToProbe => "migrate.unchecked.no_executable_to_probe",
         UncheckedCause::OwnershipNotTold => "migrate.unchecked.ownership_not_told",
         UncheckedCause::MalformedFile => "migrate.unchecked.malformed_file",
+        UncheckedCause::ReadFailed => "migrate.unchecked.read_failed",
+        UncheckedCause::FileListNotKnown => "migrate.unchecked.file_list_not_known",
+        UncheckedCause::ListsOutsidePrefix => "migrate.unchecked.lists_outside_prefix",
+        UncheckedCause::ListOverCap => "migrate.unchecked.list_over_cap",
+        UncheckedCause::StatFailed => "migrate.unchecked.stat_failed",
+        UncheckedCause::DependenciesNotTold => "migrate.unchecked.dependencies_not_told",
+        UncheckedCause::OwnerLeavesKeg => "migrate.unchecked.owner_leaves_keg",
+        UncheckedCause::UnderUndetectedPrefix => "migrate.unchecked.under_undetected_prefix",
+        UncheckedCause::RpathUnresolved => "migrate.unchecked.rpath_unresolved",
+        UncheckedCause::InterpreterResolvedAtRunTime => {
+            "migrate.unchecked.interpreter_resolved_at_run_time"
+        }
+        UncheckedCause::UnreadableFile => "migrate.unchecked.unreadable_file",
+        UncheckedCause::WalkOverBound => "migrate.unchecked.walk_over_bound",
     }
 }
 
@@ -2002,6 +2031,28 @@ mod tests {
         assert!(steps.contains('1') && steps.contains('4'), "{steps}");
         let provider = gate_refusal_line(&pt, &refusals[22]);
         assert!(provider.contains("macports"), "{provider}");
+    }
+
+    /// R-25 finding 1: a list generated from the disk cannot notice a missing
+    /// file, so its sentence says so and never claims every file is present, in
+    /// either locale.
+    #[test]
+    fn the_generated_basis_never_renders_a_completeness_claim() {
+        let en = include_str!("../../../../locales/en.toml");
+        let pt = include_str!("../../../../locales/pt-BR.toml");
+        let value = |text: &str, key: &str| {
+            text.lines()
+                .find(|l| l.starts_with(&format!("\"{key}\"")))
+                .map(str::to_owned)
+                .expect(key)
+        };
+        let generated = "migrate.basis.generated_file_list";
+        let english = value(en, generated);
+        assert!(!english.contains("every file"), "{english}");
+        assert!(english.contains("would not be noticed"), "{english}");
+        let portuguese = value(pt, generated);
+        assert!(!portuguese.contains("todos os arquivos"), "{portuguese}");
+        assert!(portuguese.contains("não seria notado"), "{portuguese}");
     }
 
     /// One thing a `VERIFY_DESTINATION` could not tell.

@@ -421,6 +421,20 @@ pub trait ProviderRead {
         let _ = pkg;
         Ok((ExecutableList::NotRecorded, Placement::default()))
     }
+
+    /// What this provider observes for a destination check on the installed
+    /// `pkg` (work order 16 part H). A judge in `application` decides what the
+    /// facts mean. The default observes nothing and starts no program, which is
+    /// also what any adapter answers where this host's disk is not the machine
+    /// described (INV-15).
+    fn destination_facts(
+        &self,
+        pkg: &PackageIdentity,
+        query: &crate::destination_facts::DestinationQuery<'_>,
+    ) -> crate::destination_facts::DestinationFacts {
+        let _ = (pkg, query);
+        crate::destination_facts::DestinationFacts::NotObserved
+    }
 }
 
 #[cfg(test)]

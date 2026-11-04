@@ -63,7 +63,7 @@ The original brief said "verify" without defining it. It is defined here.
    package's own files or the destination files they load (see contamination check
    below). "New" is not claimed: the snapshot holds no baseline (R-27).
 
-**MUST** (DP-051, work order 16 part H; the answer model is built, H-1, and nothing observes the checks yet: SE-113). **Each of checks
+**MUST** (DP-051, work order 16 part H; the answer model is built, H-1; integrity, ownership and linkage are observed since H-2, and no probe runs yet: SE-113). **Each of checks
 2 to 5 answers `HOLDS`, `FAILS` or `UNCHECKED`.** "Could not tell" is `UNCHECKED`, and
 is never either of the others. `FAILS` stops the step, and the source is kept. An
 `UNCHECKED` does not stop it: it is reported per check and per executable, **the source
@@ -104,7 +104,7 @@ activation read alone, in both directions (S-2;
 `provider_reports_active_is_evaluable_on_verify_destination_only`, and over the
 recordings `invariant_15_a_recorded_json_inventory_is_judged_by_each_entrys_own_linked_keg`
 and `invariant_15_a_recorded_installed_list_is_judged_by_each_names_own_marker`).
-Checks 2 to 5 are DP-051's. Since H-1 they answer `HOLDS`, `FAILS` or `UNCHECKED`; nothing observes them yet. This build runs no plan past the gate; past it, integrity, ownership and linkage would answer `UNCHECKED` / `NOT_OBSERVED` and the probe `NO_CURATED_PROBE` or `NO_EXECUTABLE_TO_PROBE`, and no source would be removed on them.
+Checks 2 to 5 are DP-051's. Since H-1 they answer `HOLDS`, `FAILS` or `UNCHECKED`. Since H-2 integrity, ownership and linkage are observed, on this machine, under the run's lock (`NOT_OBSERVED` under a replay or a snapshot file, INV-15). This build runs no plan past the gate; past it, a probe would answer `NOT_OBSERVED` until its admission lands, or `NO_CURATED_PROBE` or `NO_EXECUTABLE_TO_PROBE` with no row, and no source would be removed on them.
 
 **MUST** (part F, work order 16, built in F-3; SE-112). **Check 3's "expected
 executables" are the source package's executable list** — the executables the
@@ -316,7 +316,7 @@ restored from a guess.
 |---|---|
 | Destination install fails | Source untouched. Report and stop. |
 | Destination verification fails | Source untouched. Report which check failed. |
-| A destination check could not be evaluated (the rule is built, H-1; nothing observes the checks yet: SE-113) | Source untouched, never removed. The run continues and, unless a later step halts, ends `COMPLETED_WITH_UNCHECKED`, naming each check. |
+| A destination check could not be evaluated (the rule is built, H-1; the probe is not observed yet: SE-113) | Source untouched, never removed. The run continues and, unless a later step halts, ends `COMPLETED_WITH_UNCHECKED`, naming each check. |
 | Activation fails | Restore previous resolution where safe. Source untouched. |
 | Source removal fails after a good destination | Destination usable. Report **partial success**. Leave recovery instructions. |
 | Cleanup fails | Never affects migration status. Report separately. |

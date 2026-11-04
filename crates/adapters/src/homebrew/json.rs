@@ -205,6 +205,8 @@ struct RawFormula {
     #[serde(default)]
     aliases: Vec<String>,
     #[serde(default)]
+    oldnames: Vec<String>,
+    #[serde(default)]
     versioned_formulae: Vec<String>,
     #[serde(default)]
     dependencies: Vec<String>,
@@ -248,8 +250,9 @@ struct RawKeg {
     built_as_bottle: Option<bool>,
     #[serde(default)]
     installed_on_request: Option<bool>,
+    /// Absent and `null` are one answer, and neither is `[]` (R-25 finding 11).
     #[serde(default)]
-    runtime_dependencies: Vec<RawRuntimeDependency>,
+    runtime_dependencies: Option<Vec<RawRuntimeDependency>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -348,6 +351,9 @@ pub struct Keg {
     pub installed_on_request: Option<bool>,
     /// Runtime dependency names, validated.
     pub runtime_dependencies: Vec<RuntimeDependency>,
+    /// Whether the document gave that list at all. An empty list given is an
+    /// honest none; one not given says nothing (R-25 finding 11).
+    pub runtime_dependencies_told: bool,
 }
 
 /// One runtime dependency of a keg.
@@ -392,6 +398,8 @@ pub struct Formula {
     pub keg_only_reason: Option<KegOnlyReason>,
     /// Alternative names.
     pub aliases: Vec<String>,
+    /// Names it used to have.
+    pub oldnames: Vec<String>,
     /// Versioned siblings.
     pub versioned_formulae: Vec<String>,
     /// Declared dependencies, used when a keg carries no runtime record.
@@ -612,6 +620,7 @@ impl Parsed {
                 explanation: bounded_text(Some(r.explanation)).unwrap_or_default(),
             }),
             aliases: raw.aliases,
+            oldnames: raw.oldnames,
             versioned_formulae: raw.versioned_formulae,
             dependencies,
             build_dependencies,
@@ -640,7 +649,9 @@ impl Parsed {
             if raw.installed_on_request.is_some() {
                 self.observed.insert(Observed::RequestedRecord);
             }
-            let runtime_dependencies = self.parse_runtime(name, index, raw.runtime_dependencies)?;
+            let runtime_dependencies_told = raw.runtime_dependencies.is_some();
+            let runtime_dependencies =
+                self.parse_runtime(name, index, raw.runtime_dependencies.unwrap_or_default())?;
             let mut used_options = raw.used_options;
             used_options.sort_unstable();
             used_options.dedup();
@@ -651,6 +662,7 @@ impl Parsed {
                 built_as_bottle: raw.built_as_bottle,
                 installed_on_request: raw.installed_on_request,
                 runtime_dependencies,
+                runtime_dependencies_told,
             });
         }
         Ok(kegs)

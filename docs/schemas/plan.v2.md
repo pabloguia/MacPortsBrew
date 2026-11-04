@@ -312,9 +312,11 @@ comments:
    snapshot cannot say (04, check 1). A planner
    `VERIFY_DESTINATION` also carries DP-051's four checks. Those are answered
    through a destination site rather than a read, with `HOLDS`, `FAILS` or
-   `UNCHECKED` (`04-migration-and-safety.md`; nothing observes them yet, and past
-   the gate, which this build does not reach, integrity, ownership and linkage
-   would answer `UNCHECKED` / `NOT_OBSERVED`); `FAILS` halts, `UNCHECKED` keeps
+   `UNCHECKED` (`04-migration-and-safety.md`). Integrity, ownership and linkage are
+   observed on this machine under the run's lock, and past the gate, which this
+   build does not reach, the probe would answer `UNCHECKED` / `NOT_OBSERVED` until
+   its admission lands, as would all four under a replay or a snapshot file);
+   `FAILS` halts, `UNCHECKED` keeps
    the source and ends the run `COMPLETED_WITH_UNCHECKED`. **The gate refuses a
    `VERIFY_DESTINATION` missing `PROVIDER_REPORTS_ACTIVE` or any of the four, one
    missing `PACKAGE_NEWLY_PRESENT` when the plan adds the package, or one whose
@@ -945,7 +947,7 @@ non-mutating and the command exits 4:
       "blocking": true
     }
   ],
-  "policyVersion": "2026.10.18-2",
+  "policyVersion": "2026.11.04-1",
   "dryRunOnly": true,
   "concurrentProviderActivity": {
     "activity": "UNKNOWABLE",

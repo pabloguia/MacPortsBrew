@@ -67,6 +67,7 @@
 //! stated rather than hidden.
 
 pub mod availability;
+pub mod destination;
 pub mod names;
 pub mod parse;
 pub mod portfile;
@@ -194,6 +195,9 @@ fn is_allowed_argv(argv: &[String]) -> bool {
             Some(_) => true,
             None => false,
         })
+        // The owner's version on the destination check, `-q installed <name>`:
+        // the read the verify step already makes (R-26 finding 5).
+        || is_head_and_one_name(argv, ARGV_INSTALLED, crate::process::is_port_name)
 }
 
 /// The adapter's own refusal of a vector outside the allowlist: a programming
@@ -1050,6 +1054,14 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
             EXECUTABLE_RELATIVE,
             self.filesystem,
         )
+    }
+
+    fn destination_facts(
+        &self,
+        pkg: &PackageIdentity,
+        query: &macportsbrew_domain::DestinationQuery<'_>,
+    ) -> macportsbrew_domain::DestinationFacts {
+        self.observed(pkg, query)
     }
 
     /// `port -q contents <port>`, only for a port the inventory shows

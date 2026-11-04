@@ -386,3 +386,14 @@ Line numbers of `docs/spec/` below are at `9b8d68d`.
 - `ripgrep` or `gnupg` is installed on a machine available to this project: replace the `cited` rows, and settle `gpg`.
 - Part I builds shims (Finding 17); an arm64 machine is available (Findings 12, 19).
 - `man dyld`'s fallback text changes (E-6): Intel `/usr/local/lib` is why it matters.
+
+## Re-qualification of rows 1-13 (2026-11-04, work order 16 H-2)
+
+Each row in the form it will run: the canonical path with `arg0` set to the placed leaf; a scratch path with a space, serving as `HOME`, `TMPDIR` and working directory; the design note's environment. Three rounds: the destination's `bin` plus `SYSTEM_PATH`; `SYSTEM_PATH` alone; and under `sandbox-exec` denying the network, every exec but the program itself, and every write outside scratch (there `arg0` is the path). The harness stayed in the session scratch directory. No other program was run, and never `httpd`.
+
+| Rows | Result |
+|---|---|
+| 1-7, 9-13 | Exit 0 in all three rounds; no process left; nothing in scratch; nothing on stderr. All compiled programs, no setuid or setgid. So no network and no `/usr/bin` shim was **needed**, which is what the sandbox can show |
+| 8 (`macports`, `gettext`, `gettext`) | **Does not land.** The program behaves, but `port -q provides` answers `gettext-runtime` for the placed file, so the key is wrong and check 3 would fail it. A row keyed `gettext-runtime` would need its own decision; not invented here |
+
+`observed_version` is in the owner rule's shape: `pkgconf` holds two kegs here (3.0.6, 3.0.7) and 3.0.7 is linked. `~/Library`, **searched by name and not exhaustively:** nothing naming a row's program was newer than the run's marker, to depth 8 everywhere but `Containers`, `Group Containers`, `Mobile Documents`, `CloudStorage` and `Developer` (not searched), and to depth 3 of `Caches`. A walk of the whole of it did not finish in over an hour and was stopped, so a write under another name, or in those directories, is not excluded; the sandbox round denied such a write and the program still exited 0. No crash report named one, and `xcrun_db` and the Command Line Tools marker were unchanged. **The same limits as above:** one Intel machine, and a sample. Row `gettext` (Homebrew) lands, but its keg holds Java classes (R-27's closing ruling), so the probe is not reached for it.

@@ -540,3 +540,9 @@ disagreements 0                    otool nonzero exits 0
 ```
 
 The 200 are a sample, not the sweep, and `otool` is the reference here as E-15 says, not `dyld`. No file here holds a cross-provider reference, a `LC_LAZY_LOAD_DYLIB`, a `LC_LOAD_UPWARD_DYLIB` or a `LC_DYLD_ENVIRONMENT` (E-3), so those kinds and detection itself are shown only on specimens built in `crates/adapters/tests/macho.rs`.
+
+## Ruling on Java classes (2026-11-04, work order 16 H-2)
+
+The 6 files above stay `Unchecked`. A `0xcafebabe` that does not fit a fat table answers `MALFORMED_FILE`, because a crafted fat header must not hide as a Java class; `gettext` and `nmap` therefore answer unchecked on this check and keep their sources. **An accepted cost, in the safe direction**, and one that also keeps a probe from running for them (no file may be malformed). `crates/adapters/src/destination_reads.rs`, `a_cafebabe_that_does_not_fit_is_malformed_and_never_not_macho`.
+
+The reader's first live run on 2026-11-04 (session scratch, read-only, no package's program started) found the same in MacPorts' `gettext`, and both `gettext` packages also carry an `env` shebang on their executable lists, so `gettext` answers unchecked here on either provider, and its probe is not reached. The same run: `xz`, `htop`, `m4` and `pkgconf` read clean on each provider that has them; `openssl@4`'s `openssl` answered `openssl@3`, and `npm` `OWNER_LEAVES_KEG`, as R-26 predicted.

@@ -183,7 +183,8 @@ Identical to the other direction, because it is the same planner:
    executables belonging to it when read, no file referring to the other package
    manager's directory, and a curated probe where one exists. What cannot be told is
    reported as unchecked, the source is kept, and the run exits 3. This version
-   observes none of the last four yet.
+   reads the integrity, ownership and linkage checks and runs no probe yet, so a probe
+   answers unchecked.
 4. **Set primary** — see [Primary Provider](Primary-Provider.md).
 5. **Verify resolution.**
 6. **Remove source** — optional, only reachable after step 3 passed;
