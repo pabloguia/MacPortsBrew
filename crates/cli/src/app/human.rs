@@ -971,7 +971,12 @@ pub fn concurrency(ctx: &Context, activity: &ConcurrentProviderActivity) -> Stri
             ]),
         ),
     };
-    let mut text = format!("\n{line}\n");
+    format!("\n{line}\n{}", cause_lines(ctx, activity))
+}
+
+/// What to do about each provider that could not be answered for.
+fn cause_lines(ctx: &Context, activity: &ConcurrentProviderActivity) -> String {
+    let mut text = String::new();
     if let ConcurrentProviderActivity::Observed { undetermined, .. }
     | ConcurrentProviderActivity::NotDetermined { undetermined } = activity
     {
@@ -986,6 +991,41 @@ pub fn concurrency(ctx: &Context, activity: &ConcurrentProviderActivity) -> Stri
         }
     }
     text
+}
+
+/// What stopped a run: the sample was taken immediately before a command, so it
+/// says that, not when the machine was read.
+fn locks_at_halt(ctx: &Context, activity: &ConcurrentProviderActivity) -> String {
+    let line = match activity {
+        ConcurrentProviderActivity::Observed { providers, .. } => {
+            let providers = providers
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            ctx.messages.render(
+                "migrate.locks_at_halt.held",
+                &params(&[("providers", providers)]),
+            )
+        }
+        ConcurrentProviderActivity::NotDetermined { undetermined } => {
+            let providers = undetermined
+                .keys()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            ctx.messages.render(
+                "migrate.locks_at_halt.not_determined",
+                &params(&[("providers", providers)]),
+            )
+        }
+        ConcurrentProviderActivity::NotChecked
+        | ConcurrentProviderActivity::Unknowable
+        | ConcurrentProviderActivity::NoneObserved => {
+            return cause_lines(ctx, activity);
+        }
+    };
+    format!("  {line}\n{}", cause_lines(ctx, activity))
 }
 
 /// Whether `status` and `list`, which are overviews and do not otherwise carry
@@ -1031,7 +1071,7 @@ pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> St
     let _ = writeln!(out, "  {}", outcome_line(ctx, &report.outcome));
     // Which provider and why, not only that a lock stopped the run.
     if let Some(activity) = &report.provider_locks_at_halt {
-        out.push_str(&concurrency(ctx, activity));
+        out.push_str(&locks_at_halt(ctx, activity));
     }
     if matches!(report.outcome, RunOutcome::Refused { .. }) {
         for refusal in execution_refusals(plan).refusals() {

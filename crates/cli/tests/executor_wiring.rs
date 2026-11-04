@@ -823,8 +823,8 @@ fn a_sample_failing_before_a_command_halts_that_command_and_says_why() {
 fn invariant_01_no_removal_dispatches_unless_the_lock_probe_answered_immediately_before_it() {
     // A clean run tells which sample stands immediately before the last command;
     // that command is the removal. Held at that one sample: everything before it
-    // went out, the removal did not, and it ends a partial success, recorded and
-    // with the marker cleared (INV-03).
+    // went out, the removal did not, and it ends a partial success with the marker
+    // cleared. A record exists only if a command went out before it (`must_record`).
     let mut removed_somewhere = false;
     for (name, direction) in directions() {
         let cleared = direction.cleared();
@@ -873,6 +873,9 @@ fn invariant_01_no_removal_dispatches_unless_the_lock_probe_answered_immediately
             PARTIAL_SUCCESS_EXIT_CODE,
             "{name}"
         );
+        assert_eq!(report.record_written, handed > 1, "{name}");
+        assert_eq!(report.history_error, None, "{name}");
+        assert_eq!(report.marker_left, None, "{name}");
     }
     assert!(removed_somewhere, "no direction removes anything");
 }

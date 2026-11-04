@@ -543,10 +543,15 @@ change is made. Silent deviation remains the one unrecoverable error.
   catch-all would be code nothing runs. **The tripwire**, `mutations_cannot_dispatch_while_a_live_run_still_says_not_checked`
   through `production_lock_probe_violations`, holds on every build, over scanned tokens rather than lines: outside the
   probe's module and the domain type nothing builds or imports `NoneObserved`; outside the domain type and `analysis.rs`
-  nothing builds `NotChecked`; only the probe's module implements `ProviderLockProbe`; an unsampled `analyze(` is only a
-  snapshot's; every `MutatingRun`'s probe is the registry's; the context samples once and carries it. "Only the owner
+  nothing builds this type's `NotChecked` or asks a source with no sample; only the probe's module implements
+  `ProviderLockProbe`, and nothing renames it; an unsampled `analyze(` is only a snapshot's; outside the shell `MutatingRun`
+  is only ever built, with the registry's probe, and no probe is reassigned; the context samples once, counts broken
+  providers and carries it; and `[locks]` holds each sample's place and that its answer is used. "Only the owner
   relaxes this" stays. Its rewrite is recorded here because it is a gate: it asks more than before. **Declared limit:**
-  serde's `Deserialize` can still construct the value, which the scan does not see and no production path does.
+  it reads source text, so it raises the cost of a mistake and does not prove the absence of a determined one: serde's
+  `Deserialize` can construct the value, a macro or a `#[path]` outside `src/` is not read, and two reviews each found
+  new ways past earlier versions. What stands behind it is the behaviour in `executor_wiring.rs`, except on the consent
+  path, which no plan reaches in this build and part J owes a test.
   **Deferred:** the `OBSERVED` and `NOT_DETERMINED` sentences still join provider ids with a hard-coded `.join(", ")` in
   `crates/cli/src/app/human.rs`, the catalogue list form owed "with the detector"; both catalogues read correctly with it
   today, and `add-locale` is where it binds. **Declared:** any local account that can read a lock file can hold a `flock`

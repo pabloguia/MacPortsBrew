@@ -490,7 +490,9 @@ fn assert_unknowable_in_words(text: &str, context: &str) {
 
 #[test]
 fn invariant_15_a_replayed_run_cannot_observe_this_hosts_locks() {
-    // A recording carries no process table, and a replay must not consult
+    // A recording carries no provider locks (that a replay never looks is
+    // `invariant_15_a_replayed_or_snapshotted_run_never_samples_provider_locks`),
+    // and a replay must not consult
     // this host's (INV-15): every answer is `UNKNOWABLE`, never a check that
     // was not made, whatever this host's environment says.
     let scratch = Scratch::new("replay-concurrency");

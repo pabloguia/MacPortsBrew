@@ -65,14 +65,19 @@ fn executor_files() -> Vec<SourceFile> {
     files
 }
 
-/// The executable code of a file: no test module (the convention is that it is
-/// last), no comment of any kind, no string literal's content. A token inside
-/// any of those is not wiring.
+/// The executable code of a file: no test module, no comment of any kind, no
+/// string literal's content. A token inside any of those is not wiring.
 fn code_of(text: &str) -> String {
-    // Cut at the test module only: an earlier `#[cfg(test)]` helper must not
-    // hide the rest of the file from the scans (slice 4 review).
-    let before_tests = text.split("#[cfg(test)]\nmod").next().unwrap_or("");
-    let chars: Vec<char> = before_tests.chars().collect();
+    // Comments first, so a commented `#[cfg(test)]` hides nothing, and then only
+    // the test modules themselves: production code can follow one, and an earlier
+    // `#[cfg(test)]` helper must not hide the rest of the file (slice 4 review;
+    // G-3 review, S1).
+    without_test_modules(&stripped(text))
+}
+
+/// `text` without comments or string contents.
+fn stripped(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
     let is_ident = |c: char| c.is_alphanumeric() || c == '_';
     let mut out = String::with_capacity(chars.len());
     let mut i = 0;
@@ -423,6 +428,15 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
                 ));
             }
         }
+        // A sample whose answer is thrown away is no sample (G-3 review, S2): the
+        // consent path has no behavioural test until part J makes it reachable.
+        for at in &samples {
+            let statement = code[*at..].split(';').next().unwrap_or("");
+            let tested = code[..*at].trim_end().ends_with("if let Err(refusal) =");
+            if !tested && !statement.contains('?') {
+                violations.push(format!("[locks] {name}: a sample's answer is discarded"));
+            }
+        }
         // Each capture under the lock has a sample before and after it: what it
         // reads, a snapshot among it, must not be a provider's work in progress.
         for capture in calls_of(code, "(io.recapture)(") {
@@ -581,10 +595,15 @@ fn without_test_modules(code: &str) -> String {
         let after = rest[at + "#[cfg(test)]".len()..].trim_start();
         out.push_str(&rest[..at]);
         if let Some(body) = after.strip_prefix("mod ") {
-            let Some(open) = body.find('{') else {
+            // `mod x;` is a declaration: it ends there, and what follows is kept.
+            let Some(open) = body.find(['{', ';']) else {
                 rest = "";
                 break;
             };
+            if body[open..].starts_with(';') {
+                rest = &body[open + 1..];
+                continue;
+            }
             let mut depth = 0usize;
             let mut end = body.len();
             for (i, c) in body[open..].char_indices() {
@@ -617,15 +636,13 @@ fn source_files() -> Vec<SourceFile> {
             let path = entry.expect("an entry").path();
             if path.is_dir() {
                 walk(root, &path, out);
-            } else if path.extension().is_some_and(|e| e == "rs")
-                && path.file_name().is_some_and(|n| n != "tests.rs")
-            {
-                let text = std::fs::read_to_string(&path).expect("readable");
+            } else if path.extension().is_some_and(|e| e == "rs") {
                 let relative = path.strip_prefix(root).expect("under the root");
-                out.push((
-                    relative.display().to_string(),
-                    without_test_modules(&code_of(&text)),
-                ));
+                // The one file that is a test module declared elsewhere.
+                if relative != std::path::Path::new("crates/application/src/executor/tests.rs") {
+                    let text = std::fs::read_to_string(&path).expect("readable");
+                    out.push((relative.display().to_string(), code_of(&text)));
+                }
             }
         }
     }
@@ -673,24 +690,42 @@ fn production_lock_probe_violations(files: &[SourceFile]) -> Vec<String> {
                 }
             }
         }
-        // `RunFacts::NotChecked` in these two is another type, about the marker.
-        let another_not_checked = [
-            "crates/cli/src/app/interrupted.rs",
-            "crates/application/src/doctor.rs",
-        ];
-        if !in_type
-            && name != "crates/application/src/analysis.rs"
-            && !another_not_checked.contains(&name.as_str())
-        {
-            for after in word_uses(code, "NotChecked") {
-                if !is_a_pattern(after) {
-                    v.push(format!("{name}: says nobody looked"));
-                }
+        // `RunFacts::NotChecked` is another type, about the marker, and it is
+        // declared in `doctor.rs`.
+        if !in_type && name != "crates/application/src/analysis.rs" {
+            let word = |c: char| c.is_alphanumeric() || c == '_';
+            let elsewhere = code
+                .match_indices("NotChecked")
+                .filter(|(at, _)| !code[..*at].chars().next_back().is_some_and(word))
+                .filter(|(at, token)| !code[at + token.len()..].starts_with(word))
+                .filter(|(at, _)| !code[..*at].ends_with("RunFacts::"))
+                .filter(|(at, token)| !is_a_pattern(code[at + token.len()..].trim_start()));
+            let declared = usize::from(name == "crates/application/src/doctor.rs");
+            if elsewhere.count() > declared {
+                v.push(format!("{name}: says nobody looked"));
             }
+        }
+        if name != "crates/application/src/analysis.rs"
+            && code.contains(".concurrent_provider_activity()")
+        {
+            v.push(format!("{name}: asks a source with no sample"));
         }
         let flat: String = code.split_whitespace().collect::<Vec<_>>().join(" ");
         if !in_probe && flat.contains("ProviderLockProbe for ") {
             v.push(format!("{name}: implements the probe outside its module"));
+        }
+        if flat.contains("ProviderLockProbe as ") {
+            v.push(format!("{name}: renames the probe's trait"));
+        }
+        if flat.contains(".locks =") {
+            v.push(format!("{name}: replaces a run's probe"));
+        }
+        if name != "crates/cli/src/executor/mod.rs" {
+            for after in word_uses(code, "MutatingRun") {
+                if !after.starts_with('{') {
+                    v.push(format!("{name}: names a run other than by building it"));
+                }
+            }
         }
         for at in calls_of(code, "analyze(") {
             // `ctx.analyze(` is the context's method, which carries the sample.
@@ -881,20 +916,55 @@ fn the_probe_tripwire_names_each_way_it_is_broken() {
 
 #[test]
 fn a_test_module_is_removed_and_what_follows_it_is_kept() {
-    let code = "fn a() {}\n#[cfg(test)]\nmod tests { fn t() { if x { y(); } } }\nfn b() {}\n#[cfg(test)]\nfn c() {}\n";
-    let kept = without_test_modules(code);
+    // Through `code_of`, the composition every scan uses (G-3 review, S1).
+    for (what, module) in [
+        (
+            "braced",
+            "#[cfg(test)]\nmod tests { fn t() { if x { y(); } } }\n",
+        ),
+        ("declared", "#[cfg(test)]\nmod tests;\n"),
+        ("declared on one line", "#[cfg(test)] mod tests;\n"),
+        ("commented", "// #[cfg(test)]\n// mod real { }\n"),
+    ] {
+        let kept = code_of(&format!("fn a() {{}}\n{module}fn b() {{}}\n"));
+        assert!(
+            kept.contains("fn a()") && kept.contains("fn b()"),
+            "{what}: {kept}"
+        );
+        assert!(!kept.contains("fn t()"), "{what}: {kept}");
+    }
+    let helper = code_of("#[cfg(test)]\nfn c() {}\nfn d() {}\n");
     assert!(
-        kept.contains("fn a()") && kept.contains("fn b()") && kept.contains("fn c()"),
-        "{kept}"
+        helper.contains("fn c()") && helper.contains("fn d()"),
+        "{helper}"
     );
-    assert!(!kept.contains("fn t()"), "{kept}");
+    // And what the scan is for: a stub below a test module does not hide.
+    let mut files = a_good_product();
+    files.push((
+        "crates/cli/src/app/x.rs".to_string(),
+        code_of("#[cfg(test)]\nmod t;\nimpl ProviderLockProbe for Stub {}\n"),
+    ));
+    assert!(!production_lock_probe_violations(&files).is_empty());
+}
+
+#[test]
+fn status_and_list_each_ask_whether_an_overview_shows_the_answer() {
+    // G-3 review: replay and snapshot runs are quiet there anyway, so no fixture
+    // would notice these calls going.
+    let files = source_files();
+    let (_, code) = files
+        .iter()
+        .find(|(n, _)| n == "crates/cli/src/app/mod.rs")
+        .expect("the commands");
+    assert_eq!(calls_of(code, "human::an_overview_shows(").len(), 2);
 }
 
 #[test]
 fn invariant_15_a_snapshot_context_has_nothing_to_sample_with() {
-    // The behaviour is `the_concurrency_flag_never_claims_a_check_it_did_not_make`;
+    // The behaviour is
+    // `invariant_15_a_plan_or_analysis_from_a_snapshot_file_is_a_function_of_the_file`;
     // this holds why: the one call of the probe is on the path that captured, and
-    // the path that loads a file sets the answer without one.
+    // the path that loads a file has no registry to build one from.
     let files = source_files();
     let (_, code) = files
         .iter()
@@ -904,9 +974,15 @@ fn invariant_15_a_snapshot_context_has_nothing_to_sample_with() {
     assert_eq!(call.len(), 1, "one sample");
     let capture = code.find("parts.capture(").expect("the capture");
     assert!(capture < call[0], "the sample follows the capture");
+    let flat: String = code.split_whitespace().collect();
+    let answer = flat
+        .find("provider_locks:ConcurrentProviderActivity::Unknowable,")
+        .expect("a loaded file looks at nothing");
+    let literal = &flat[answer..];
+    let end = literal.find("})").expect("the end of the literal");
     assert!(
-        code.contains("provider_locks: ConcurrentProviderActivity::Unknowable,"),
-        "a loaded file looks at nothing"
+        literal[..end].contains("registry:None"),
+        "that path holds no registry"
     );
 }
 
@@ -1260,6 +1336,16 @@ fn a_lock_sample_misplaced_or_shared_by_two_dispatches_is_a_violation() {
         !locks(&unsampled_snapshot).is_empty(),
         "a snapshot before its sample"
     );
+    let discarded = GOOD.replace(
+        "    provider_lock_sample(locks, &now)?;",
+        "    let _ = provider_lock_sample(locks, &now);",
+    );
+    assert!(!locks(&discarded).is_empty(), "an answer thrown away");
+    let tested = GOOD.replace(
+        "    provider_lock_sample(locks, &now)?;",
+        "    if let Err(refusal) = provider_lock_sample(locks, &now) { halt(refusal); }",
+    );
+    assert_eq!(locks(&tested), Vec::<String>::new(), "an answer tested");
     let sampled_snapshot = GOOD.replace(
         under,
         &format!("{under}    (io.recapture)();\n{under}    take_snapshot(state);\n"),

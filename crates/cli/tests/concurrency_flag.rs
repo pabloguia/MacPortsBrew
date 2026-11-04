@@ -267,6 +267,7 @@ fn plan_and_analyze_from_a_snapshot_file_say_the_flag_is_unknowable() {
 
 #[test]
 fn invariant_15_a_replayed_plan_or_analysis_cannot_observe_this_hosts_locks() {
+    // `invariant_15_a_replayed_or_snapshotted_run_never_samples_provider_locks`:
     // A recording carries no provider locks and a replay must not sample this
     // host's (INV-15; `registry::lock_probe`): run again under another home and path, the documents
     // and the sentences are the same bytes. Only `capturedAt`, which a replay

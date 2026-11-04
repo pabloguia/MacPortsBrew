@@ -276,6 +276,9 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
 | `security-reviewer`, G-3 code | `wo16/G-3-refusal`, uncommitted, 2026-11-03 | Tripwire bypasses, consent capture unsampled before the snapshot, any-local-account blocking, refusal text false, halt names no provider, presence as of capture, sampled set, marker assertions, no timeout | Fixed in `9ed61e9` and the documents; declared in 04, SE-015 or "As built": any-local-account blocking, presence as of capture, sampled set, no timeout, `Deserialize` constructing the value. Halt names no provider: fixed, `providerLocksAtHalt` and the text |
 | `docs-auditor`, G-3 | `wo16/G-3-refusal`, uncommitted, 2026-11-03 | 38 items | Fixed in the documents |
 
+| `spec-guardian`, G-3 round 2 | `523b895`, 2026-11-04 | Approve with changes: tripwire bypasses left (`mod x;` hides the next item, `tests.rs`, aliases, `NotChecked` file-wide), SE-015 overstates it; nothing guards the `status`/`list` wiring; low: a doc comment, a thin INV-15 test, the halt's instant, an imprecise deviation, a comment overclaiming | All fixed; SE-015 now states the tripwire's limit |
+| `security-reviewer`, G-3 round 2 | `523b895`, 2026-11-04 | No product defect, every dispatch preceded by a clearing sample. S1 `code_of` cut the file first; S2 a sample's answer can be discarded on the consent path; S3 alias, turbofish, reassignment; S4 the halt's instant | S1, S3, S4 fixed. S2: text check that the answer is used; the behavioural test stays owed by part J. A token consumed by dispatch was considered and not built, since the behavioural tests already catch a discard there |
+
 ## Changes from review round 1 (binding; they override the Design above where they differ)
 
 1. **The lock directory is never followed (SR M1, SG R3).** Before listing,
@@ -543,13 +546,14 @@ no change to `THIS_BUILD_DISPATCHES_MUTATIONS`.
 - **Deviations, all in SE-015:** the order of the two checks before the sample, which
   stays as built; a halt at the first command ends a partial success, since the snapshot
   step was carried out; a dedicated error identifier, `PROVIDER_LOCKS_NOT_DETERMINED`,
-  deviating from item 8 and the Design, which had `SAFETY_UNVERIFIABLE` with that name as
-  its reason, because a plan was built and the fact is about this machine. It samples around the capture after
+  deviating from Design 1, which had `SAFETY_UNVERIFIABLE` with that name as its reason
+  (item 8 and Design 4 already name it, exit 4), because a plan was built and the fact is about this machine. It samples around the capture after
   the consent question too, because the snapshot is written from that capture.
 - `an_overview_shows` decides what `status` and `list` render: `OBSERVED` and
   `NOT_DETERMINED` only.
 - **The halt's lock field:** what the sample that halted a run answered reaches `--json`
-  as `providerLocksAtHalt` and the text through the same sentences as a read-only command's.
+  as `providerLocksAtHalt`, and the text through its own sentences, which say the instant was
+  immediately before the command, and the same cause lines.
 - `provider_lock_activity` reads presence as of the last capture, declared in 04: a
   provider that broke after it is not seen.
 - **No plan-versus-sampled comparison:** every detected provider is sampled, which is

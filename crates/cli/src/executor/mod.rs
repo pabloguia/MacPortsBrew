@@ -654,7 +654,7 @@ pub fn run_mutating<M: MutationSite>(
 /// (`PLAN_NOT_SHOWN`), the probe, the lock, the recapture, an interrupted
 /// run's marker, a consent question refused or unseen (`USER_ABORTED`,
 /// `SAFETY_BLOCKED`), a provider's own lock held or not determined under the
-/// lock (`PROVIDER_LOCK_HELD`, `SAFETY_UNVERIFIABLE`), or a marker that could
+/// lock (`PROVIDER_LOCK_HELD`, `PROVIDER_LOCKS_NOT_DETERMINED`), or a marker that could
 /// not be written. Nothing mutating
 /// ran, and on a consent refusal nothing was written.
 // `io` by value: the run spends the witness it carries, so one confirmation
