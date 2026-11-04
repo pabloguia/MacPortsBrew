@@ -1242,10 +1242,7 @@ fn an_ending_its_steps_contradict_is_refused() {
     assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
     // Nothing unchecked on any step.
     let mut value = stored_json(&unchecked_record());
-    value["steps"][1] = serde_json::json!({
-        "index": 2, "kind": "VERIFY_DESTINATION", "dispatched": true,
-        "result": "VERIFIED", "evidence": []
-    });
+    value["steps"][1]["result"] = serde_json::json!({ "result": "VERIFIED", "evidence": [] });
     assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
 }
 
@@ -1255,7 +1252,7 @@ fn something_unchecked_on_another_step_or_an_empty_list_is_refused() {
     value["steps"][1]["kind"] = serde_json::json!("VERIFY_REMOVAL");
     assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
     let mut value = stored_json(&unchecked_record());
-    value["steps"][1]["unchecked"] = serde_json::json!([]);
+    value["steps"][1]["result"]["unchecked"] = serde_json::json!([]);
     assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
     // A kept source with nothing unchecked before it.
     let mut value = stored_json(&unchecked_record());
@@ -1285,6 +1282,70 @@ fn a_stored_empty_unchecked_list_is_refused_whatever_the_ending() {
     );
     assert!(read_back(stored_json(&good)).is_ok(), "the control");
     let mut value = stored_json(&good);
-    value["steps"][1]["unchecked"] = serde_json::json!([]);
+    value["steps"][1]["result"]["unchecked"] = serde_json::json!([]);
     assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+}
+
+/// Something unchecked, then a `tail` of steps, and a last step not reached, so
+/// the run is not whole and a rule about whole runs is not what answers.
+fn not_whole(tail: Vec<RecordedStep>, ending: RunEnding) -> Value {
+    let mut steps = unchecked_steps();
+    steps.truncate(2);
+    steps.extend(tail);
+    steps.push(step(
+        9,
+        StepKind::RecordHistory,
+        StepResult::NotReached,
+        false,
+    ));
+    stored_json(&record(steps, ending, None))
+}
+
+fn partial() -> RunEnding {
+    RunEnding::PartialSuccess {
+        step: 3,
+        error: ErrorId::SafetyBlocked,
+    }
+}
+
+#[test]
+fn each_rule_about_a_removal_answers_for_itself() {
+    assert!(
+        read_back(not_whole(Vec::new(), partial())).is_ok(),
+        "the control"
+    );
+    // Two removals, neither of which ran.
+    let two_kept = not_whole(
+        vec![
+            step(
+                3,
+                StepKind::RemoveSource,
+                StepResult::SourceKeptUnchecked,
+                false,
+            ),
+            step(
+                4,
+                StepKind::RemoveSource,
+                StepResult::SourceKeptUnchecked,
+                false,
+            ),
+        ],
+        partial(),
+    );
+    assert_eq!(read_back(two_kept), Err(ErrorId::HistoryUnusable));
+    // A removal check that ran, with no removal behind it.
+    let no_removal = not_whole(
+        vec![step(3, StepKind::VerifyRemoval, verified(), false)],
+        partial(),
+    );
+    assert_eq!(read_back(no_removal), Err(ErrorId::HistoryUnusable));
+    // A halted ending, which the loop never writes beside something carried out.
+    let halted = not_whole(
+        Vec::new(),
+        RunEnding::Halted {
+            step: 3,
+            error: ErrorId::SafetyBlocked,
+        },
+    );
+    assert_eq!(read_back(halted), Err(ErrorId::HistoryUnusable));
 }
