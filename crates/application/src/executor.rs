@@ -1459,6 +1459,19 @@ fn answer_to<'a>(answers: &'a [DestinationAnswer], question: &Question) -> Optio
         .map(|a| &a.answer)
 }
 
+/// Whether the reads of the step at `position` establish what they must, so
+/// that the destination site may be asked. A read that failed or was cut decides
+/// the step, and a program is not run on the way to saying so (spec-guardian,
+/// review of H-1).
+#[must_use]
+pub fn reads_let_the_site_be_asked(
+    run: &PlannedRun,
+    position: usize,
+    reads: &[StepRead<'_>],
+) -> bool {
+    reads_established(run, position, reads).is_ok()
+}
+
 /// The executables a step's ownership check lists, or `None` when the check is
 /// not exactly one or a name is not an executable name.
 fn owned_executables(step: &MigrationStep) -> Option<Vec<ExecutableName>> {
@@ -1490,11 +1503,9 @@ pub fn next_destination_question(
     position: usize,
     answers: &[DestinationAnswer],
 ) -> Question {
-    let Some(step) = plan
-        .steps
-        .get(position)
-        .filter(|s| s.kind == StepKind::VerifyDestination && destination_contract_complete(s))
-    else {
+    let Some(step) = plan.steps.get(position).filter(|s| {
+        s.kind == StepKind::VerifyDestination && destination_contract_complete(plan, s)
+    }) else {
         return Question::Done;
     };
     if answers
@@ -1566,7 +1577,7 @@ fn judge_destination(
     let Some(step) = plan.steps.get(position) else {
         return halted(HaltReason::RecordsDoNotMatchPlan, evidence);
     };
-    if !destination_contract_complete(step) {
+    if !destination_contract_complete(plan, step) {
         return halted(unevaluable(None, Unevaluable::ContractIncomplete), evidence);
     }
     for (asked, answer) in answers.iter().enumerate() {
@@ -1660,7 +1671,7 @@ fn judge_destination(
                         cause: if malformed {
                             UncheckedCause::MalformedFile
                         } else {
-                            UncheckedCause::OwnershipNotHeld
+                            UncheckedCause::OwnershipNotTold
                         },
                     });
                 }
@@ -1761,7 +1772,8 @@ pub fn destination_still_verified(
         return Err(Precondition::DestinationNotReverified);
     }
     let asked = reverify_questions(plan, reverify);
-    let every_one_holds = owned.len() == asked.len()
+    let every_one_holds = !asked.is_empty()
+        && owned.len() == asked.len()
         && owned
             .iter()
             .zip(&asked)

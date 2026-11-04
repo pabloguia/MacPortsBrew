@@ -78,8 +78,9 @@ pub enum UncheckedCause {
     /// The package has no executable to probe, or nobody knows its list, so no
     /// probe was possible and none passed vacuously.
     NoExecutableToProbe,
-    /// The probe was not run, because the entry's ownership did not hold.
-    OwnershipNotHeld,
+    /// The probe was not run, because the entry's ownership could not be told
+    /// (one that did not hold halts the step instead).
+    OwnershipNotTold,
     /// A file of the package could not be parsed, so nothing of the package's
     /// was run.
     MalformedFile,

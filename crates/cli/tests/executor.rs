@@ -407,7 +407,8 @@ fn planner_runs() -> Vec<PlannedRun> {
     runs
 }
 
-/// The verification part of a planner plan, renumbered: the shape the gate
+/// The verification part of a planner plan, renumbered (the two `evaluable` filters
+/// no longer narrow a `VERIFY_DESTINATION`: the gate requires its whole contract): the shape the gate
 /// passes in this build. It keeps every check this build evaluates, which since
 /// work order 16 part H is the whole of `VERIFY_DESTINATION`'s contract (the
 /// four of DP-051 and the recorded skip) and not a narrowed part of it: the gate

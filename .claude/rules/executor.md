@@ -10,7 +10,7 @@ paths:
 # The executor — the gate, the guard, and nothing it does not have to do
 
 Read `docs/spec/04-migration-and-safety.md` ("Process execution", "Threat
-model", "Concurrency and locking") and `docs/schemas/plan.v1.md` ("What an
+model", "Concurrency and locking") and `docs/schemas/plan.v2.md` ("What an
 executor inherits" — the twelve obligations) before changing anything here, and
 SE-092 in `docs/spec-evolution.md` for why the executor is split the way it is.
 This file names the boundaries a diff in this subtree can quietly cross; it does

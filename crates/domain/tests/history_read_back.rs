@@ -1066,11 +1066,91 @@ fn unchecked_record() -> RunRecord {
     )
 }
 
+/// The steps with an install before the verification: a mutation was dispatched,
+/// so the status says something.
+fn unchecked_steps_after_an_install() -> Vec<RecordedStep> {
+    let mut steps = unchecked_steps();
+    steps.insert(
+        1,
+        step(
+            2,
+            StepKind::AddDestination,
+            StepResult::Performed {
+                ends: vec![CommandEnd::Exited { code: 0 }],
+            },
+            true,
+        ),
+    );
+    steps
+}
+
 #[test]
-fn an_ending_with_something_unchecked_reads_back_as_itself_and_is_never_success() {
+fn invariant_03_a_run_with_something_unchecked_is_partial_or_no_change_never_success() {
     let written = unchecked_record();
-    assert_ne!(written.status(), macportsbrew_domain::RunStatus::Success);
+    assert_eq!(written.status(), macportsbrew_domain::RunStatus::NoChange);
     assert_eq!(read_back(stored_json(&written)).expect("reads"), written);
+    let installed = record(
+        unchecked_steps_after_an_install(),
+        RunEnding::CompletedWithUnchecked { source_kept: true },
+        None,
+    );
+    assert_eq!(installed.status(), macportsbrew_domain::RunStatus::Partial);
+    assert_eq!(
+        read_back(stored_json(&installed)).expect("reads"),
+        installed
+    );
+    // A writer bug: the ending says completed. Never success.
+    let claimed = record(
+        unchecked_steps_after_an_install(),
+        RunEnding::Completed,
+        None,
+    );
+    assert_eq!(claimed.status(), macportsbrew_domain::RunStatus::Partial);
+}
+
+#[test]
+fn invariant_01_a_record_cannot_state_a_removal_after_something_unchecked() {
+    let removal_done = StepResult::Performed {
+        ends: vec![CommandEnd::Exited { code: 0 }],
+    };
+    let cases = [
+        // A hand-edited completion over something unchecked.
+        (unchecked_steps_after_an_install(), RunEnding::Completed),
+        // A removal performed, ending either way.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps[2] = step(3, StepKind::RemoveSource, removal_done.clone(), true);
+                steps.remove(3);
+                steps
+            },
+            RunEnding::CompletedWithUnchecked { source_kept: false },
+        ),
+        // Removed and kept at once.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps[2] = step(3, StepKind::RemoveSource, removal_done, true);
+                steps
+            },
+            RunEnding::CompletedWithUnchecked { source_kept: true },
+        ),
+        // Kept, and its check says it was verified as gone.
+        (
+            {
+                let mut steps = unchecked_steps();
+                steps[3] = step(4, StepKind::VerifyRemoval, verified(), false);
+                steps
+            },
+            RunEnding::CompletedWithUnchecked { source_kept: true },
+        ),
+    ];
+    for (steps, ending) in cases {
+        // Serialised by hand from a record that says partial, as an edit would.
+        let mut value = stored_json(&record(steps, ending, None));
+        value["status"] = serde_json::json!(value["status"].clone());
+        assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+    }
 }
 
 #[test]
@@ -1106,5 +1186,19 @@ fn something_unchecked_on_another_step_or_an_empty_list_is_refused() {
     // A kept source with nothing unchecked before it.
     let mut value = stored_json(&unchecked_record());
     value["steps"][2]["kind"] = serde_json::json!("SNAPSHOT_BEFORE");
+    assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
+}
+
+#[test]
+fn a_stored_empty_unchecked_list_is_refused_whatever_the_ending() {
+    let mut value = stored_json(&record(
+        unchecked_steps(),
+        RunEnding::Halted {
+            step: 3,
+            error: ErrorId::SafetyBlocked,
+        },
+        None,
+    ));
+    value["steps"][1]["unchecked"] = serde_json::json!([]);
     assert_eq!(read_back(value), Err(ErrorId::HistoryUnusable));
 }

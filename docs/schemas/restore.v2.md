@@ -36,8 +36,8 @@ as root, for a value that is not a run id (usage, exit 2), and for
   "notes": [
     { "note": "NOT_VERSION_EXACT", "package": "htop", "recordedVersion": "3.4.1" }
   ],
-  "plan": { "schemaVersion": 2, "...": "plan.v1" },
-  "concurrentProviderActivity": { "...": "plan.v1, obligation 5" }
+  "plan": { "schemaVersion": 2, "...": "plan.v2" },
+  "concurrentProviderActivity": { "...": "plan.v2, obligation 5" }
 }
 ```
 
@@ -49,7 +49,7 @@ as root, for a value that is not a run id (usage, exit 2), and for
 | `nothingToRestore` | Present instead of `plan` when there is nothing to put back: `RUN_CHANGED_NOTHING` (the run dispatched no mutating step) or `ALREADY_RESTORED` (the machine is as the run found it). Exit 0 (INV-16) |
 | `plan` | The `plan.v2` plan, unchanged. Absent with `nothingToRestore` |
 | `warnings` | As in [`plan.v2.md`](plan.v2.md): `["advanced.warning"]` when the plan's `enteredBy` is `ADVANCED` or `NAMED`; omitted otherwise. Since 2026-10-27, additive (DP-037) |
-| `execution` | With `EXECUTE` only: `outcome`, and the `gateRefusals` that ended it, exactly as [`migrate.v2`](migrate.v1.md) states them |
+| `execution` | With `EXECUTE` only: `outcome`, and the `gateRefusals` that ended it, exactly as [`migrate.v2`](migrate.v2.md) states them |
 
 New values may be added to `notes` and `reason` without a version bump
 (additive); a consumer should accept one it does not know.

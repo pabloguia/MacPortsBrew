@@ -418,6 +418,23 @@ fn invariant_16_a_later_failure_withdraws_recognition() {
 }
 
 #[test]
+fn invariant_16_a_run_that_left_something_unchecked_is_not_recognised() {
+    // A re-run verifies again rather than recognising it as done.
+    let snapshot = fresh(MP, &After::done(HB));
+    let unchecked = record(
+        MP,
+        RECORD_ID,
+        RunEnding::CompletedWithUnchecked { source_kept: false },
+        true,
+    );
+    let note = planned_with(start(MP, &snapshot, Some(&view_of(vec![unchecked])), true));
+    assert!(
+        matches!(note, Some(NotRecognised::LatestRunNotSuccess { .. })),
+        "{note:?}"
+    );
+}
+
+#[test]
 fn invariant_16_a_run_that_removed_its_source_is_not_a_retained_run() {
     let snapshot = fresh(MP, &After::done(HB));
     let removed = record(MP, RECORD_ID, RunEnding::Completed, false);

@@ -2072,6 +2072,177 @@ fn run_reading<'s, S: ReadSite + 's>(
     .expect("a report")
 }
 
+/// Runs toward a removal with `destination` answering, and hands back the report
+/// and how many commands the mutation site was handed.
+fn run_answered(
+    tag: &str,
+    direction: &Direction,
+    destination: &dyn DestinationSite,
+) -> (RunReport, usize) {
+    let scratch = Scratch::new(tag);
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let cleared = direction.cleared();
+    let plan = cleared.run().plan().clone();
+    let reads = Vanishing::new(&plan, usize::MAX);
+    let report = run_with_mutations(
+        &cleared,
+        || &reads,
+        MutatingRun {
+            destination,
+            resolutions: &Resolves::of(cleared.run().plan()),
+            locks: &LocksFree,
+            shown: shown(&cleared),
+            live: true,
+            state: &scratch.state,
+            euid: scratch.euid,
+            start: scratch.start(),
+            site: &site,
+            recapture: &*unchanged(direction, &scratch).recapture,
+            consent: &never_asked,
+            reread: unchanged(direction, &scratch).reread,
+            read_back: &history_store::read_back,
+            observer: &seen,
+        },
+        &HomeRedaction::Recorded,
+    )
+    .expect("a report");
+    let handed = site.handed.borrow().len();
+    (report, handed)
+}
+
+#[test]
+fn invariant_01_an_unchecked_destination_hands_the_site_no_removal() {
+    let (report, handed) = run_answered(
+        "unchecked",
+        &Direction::toward_macports(),
+        &macportsbrew::executor::NothingObserved,
+    );
+    assert_eq!(handed, 0, "{report:?}");
+    let kept = report
+        .records
+        .iter()
+        .filter(|r| matches!(r.disposition, Disposition::SourceKeptUnchecked))
+        .count();
+    assert!(kept >= 2, "the removal and its check: {:?}", report.records);
+    // The narrowed add is passed over, so this run is partial with the list; a
+    // run whose every step was carried out is the next test's.
+    match &report.outcome {
+        RunOutcome::PartialSuccess { unchecked, .. } => assert!(!unchecked.is_empty()),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(report.exit_code(), PARTIAL_SUCCESS_EXIT_CODE);
+}
+
+#[test]
+fn a_run_with_something_unchecked_and_every_step_done_ends_its_own_way() {
+    let (report, _) = run_answered(
+        "unchecked-whole",
+        &Direction::toward_homebrew_completable(),
+        &macportsbrew::executor::NothingObserved,
+    );
+    match &report.outcome {
+        RunOutcome::CompletedWithUnchecked {
+            unchecked,
+            source_kept,
+        } => {
+            assert!(!unchecked.is_empty());
+            assert!(!*source_kept, "this run retains its source");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(report.exit_code(), PARTIAL_SUCCESS_EXIT_CODE);
+}
+
+/// Holds until the re-read asks ownership a second time.
+#[derive(Default)]
+struct UncheckedOnTheReread(RefCell<usize>);
+
+impl DestinationSite for UncheckedOnTheReread {
+    fn answer(&self, question: &Question) -> CheckAnswer {
+        if matches!(question, Question::Owned { .. }) {
+            *self.0.borrow_mut() += 1;
+            if *self.0.borrow() > 1 {
+                return CheckAnswer::Unchecked(macportsbrew_domain::UncheckedCause::NotObserved);
+            }
+        }
+        CheckAnswer::Holds
+    }
+}
+
+#[test]
+fn invariant_01_unchecked_ownership_on_the_reread_stops_the_removal() {
+    let (report, handed) = run_answered(
+        "reread-unchecked",
+        &Direction::toward_macports(),
+        &UncheckedOnTheReread::default(),
+    );
+    assert_eq!(handed, 0, "{report:?}");
+    assert!(
+        matches!(
+            &report.outcome,
+            RunOutcome::PartialSuccess {
+                reason: HaltReason::PreconditionFailed {
+                    why: Precondition::DestinationNotReverified,
+                    ..
+                },
+                ..
+            }
+        ),
+        "{:?}",
+        report.outcome
+    );
+}
+
+/// Counts what it is asked.
+#[derive(Default)]
+struct Counting(RefCell<usize>);
+
+impl DestinationSite for Counting {
+    fn answer(&self, _: &Question) -> CheckAnswer {
+        *self.0.borrow_mut() += 1;
+        CheckAnswer::Holds
+    }
+}
+
+#[test]
+fn a_read_that_failed_stops_the_site_being_asked_at_all() {
+    // A probe runs the package's program: not on the way to a halt the read
+    // already decided (spec-guardian, review of H-1).
+    let direction = Direction::toward_macports();
+    let scratch = Scratch::new("site-after-failed-read");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let cleared = direction.cleared();
+    let plan = cleared.run().plan().clone();
+    let counting = Counting::default();
+    let reads = Vanishing::new(&plan, 0);
+    let report = run_with_mutations(
+        &cleared,
+        || &reads,
+        MutatingRun {
+            destination: &counting,
+            resolutions: &Resolves::of(&plan),
+            locks: &LocksFree,
+            shown: shown(&cleared),
+            live: true,
+            state: &scratch.state,
+            euid: scratch.euid,
+            start: scratch.start(),
+            site: &site,
+            recapture: &*unchanged(&direction, &scratch).recapture,
+            consent: &never_asked,
+            reread: unchanged(&direction, &scratch).reread,
+            read_back: &history_store::read_back,
+            observer: &seen,
+        },
+        &HomeRedaction::Recorded,
+    )
+    .expect("a report");
+    assert_eq!(*counting.0.borrow(), 0, "{:?}", report.outcome);
+    assert_ne!(report.exit_code(), 0);
+}
+
 #[test]
 fn invariant_01_the_reread_uses_the_verify_steps_own_commands() {
     // Toward MacPorts the run reaches a removal. The destination is read

@@ -676,19 +676,29 @@ fn curated_probe_argv(_provider: &str, _package: &str, executable: &str) -> Opti
 #[cfg(any(test, feature = "test-support"))]
 pub const TEST_PROBE_EXECUTABLE: &str = "mpb-fixture-probe";
 
-/// Whether `step` carries the whole of DP-051's contract (work order 16 part H,
-/// the plan-only analogue of V2): exactly one each of integrity, ownership and
-/// linkage, and for liveness one probe or recorded skip per listed executable,
-/// or one skip naming none for an empty list. A duplicate, a name that is not
-/// an executable name, and a nameless skip beside a list are all incomplete.
+/// Whether `step` of `plan` carries the whole of 04's contract (work order 16
+/// part H, the plan-only analogue of V2): exactly one each of active, integrity,
+/// ownership and linkage; `PACKAGE_NEWLY_PRESENT` when the plan adds the package
+/// (F-06: otherwise an install that did nothing passes); and for liveness one
+/// probe or recorded skip per listed executable, or one skip naming none for an
+/// empty list. A duplicate, a name that is not an executable name, and a
+/// nameless skip beside a list are all incomplete.
 #[must_use]
-pub fn destination_contract_complete(step: &MigrationStep) -> bool {
+pub fn destination_contract_complete(plan: &MigrationPlan, step: &MigrationStep) -> bool {
     let count = |wanted: fn(&VerificationCheck) -> bool| {
         step.verification.iter().filter(|c| wanted(c)).count()
     };
-    if count(|c| matches!(c, VerificationCheck::ProviderIntegrityCheck)) != 1
+    if count(|c| matches!(c, VerificationCheck::ProviderReportsActive)) != 1
+        || count(|c| matches!(c, VerificationCheck::ProviderIntegrityCheck)) != 1
         || count(|c| matches!(c, VerificationCheck::NoCrossProviderLinkage)) != 1
     {
+        return false;
+    }
+    let adds = plan
+        .steps
+        .iter()
+        .any(|s| s.kind == StepKind::AddDestination && !s.commands.is_empty());
+    if adds && count(|c| matches!(c, VerificationCheck::PackageNewlyPresent)) != 1 {
         return false;
     }
     let owned: Vec<&Vec<String>> = step
@@ -894,7 +904,7 @@ fn refusals(
         .iter()
         .filter(|s| s.kind == StepKind::VerifyDestination)
     {
-        if !destination_contract_complete(step) {
+        if !destination_contract_complete(plan, step) {
             refusals.push(ExecutionRefusal::DestinationContractIncomplete { step: step.index });
         }
         for check in &step.verification {

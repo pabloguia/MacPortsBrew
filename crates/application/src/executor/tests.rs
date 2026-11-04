@@ -1943,7 +1943,7 @@ fn invariant_01_removal_refused_when_the_destination_vanished_after_verify() {
     // Both directions: the destination verified, then a re-read that no longer
     // names it, and the removal does not go ahead.
     for from in [HB, MP] {
-        let run = forced_run(from);
+        let run = forced_run(from).map_plan(|p| *p = with_probes(p));
         let plan = run.plan();
         let remove = position(plan, StepKind::RemoveSource);
         let reverify = reverify_for(plan, remove).expect("a removal is re-read");
@@ -2995,7 +2995,7 @@ fn unchecked_by(disposition: &Disposition) -> &[UncheckedEntry] {
 }
 
 #[test]
-fn a_check_with_no_observation_is_unchecked_never_holds() {
+fn invariant_15_a_check_with_no_observation_is_unchecked_never_holds() {
     let run = full_run();
     let outcome = certified(&run, |_| {
         CheckAnswer::Unchecked(UncheckedCause::NotObserved)
@@ -3014,7 +3014,7 @@ fn a_check_with_no_observation_is_unchecked_never_holds() {
         ]
     );
     assert_eq!(unchecked[0].cause, UncheckedCause::NotObserved);
-    assert_eq!(unchecked[3].cause, UncheckedCause::OwnershipNotHeld);
+    assert_eq!(unchecked[3].cause, UncheckedCause::OwnershipNotTold);
 }
 
 #[test]
@@ -3161,6 +3161,23 @@ fn a_probe_is_asked_only_of_a_leaf_owned_and_only_when_no_file_was_malformed() {
             CheckAnswer::Holds
         }
     }));
+}
+
+#[test]
+fn a_site_answered_check_is_site_answered_only_on_verify_destination() {
+    for check in [
+        VerificationCheck::ProviderIntegrityCheck,
+        VerificationCheck::NoCrossProviderLinkage,
+    ] {
+        assert!(crate::execution_gate::is_site_answered(
+            StepKind::VerifyDestination,
+            &check
+        ));
+        assert!(!crate::execution_gate::is_site_answered(
+            StepKind::VerifyRemoval,
+            &check
+        ));
+    }
 }
 
 #[test]
@@ -3331,6 +3348,24 @@ fn after_a_kept_source_its_removal_check_and_review_are_passed_over_and_only_the
         next_action_with(&run, check, &records, Some(&allowance)),
         Action::PassOver(Disposition::SourceKeptUnchecked)
     );
+    // The review behind a kept source too, command-less or not.
+    let review = run.clone().map_plan(|plan| {
+        let mut step = plan.steps[check].clone();
+        step.kind = StepKind::CleanupReview;
+        step.commands.clear();
+        step.verification.clear();
+        plan.steps[check] = step;
+    });
+    assert_eq!(
+        next_action_with(&review, check, &records, Some(&allowance)),
+        Action::PassOver(Disposition::SourceKeptUnchecked)
+    );
+    let mut performed = records.clone();
+    performed[remove].disposition = Disposition::Performed { ends: vec![] };
+    assert_ne!(
+        next_action_with(&review, check, &performed, Some(&allowance)),
+        Action::PassOver(Disposition::SourceKeptUnchecked)
+    );
     // A removal performed: the check is judged as ever.
     records[remove].disposition = Disposition::Performed { ends: vec![] };
     assert_ne!(
@@ -3468,4 +3503,78 @@ fn the_re_read_before_a_removal_has_its_own_judge_and_unchecked_is_a_halt() {
             Err(Precondition::DestinationNotReverified)
         );
     }
+    // An empty list asks nothing, and that passes nothing: this is the last
+    // guard before a removal.
+    let verify = reverify.verify_position();
+    let nothing_listed = run.clone().map_plan(|plan| {
+        for check in &mut plan.steps[verify].verification {
+            if let VerificationCheck::ExecutablesOwnedByDestination { executables } = check {
+                executables.clear();
+            }
+        }
+    });
+    let outputs = destination_outputs(nothing_listed.plan());
+    let reads = passing(&outputs);
+    assert_eq!(
+        destination_still_verified(
+            &nothing_listed,
+            &reverify,
+            token(&nothing_listed),
+            &reads,
+            &[]
+        ),
+        Err(Precondition::DestinationNotReverified)
+    );
+}
+
+#[test]
+fn invariant_17_one_judge_gives_one_answer_in_both_directions() {
+    let toward = |from: &str| {
+        let (snap, package, to) = install_needed(from);
+        planned(&configured(snap), package, to).map_plan(|p| *p = with_probes(p))
+    };
+    let (one, other) = (toward(HB), toward(MP));
+    assert_ne!(one.plan().destination, other.plan().destination);
+    let shape = |d: &Disposition| match d {
+        Disposition::Verified { .. } => "verified".to_owned(),
+        Disposition::VerifiedWithUnchecked { unchecked, .. } => {
+            format!("unchecked {}", unchecked.len())
+        }
+        Disposition::Halted { reason, .. } => format!("{reason:?}"),
+        other => panic!("{other:?}"),
+    };
+    let sites: [&dyn Fn(&Question) -> CheckAnswer; 3] = [
+        &|_| CheckAnswer::Holds,
+        &|_| CheckAnswer::Unchecked(UncheckedCause::NotObserved),
+        &|q| {
+            if *q == Question::Linkage {
+                CheckAnswer::Fails(CheckFailure::LinksAnotherProvider)
+            } else {
+                CheckAnswer::Holds
+            }
+        },
+    ];
+    for site in sites {
+        assert_eq!(
+            shape(&certified(&one, site)),
+            shape(&certified(&other, site))
+        );
+    }
+}
+
+#[test]
+fn a_read_that_did_not_pass_lets_nothing_be_asked() {
+    let run = full_run();
+    let plan = run.plan();
+    let verify = position(plan, StepKind::VerifyDestination);
+    let outputs = destination_outputs(plan);
+    assert!(reads_let_the_site_be_asked(
+        &run,
+        verify,
+        &passing(&outputs)
+    ));
+    // Finished, and not naming the package: a read that failed, with an output.
+    let wrong: Vec<String> = outputs.iter().map(|_| String::new()).collect();
+    assert!(!reads_let_the_site_be_asked(&run, verify, &passing(&wrong)));
+    assert!(!reads_let_the_site_be_asked(&run, verify, &[]));
 }

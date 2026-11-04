@@ -500,7 +500,11 @@ impl RunRecord {
         // as partial — never success (INV-03).
         let status = match RunStatus::of(&ending, mutation_dispatched) {
             RunStatus::Success
-                if steps.is_empty() || !steps.iter().all(|s| s.result.carried_out()) =>
+                if steps.is_empty()
+                    || !steps.iter().all(|s| s.result.carried_out())
+                    || steps
+                        .iter()
+                        .any(|s| matches!(s.result, StepResult::VerifiedWithUnchecked { .. })) =>
             {
                 RunStatus::Partial
             }
@@ -862,16 +866,48 @@ impl RunRecord {
         }
         // The ending and the steps say the same thing, both ways (INV-03): the
         // ending exists exactly when a step left something unchecked and no
-        // step stopped the run or was left undone.
+        // step stopped the run or was left undone, and nothing unchecked ends
+        // any way that reads as success.
+        let unchecked = steps
+            .iter()
+            .any(|s| matches!(s.result, StepResult::VerifiedWithUnchecked { .. }));
+        let kept = |s: &RecordedStep| matches!(s.result, StepResult::SourceKeptUnchecked);
+        if unchecked && matches!(stored.ending, StoredEnding::Completed {}) {
+            return Err(unusable("states a completion with something unchecked"));
+        }
         if let StoredEnding::CompletedWithUnchecked { source_kept } = &stored.ending {
-            let has = |wanted: fn(&StepResult) -> bool| steps.iter().any(|s| wanted(&s.result));
-            let unchecked = has(|r| matches!(r, StepResult::VerifiedWithUnchecked { .. }));
-            let kept = has(|r| matches!(r, StepResult::SourceKeptUnchecked));
-            let whole = steps.iter().all(|s| {
-                s.result.carried_out() || matches!(s.result, StepResult::SourceKeptUnchecked)
-            });
-            if !unchecked || kept != *source_kept || !whole {
+            let whole = steps.iter().all(|s| s.result.carried_out() || kept(s));
+            if !unchecked || steps.iter().any(kept) != *source_kept || !whole {
                 return Err(unusable("states an ending its steps contradict"));
+            }
+        }
+        // A record cannot say what INV-01 forbids (security review of H-1): once
+        // something is unchecked no removal ran, and its check and review are
+        // kept only behind a removal that was. A halt that ran no command is what
+        // a resolution that did not hold gives.
+        if unchecked {
+            let removal = steps.iter().find(|s| s.kind == StepKind::RemoveSource);
+            let removed = removal.is_some_and(|s| {
+                !matches!(
+                    &s.result,
+                    StepResult::SourceKeptUnchecked
+                        | StepResult::NotReached
+                        | StepResult::NotDispatchedMutating
+                ) && !matches!(&s.result, StepResult::Halted { ends, .. } if ends.is_empty())
+            });
+            let after_removal = |s: &&RecordedStep| {
+                matches!(s.kind, StepKind::VerifyRemoval | StepKind::CleanupReview)
+            };
+            let removal_kept = removal.is_some_and(kept);
+            let contradicts = steps.iter().filter(after_removal).any(|s| {
+                if removal_kept {
+                    !kept(s) && s.result != StepResult::NotReached
+                } else {
+                    kept(s)
+                }
+            });
+            if removed || contradicts {
+                return Err(unusable("states a removal after something unchecked"));
             }
         }
         // `primaryAfter` is what was observed to resolve (`history.v3`): the

@@ -1259,7 +1259,7 @@ fn unchecked_key(value: UncheckedCause) -> &'static str {
         UncheckedCause::NotObserved => "migrate.unchecked.not_observed",
         UncheckedCause::NoCuratedProbe => "migrate.unchecked.no_curated_probe",
         UncheckedCause::NoExecutableToProbe => "migrate.unchecked.no_executable_to_probe",
-        UncheckedCause::OwnershipNotHeld => "migrate.unchecked.ownership_not_held",
+        UncheckedCause::OwnershipNotTold => "migrate.unchecked.ownership_not_told",
         UncheckedCause::MalformedFile => "migrate.unchecked.malformed_file",
     }
 }

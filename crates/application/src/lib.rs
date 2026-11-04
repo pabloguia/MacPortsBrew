@@ -59,10 +59,11 @@ pub use execution_gate::{
 pub use executor::{
     certify_destination, destination_still_verified, judge_mutation, judge_resolution, judge_step,
     next_action, next_action_with, next_destination_question, outcome_of, plan_still_holds,
-    provider_lock_activity, provider_locks_clear, refused, reverify_for, reverify_questions,
-    Action, CheckKind, DestinationAnswer, Disposition, HaltReason, MutationResult, ObservedWinner,
-    PlannedRun, Precondition, ProviderLockRefusal, Question, Reverify, RunOutcome, StateFact,
-    StepRead, StepRecord, Unevaluable, PARTIAL_SUCCESS_EXIT_CODE,
+    provider_lock_activity, provider_locks_clear, reads_let_the_site_be_asked, refused,
+    reverify_for, reverify_questions, Action, CheckKind, DestinationAnswer, Disposition,
+    HaltReason, MutationResult, ObservedWinner, PlannedRun, Precondition, ProviderLockRefusal,
+    Question, Reverify, RunOutcome, StateFact, StepRead, StepRecord, Unevaluable,
+    PARTIAL_SUCCESS_EXIT_CODE,
 };
 pub use explain::{explain_package, Explanation};
 pub use history::{

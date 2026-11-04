@@ -78,10 +78,11 @@ use macportsbrew_application::{
     certify_destination, consent_for, destination_still_verified, execution_refusals,
     judge_mutation, judge_resolution, judge_step, must_record, next_action, next_action_with,
     next_destination_question, outcome_of, plan_still_holds, provider_locks_clear,
-    read_back_matches, recheck_provider_configuration, refused, reverify_questions, run_record,
-    Action, ConfigurationRechecked, ConsentDecision, ConsentGiven, ConsentHalt, DestinationAnswer,
-    Disposition, ElevationRequest, GateClear, HaltReason, MutationResult, PlannedRun, Precondition,
-    ProviderLockRefusal, Question, RunOutcome, ShownPlan, StepRead, StepRecord,
+    read_back_matches, reads_let_the_site_be_asked, recheck_provider_configuration, refused,
+    reverify_questions, run_record, Action, ConfigurationRechecked, ConsentDecision, ConsentGiven,
+    ConsentHalt, DestinationAnswer, Disposition, ElevationRequest, GateClear, HaltReason,
+    MutationResult, PlannedRun, Precondition, ProviderLockRefusal, Question, RunOutcome, ShownPlan,
+    StepRead, StepRecord,
 };
 use macportsbrew_domain::{
     redact_home, CheckAnswer, CommandEnd, ConcurrentProviderActivity, DomainError, ErrorId,
@@ -925,13 +926,21 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                             refusal = Some(rendered_refusal(step.index, r, home));
                         }
                         let reads: Vec<StepRead<'_>> = reread.iter().map(step_read).collect();
-                        let owned: Vec<DestinationAnswer> = reverify_questions(plan, reverify)
-                            .into_iter()
-                            .map(|question| {
-                                let answer = io.destination.answer(&question);
-                                DestinationAnswer { question, answer }
-                            })
-                            .collect();
+                        let owned: Vec<DestinationAnswer> = if reads_let_the_site_be_asked(
+                            planned,
+                            reverify.verify_position(),
+                            &reads,
+                        ) {
+                            reverify_questions(plan, reverify)
+                                .into_iter()
+                                .map(|question| {
+                                    let answer = io.destination.answer(&question);
+                                    DestinationAnswer { question, answer }
+                                })
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
                         if let Err(why) = destination_still_verified(
                             planned,
                             reverify,
@@ -1168,10 +1177,9 @@ fn certify(
         *refusal = Some(rendered_refusal(step.index, r, home));
     }
     let reads: Vec<StepRead<'_>> = results.iter().map(step_read).collect();
-    // A read that failed already decides the step, and what follows is not asked.
-    let reads_finished = reads.len() == step.commands.len()
-        && reads.iter().all(|r| matches!(r, StepRead::Output(_)));
-    let answers = if reads_finished {
+    // A read that did not establish what it must already decides the step, and
+    // nothing the site would run is run on the way to saying so.
+    let answers = if reads_let_the_site_be_asked(planned, position, &reads) {
         destination_answers(planned.plan(), position, destination)
     } else {
         Vec::new()

@@ -2184,3 +2184,66 @@ fn a_liveness_probe_is_refused_until_the_curated_table_exists() {
         ExecutionRefusal::DestinationContractIncomplete { .. }
     )));
 }
+
+#[test]
+fn a_probe_for_any_other_executable_is_not_the_tables_whatever_its_argv() {
+    let mut plan = full_plan();
+    let verify = position(&plan, StepKind::VerifyDestination);
+    plan.steps[verify]
+        .verification
+        .push(VerificationCheck::LivenessProbe {
+            executable: "not-the-fixture-row".into(),
+            argv: vec!["--version".into()],
+        });
+    assert!(refused(&execution_refusals(&plan), |r| matches!(
+        r,
+        ExecutionRefusal::ProbeIsNotTheTables { .. }
+    )));
+}
+
+#[test]
+fn the_contract_refuses_what_a_read_must_answer_and_a_nameless_skip_beside_a_list() {
+    let base = full_plan();
+    let verify = position(&base, StepKind::VerifyDestination);
+    let complete = |plan: &MigrationPlan| {
+        macportsbrew_application::destination_contract_complete(plan, &plan.steps[verify])
+    };
+    assert!(complete(&base));
+    // No check a read answers.
+    let mut no_active = base.clone();
+    no_active.steps[verify]
+        .verification
+        .retain(|c| !matches!(c, VerificationCheck::ProviderReportsActive));
+    assert!(!complete(&no_active));
+    // The plan adds the package, and nothing says this run installed it (F-06).
+    assert!(base
+        .steps
+        .iter()
+        .any(|s| s.kind == StepKind::AddDestination && !s.commands.is_empty()));
+    let mut no_newly = base.clone();
+    no_newly.steps[verify]
+        .verification
+        .retain(|c| !matches!(c, VerificationCheck::PackageNewlyPresent));
+    assert!(!complete(&no_newly));
+    // A list, named probes for all of it, and a nameless skip as well.
+    let mut listed = base.clone();
+    for check in &mut listed.steps[verify].verification {
+        match check {
+            VerificationCheck::ExecutablesOwnedByDestination { executables } => {
+                *executables = vec!["tool".into()];
+            }
+            VerificationCheck::LivenessProbeSkipped { executable, .. } => {
+                *executable = Some("tool".into());
+            }
+            _ => {}
+        }
+    }
+    assert!(complete(&listed), "the shape the next one spoils");
+    listed.steps[verify]
+        .verification
+        .push(VerificationCheck::LivenessProbeSkipped {
+            executable: None,
+            cause: macportsbrew_domain::ProbeSkipCause::NoExecutableToProbe,
+        });
+    assert!(!complete(&listed));
+}

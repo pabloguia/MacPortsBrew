@@ -134,7 +134,9 @@ stdout — never *nothing to move* (SE-092, S6 addendum).
 | `HALTED` | `step`: integer (0 for the run as a whole), `reason`: `HaltReason` | the reason's error code: 4 for a safety or unverifiable stop, 1 for records that do not match the plan, the runner's own for a transport failure |
 | `PARTIAL_SUCCESS` | `step`, `reason`, as `HALTED`; `unchecked` when a `VERIFY_DESTINATION` left anything unchecked before the run stopped | 3 (INV-03). **Not a partial migration**: no run of this build dispatches a mutating step |
 
-`UncheckedEntry` is `{ "check": string, "executable"?: string, "cause": string }`. `check` is one of `PROVIDER_INTEGRITY_CHECK`, `EXECUTABLES_OWNED_BY_DESTINATION`, `NO_CROSS_PROVIDER_LINKAGE`, `LIVENESS_PROBE`. `cause` is one of `NOT_OBSERVED` (nothing observed it: a replayed run, a run from a snapshot file, or a build with no observer, which is every run of this build), `NO_CURATED_PROBE`, `NO_EXECUTABLE_TO_PROBE`, `OWNERSHIP_NOT_HELD` (the probe was not run), `MALFORMED_FILE` (a file of the package could not be parsed, so nothing of it was run). Identifiers only, and "could not tell" is never a failure and never a pass. A build that observes these checks adds causes, which is a new version of this document.
+`UncheckedEntry` is `{ "check": string, "executable"?: string, "cause": string }`. `check` is one of `PROVIDER_INTEGRITY_CHECK`, `EXECUTABLES_OWNED_BY_DESTINATION`, `NO_CROSS_PROVIDER_LINKAGE`, `LIVENESS_PROBE`. (`HaltReason`'s `check` is a kind, which may also be `LIVENESS_PROBE_SKIPPED`.) `cause` is one of `NOT_OBSERVED` (nothing observed it: a replayed run, a run from a snapshot file, or a build with no observer, which is every run of this build), `NO_CURATED_PROBE`, `NO_EXECUTABLE_TO_PROBE`, `OWNERSHIP_NOT_TOLD` (the entry's ownership could not be told, so the probe was not run), `MALFORMED_FILE` (a file of the package could not be parsed, so nothing of it was run). Identifiers only, and "could not tell" is never a failure and never a pass. Nothing has been released under this version, and part H-2 adds its causes to this list before anything is. After a release, a new cause is a new version of this document.
+
+`gateRefusals` may name `DESTINATION_CONTRACT_INCOMPLETE` (`step`) and `PROBE_IS_NOT_THE_TABLES` (`step`), [`plan.v2.md`](plan.v2.md) obligation 6.
 
 ### `StepRecord`
 
@@ -176,7 +178,7 @@ installation of the package as the active one, none or two) and
 `OUTPUT_SHAPE_UNKNOWN` (the provider's answer is not in the shape this build
 knows: an unreadable JSON document, or a row of the package in an unknown
 shape); the `UNEVALUABLE` reason
-`NOT_CERTIFIED_HERE` (a `VERIFY_DESTINATION` is certified only after its
+`CONTRACT_INCOMPLETE` (a `VERIFY_DESTINATION` missing part of 04's contract), `ANSWERS_DO_NOT_MATCH_QUESTIONS`, `NOT_CERTIFIED_HERE` (a `VERIFY_DESTINATION` is certified only after its
 provider's configuration was re-checked) and `ACTIVE_ALONE_AFTER_AN_INSTALL`
 (`check`: `PROVIDER_REPORTS_ACTIVE`, on a step without `PACKAGE_NEWLY_PRESENT`
 whose destination did not already hold the package before the run; 04, check
@@ -286,7 +288,7 @@ its plan is refused before the gate (`snapshot.v1.md`, `ServiceDefinition`).
 `jupyterlab` declares one, so its plan stops at `MANUAL_REVIEW`, and the gate
 refuses each such step by name; nothing runs and there are no step records. The
 refusals a plan with commands draws — `MUTATION_NOT_IN_THIS_BUILD`,
-`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`, and `PROVIDER_CONFIGURATION` wherever a
+`MUTATION_NOT_IN_THIS_BUILD`, and `PROVIDER_CONFIGURATION` wherever a
 provider's own configuration is unknown — are listed above.
 
 <!-- sample: --replay fixtures/recordings/both-providers-arm64-macos15.json --json migrate jupyterlab --to macports --yes --today 2026-09-02 at=/execution exit=4 -->

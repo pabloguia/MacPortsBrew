@@ -21,7 +21,7 @@
 //!
 //! Two exceptions (work order 16 part S): `the_destination_is_reread_before_removal`
 //! here is a positive structural check held whatever the switch is, and
-//! `the_switch_needs_the_destination_contract_evaluable` lives in
+//! `the_switch_needs_the_destination_contract_observed` lives in
 //! `crates/cli/tests/executor.rs`, beside the in-code snapshots it plans from.
 //!
 //! The text checks live in [`wiring_violations`], a pure function of the flag
@@ -2625,7 +2625,7 @@ fn the_switch_needs_release_builds_free_of_the_test_support_feature() {
     );
 }
 
-// `the_switch_needs_the_destination_contract_evaluable` lives in
+// `the_switch_needs_the_destination_contract_observed` lives in
 // `crates/cli/tests/executor.rs`, beside the in-code snapshots it plans from
 // in each direction (work order 16 part S, §8): the recordings do not record
 // whether MacPorts packages define services, so the planner refuses to plan

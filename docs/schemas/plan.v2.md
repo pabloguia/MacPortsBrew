@@ -26,7 +26,7 @@ once at its own root; see "What an executor inherits".
 
 | Field | Type | Notes |
 |---|---|---|
-| `schemaVersion` | integer | `1` (`PLAN_SCHEMA_VERSION` in `crates/domain/src/plan.rs`). A plan carrying any other value is refused for execution (`SCHEMA_VERSION_NOT_THIS_BUILDS`, naming `found` and `expected`): every other refusal reads a field under this build's meaning of it |
+| `schemaVersion` | integer | `2` (`PLAN_SCHEMA_VERSION` in `crates/domain/src/plan.rs`). A plan carrying any other value is refused for execution (`SCHEMA_VERSION_NOT_THIS_BUILDS`, naming `found` and `expected`): every other refusal reads a field under this build's meaning of it |
 | `package` | object | `{ "provider": string, "name": string }` — the source identity |
 | `source` | string | Provider id the package is held by |
 | `destination` | string | Provider id it would move to |
@@ -289,9 +289,10 @@ comments:
    04's (SE-015, DP-030).
 6. **Recognised is not evaluable.** A check this build can parse is not
    thereby one it can perform, and a step cannot pass on the checks it can
-   read while ignoring the rest. Three have an evaluation today —
-   `PACKAGE_NEWLY_PRESENT`, `PROVIDER_REPORTS_ACTIVE` and `PACKAGE_ABSENT` —
-   and the gate refuses a step carrying any other
+   read while ignoring the rest. Three are answered by a read —
+   `PACKAGE_NEWLY_PRESENT`, `PROVIDER_REPORTS_ACTIVE` and `PACKAGE_ABSENT` — and
+   DP-051's four through a destination site, below; the gate refuses a step
+   carrying a check on a kind that has no evaluation for it
    (`CHECK_NOT_EVALUABLE_IN_THIS_BUILD`,
    `a_recognised_check_is_not_thereby_evaluable`). Evaluability is per step
    kind and check, because a check is answered by its own step's read: the
@@ -314,8 +315,10 @@ comments:
    `UNCHECKED` (`04-migration-and-safety.md`, not yet observed in this build, so
    all four answer `UNCHECKED` / `NOT_OBSERVED`); `FAILS` halts, `UNCHECKED` keeps
    the source and ends the run `COMPLETED_WITH_UNCHECKED`. **The gate refuses a
-   `VERIFY_DESTINATION` missing any of the four, or whose probes and skips are
-   not its executable list** (`DESTINATION_CONTRACT_INCOMPLETE`), and a
+   `VERIFY_DESTINATION` missing `PROVIDER_REPORTS_ACTIVE` or any of the four, one
+   missing `PACKAGE_NEWLY_PRESENT` when the plan adds the package, or one whose
+   probes and skips are not its executable list**
+   (`DESTINATION_CONTRACT_INCOMPLETE`), and a
    `LIVENESS_PROBE` whose argv is not the curated table's
    (`PROBE_IS_NOT_THE_TABLES`; this build holds no row, so it refuses every one).
    In this build a planner plan is refused by `MUTATION_NOT_IN_THIS_BUILD`.

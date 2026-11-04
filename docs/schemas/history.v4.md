@@ -4,7 +4,7 @@ The file a mutating run leaves in the state directory, `history/run-<id>.json`
 (`04-migration-and-safety.md`, History). Derived from `RunRecord` in
 `crates/domain/src/history.rs`; written and read by
 `crates/adapters/src/persistence/history_store.rs`. The compatibility rule is
-in [`README.md`](README.md). **Version 3 is what this build writes**; a
+in [`README.md`](README.md). **Version 4 is what this build writes**; a
 [version 2](history.v2.md) record still reads (below). Shipped with work order
 16 part F-3 (`docs/passes/16-plans/F.md`, Design §5; SG-12).
 
@@ -21,7 +21,7 @@ it does not list here.
 Work order 16 part H-1. A check on `VERIFY_DESTINATION` now answers `HOLDS`, `FAILS` or `UNCHECKED`, and a run can end with something unchecked and the source kept. `StoredEnding` and the step results refuse unknown keys and values, so a new value is not additive, and this is a new version.
 
 - `Step.result` gains `VERIFIED_WITH_UNCHECKED` (`evidence`, `unchecked`: on `VERIFY_DESTINATION` only, `unchecked` never empty, every read passed) and `SOURCE_KEPT_UNCHECKED` (on `REMOVE_SOURCE`, `VERIFY_REMOVAL` or `CLEANUP_REVIEW` only, after a `VERIFIED_WITH_UNCHECKED`; not dispatched).
-- `ending` gains `{ "kind": "COMPLETED_WITH_UNCHECKED", "sourceKept": boolean }`, read only when the steps agree: something unchecked, no step left undone, and `sourceKept` true exactly when a `SOURCE_KEPT_UNCHECKED` step exists.
+- `ending` gains `{ "kind": "COMPLETED_WITH_UNCHECKED", "sourceKept": boolean }`, read only when the steps agree: something unchecked, no step left undone, and `sourceKept` true exactly when a `SOURCE_KEPT_UNCHECKED` step exists. The other way too: a record with something unchecked that ends `COMPLETED`, or that states a removal performed after it, or a `VERIFY_REMOVAL` or `CLEANUP_REVIEW` kept without a kept `REMOVE_SOURCE`, is refused (`HISTORY_UNUSABLE`).
 - `status` for that ending is `PARTIAL` when a mutation was dispatched and `NO_CHANGE` otherwise, **never `SUCCESS`** (`04-migration-and-safety.md`). So a re-run re-verifies an unchecked destination rather than recognising it as done (`recognise_retained_run` still refuses anything but `SUCCESS`, INV-16).
 - `UncheckedEntry` is as in [`migrate.v2.md`](migrate.v2.md).
 
@@ -84,7 +84,7 @@ Restore has nothing to revert for the primary: this build sets none.
 
 | Field | Type | Notes |
 |---|---|---|
-| `schemaVersion` | integer | `3` |
+| `schemaVersion` | integer | `4` |
 | `primaryAfter` | string | The provider observed to resolve the executables: the destination only after `RESOLVED`, or for `NO_EXECUTABLES` after its `SET_PRIMARY` was carried out |
 | `primaryExecutables` | array of string | Sorted, unique, each an executable name |
 
@@ -111,7 +111,7 @@ re-serialises it byte for byte.
   "id": "20261004T120000Z-3f9c2a7b1d0e4c58",
   "startedAt": "2026-10-04T12:00:00Z",
   "toolVersion": "0.1.0",
-  "planSchemaVersion": 1,
+  "planSchemaVersion": 2,
   "policyVersion": "2026.10.03-2",
   "package": {
     "provider": "macports",

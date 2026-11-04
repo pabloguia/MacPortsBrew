@@ -8756,7 +8756,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   - **Part D superseded by DP-048 (c) and work order 16 part K:** removal becomes opt-in rather than refused by release
     policy. `the_switch_needs_removal_opt_in` replaces part D's planned flip tripwire and K's tests replace its
     `invariant_01_*`. `the_switch_needs_the_window_before_removal_closed_or_accepted` became the positive structural
-    `the_destination_is_reread_before_removal`, and `the_switch_needs_the_destination_contract_evaluable` was widened
+    `the_destination_is_reread_before_removal`, and `the_switch_needs_the_destination_contract_observed` was widened
     to every check of the planner's `VERIFY_DESTINATION` in each direction (it moved to `crates/cli/tests/executor.rs`,
     beside the in-code snapshots it plans from: the recordings do not record MacPorts' service facts).
   - **The shell half runs one way until part K:** the shell's re-read tests reach a removal toward MacPorts only,
@@ -8771,7 +8771,7 @@ the next read path (security-reviewer, end of pass 06). **`--cask` is absent on 
   - S-2's second pull request (2026-10-30): `evaluable_in_this_build` answers `PROVIDER_REPORTS_ACTIVE` on
     `VERIFY_DESTINATION` only (`provider_reports_active_is_evaluable_on_verify_destination_only`), one arm shared with
     `PACKAGE_NEWLY_PRESENT`, so both directions gain it at once (INV-17). The widened tripwire
-    `the_switch_needs_the_destination_contract_evaluable` now names exactly DP-051's four checks (part H), and its
+    `the_switch_needs_the_destination_contract_observed` now names exactly DP-051's four checks (part H), and its
     held half pins both destination checks evaluable. Replay (INV-15):
     `crates/application/tests/replay_active.rs` judges each recording's own activation reads with the product's
     judge — every unlinked formula and every cask, a fixed stride of the linked ones (each judgement parses a
