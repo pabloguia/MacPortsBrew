@@ -49,7 +49,7 @@ Append items here as they appear. Each line gives:
 Remove a line when the owner has done it, citing the commit.
 
 - **Rule DP-056 and DP-057** (block nothing; `docs/decisions-pending.md`). The linkage reader, and three readings of DP-051 under part H. Action: reply accepting the defaults, or naming the option you prefer; the recommendation is the defaults.
-- **Part H's research left things on this machine** (blocks nothing). `httpd --version` wrote `/usr/local/var/log/httpd/error_log` and `access_log`; 11 crash reports are in `~/Library/Logs/DiagnosticReports`; an empty `/private/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress` was left by the install dialog raised by a test with a bogus `SDKROOT` (R-27, R-28). Action: press Cancel on the Command Line Tools dialog if it is still open, and delete those files if you want them gone; nothing depends on them.
+- **Part H's research left things on this machine** (blocks nothing). `httpd --version` wrote `/usr/local/var/log/httpd/error_log` and `access_log`; 11 crash reports are in `~/Library/Logs/DiagnosticReports`; an empty `/private/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress` appeared at 03:02:51, a second after the install dialog that R-27 attributes by timing to its test with a bogus `SDKROOT`; R-28 leaves the file unattributed. Action: press Cancel on the Command Line Tools dialog if it is still open, and delete those files if you want them gone; nothing depends on them.
 
 - **Rule DP-054** (blocks nothing; `docs/decisions-pending.md`). Whether to
   relax DP-032 and DP-016 for `--replay` so replayed Homebrew plans keep showing.

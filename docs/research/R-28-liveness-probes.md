@@ -367,6 +367,8 @@ Notes: rows 11-13 want the same four-round treatment before the file lands. MacP
 
 ## Impact on the specification
 
+Line numbers of `docs/spec/` below are at `9b8d68d`.
+
 - **`docs/spec/04-migration-and-safety.md`, verification contract check 4, "safe, non-mutating flag (default `--version`; … skippable with a recorded reason…)": contradicted by E-4**, and replaced by DP-051's ruling; `httpd --version` is the evidence to cite. The text should also stop calling it "safe": the curated row, not the flag, is what is being trusted. `docs/spec-evolution.md` entry needed (main agent's decision).
 - **`crates/application/src/planner.rs` ≈974 and `crates/domain/src/plan.rs` ≈355** hard-code and document the default (`flag: "--version"`); the plan needs the row's `argv`, and a schema decision in `docs/schemas/plan.v1.md`. Not a spec statement, but it is the same contradiction in code.
 - **DP-051's "the timeout of ADR-0006":** ADR-0006 states the kill and drain, not a value; the value is `DEFAULT_TIMEOUT`. The design note should name the probe's own.

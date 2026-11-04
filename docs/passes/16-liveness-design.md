@@ -2,7 +2,7 @@
 
 # Work order 16 part H — how `LIVENESS_PROBE` runs a program off the allowlist
 
-The design note `prompts/16-complete-mutating-product.md` part H item 2 requires
+Written 2026-11-04, at `9b8d68d`. The design note `prompts/16-complete-mutating-product.md` part H item 2 requires
 before any code. `security-reviewer` passes it first (Reviews, at the end). The
 facts are [R-28](../research/R-28-liveness-probes.md); the ruling is DP-051.
 

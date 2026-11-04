@@ -49,19 +49,15 @@ The original brief said "verify" without defining it. It is defined here.
 **MUST.** Destination verification succeeds only when all of these hold:
 
 1. The destination provider reports the package as installed and active.
-2. The provider's own account of the package's files is satisfied on disk
-   (*not* a content check: neither provider offers a read-only verb for one;
-   R-25). See "What check 2 may claim".
+2. This tool's check of the provider's records against the disk, as defined per provider below: not a verdict by the provider and not content integrity (neither provider offers a read-only verb for one; R-25, read 2026-11-04). See "What check 2 may claim".
 3. The expected executables exist at paths *owned by the destination provider*,
    by the provider's own rule for the placed entry `<prefix>/{bin,sbin}/<leaf>`,
    not by string-matching the path: MacPorts' `port -q provides`, and for Homebrew
-   the rule Homebrew itself applies, since no Homebrew read answers which formula
-   owns a path (R-26).
+   the rule Homebrew itself applies, since no Homebrew read answers which formula owns a path (R-26, 2026-11-04, Homebrew `874c46a`). The file it finally resolves to must be the same package's; a link whose real path leaves the keg (`npm`, `npx`, 2 of 1091) is `UNCHECKED`, an accepted cost.
 4. A liveness probe exits successfully for each primary executable, run only from
    a curated row of a dated data file (`data/policy/liveness-probes.toml`, landing in
    part H-2), at the version that row
-   observed. There is no default flag: `httpd --version` starts a server and exits
-   0 (R-28). An executable with no row is a recorded skip, which is `UNCHECKED`,
+   observed. There is no default flag: `httpd --version` starts a server and exits 0 (Apache 2.4.68; R-28, 2026-11-04). An executable with no row is a recorded skip, which is `UNCHECKED`,
    never a pass.
 5. No reference to another provider's prefix is present at verification, in the
    package's own files or the destination files they load (see contamination check
@@ -74,14 +70,13 @@ is never either of the others. `FAILS` stops the step, and the source is kept. A
 is never removed**, and the run ends `COMPLETED_WITH_UNCHECKED`, never `COMPLETED`.
 Removal requires all four to answer `HOLDS`.
 
-**What check 2 may claim** (R-25). MacPorts: every file its registry records for the
-active image exists. Homebrew: the keg has a receipt and more than its metadata, and
-its recorded runtime dependencies are installed. **Absence of a file from a Homebrew
-keg is not detected**, because `brew list --formula` lists the keg at call time; DP-057
+**What check 2 may claim** (R-25; not built: SE-113). MacPorts: every file its registry records for the
+active image exists, and every recorded symlink resolves. Homebrew: the keg has a receipt and more than its metadata, every symlink in it resolves, and its recorded runtime dependencies are installed. **Absence of a file from a Homebrew
+keg is not detected**, because `brew list --formula` lists the keg at call time (Homebrew `874c46a`, read 2026-11-04); DP-057
 asks the owner to confirm this basis. Neither claim is content integrity, provenance,
 or that the package runs.
 
-**What check 4 does not prove** (R-28). It proves that this file, in this environment,
+**What check 4 does not prove** (R-28; not built: SE-113). It proves that this file, in this environment,
 with this flag, loaded and exited 0 once. Not that the program does its job, is the
 expected version, works under the user's configuration, or had no side effect: **a
 passing probe does not exclude a started server.**

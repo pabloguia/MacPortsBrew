@@ -5,7 +5,7 @@
 - **Machine:** macOS 26.7.2 (25G332), x86_64, Homebrew 7.0.11-143-g874c46a @ `/usr/local` (`/usr/local/Homebrew` HEAD `874c46a98f1832f5c872c94f7d5a33503022c154`), MacPorts 2.12.6 @ `/opt/local`; Xcode 26.5 (17F42) selected (`xcode-select -p` = `/Applications/Xcode.app/Contents/Developer`), Command Line Tools 26.6 also installed, `otool` cctools-1040 / LLVM 21.0.0; repository at `9b8d68d`
 - **Blocking:** work order 16 part H item 1 (`NO_CROSS_PROVIDER_LINKAGE`, verification check 5 in `docs/spec/04-migration-and-safety.md`), and the owner's choice between a staged `otool` program entry and an ADR-0004 decision (R-21 Impact)
 
-Item R-27 is not yet listed in `docs/spec/09-research-checklist.md`; the work order names this file.
+Listed in `docs/spec/09-research-checklist.md` under R-25 to R-28; work order 16 part H item 1 asks for one note per check.
 
 ## Question
 
@@ -497,7 +497,6 @@ Nothing here was edited. For the main agent to weigh:
 - **R-21 finding 14 and its staging row** are corrected here: `-arch all` is required, `-l` alone suffices, "not an object file" is rc 0 (R-21 recorded the line and not the code), `xcode-select -p` is not a sufficient gate, and the cache question is closed: a miss writes. R-21 should get a forward pointer.
 - **R-21's sentence that the shim "consults `xcrun`'s cache"** stands; add that it may write it and may run `sh` and `xcodebuild`.
 - **Work order 16 part H item 3** interacts with findings 12 and 15: as written, every script-only package stays unchecked for ever. Needs a ruling on what counts as genuinely unevaluable, and it shapes S's tripwire (part H item 5).
-- **`docs/spec/09-research-checklist.md`** has no R-27 entry yet.
 - **INV-05** names Homebrew and MacPorts, not the developer tools, so a raised prompt does not breach its letter. It is reported because the project's stance on implicit installs reaches the same place, not as a contradiction.
 - **Owner trade-off (R-21 Impact):** this note recommends the reader, so nothing for `otool` needs staging under `docs/passes/16-staged/`. If the owner rules otherwise, finding 28 is the shape.
 - No Tier 1 statement was found to be contradicted.

@@ -2,7 +2,7 @@
 
 # Work order 16, part H — the four remaining destination checks (DP-051 (a))
 
-Plan for `prompts/16-complete-mutating-product.md` §5 H. Reviewed by
+Plan written 2026-11-04, at `9b8d68d`, for `prompts/16-complete-mutating-product.md` §5 H. Reviewed by
 `spec-guardian` and `security-reviewer` before any code; their review is the
 approval (§4). Facts: R-25 (integrity), R-26 (ownership), R-27 (linkage), R-28
 (liveness). The admission of a probe is its own note,
@@ -66,8 +66,7 @@ provenance, or that the package runs.
 **The Homebrew rule, whole (R-25):** the `installed[]` entry whose version equals
 `linked_keg`; a receipt in the keg and more than its metadata (at least one real entry);
 each `runtime_dependencies` name matches the inventory by `name`, `aliases` or `oldnames`
-(no `stat`; versions not compared, 212 of 939 healthy edges differ). `null` dependencies
-are `Unchecked`, and an empty list is `ProviderOutputChanged`.
+(no `stat`; versions not compared, 212 of 939 healthy edges differ). `null` dependencies are `Unchecked`; `[]` is an honest none (94 here). An empty file list is `ProviderOutputChanged`.
 
 `Fails`: a missing or dangling path (`stat`, with the two named apart); a missing
 dependency; a keg with no receipt or only metadata. `Unchecked`: any other `stat` errno, a
@@ -111,9 +110,7 @@ Homebrew read answers ownership.
 dependency, no `unsafe`, no spawn, no allowlist growth, so §3 items 3, 5 and 6 are not
 touched), recorded in the SE entry and as DP-056, which blocks nothing, because R-21 named it
 the owner's trade-off. R-27 observed what R-21 could not: `otool` exits 0 on a non-object
-file, `-L` shows only the host slice (a crafted cross link in the other was hidden), it writes
-`xcrun_db` on a cache miss, it runs `sh` and `xcodebuild`, and **it raised the Command Line
-Tools install dialog from a cleared environment** while `xcode-select -p` succeeded. "Reversible"
+file, `-L` shows only the host slice (a crafted cross link in the other was hidden), it writes `xcrun_db` on a cache miss, and, in one test with a deliberately bogus `SDKROOT` (attributed by timing and stderr, not proof, and not reachable under the sanitised environment unless `extra` carries it), an install dialog and a spawned `sh` and `xcodebuild`, with `xcode-select -p` succeeding. "Reversible"
 holds only while the switch is off: a false `Holds` once removal ships is not, so part L names
 the reader and its limits.
 
@@ -153,7 +150,7 @@ none), and no cancellation token is wired to adapters, so the numbers are the bo
 reaching a destination file not examined, is `Unchecked`.
 
 **What counts.** "Under" is component-wise, after normalising `..` and `@loader_path`, and
-case-insensitive (`/OPT/LOCAL/...`; R-26 observed it), with nested prefixes by longest match. "Another
+case-insensitive (`/opt/local/bin/XZ` answers `xz`, R-26; an upper-case prefix is inferred, not observed), with nested prefixes by longest match. "Another
 provider's":
 
 - a prefix a provider was **detected at**, other than the destination's: `Fails`;
@@ -280,7 +277,7 @@ Each `Fails` read as `Holds`; each `Unchecked` read as `Holds`; the new variant 
 
 ## INV-17
 
-One `CheckAnswer` model and one judge per check, in both directions. Declared asymmetries, each the provider's own: Homebrew's list is generated and MacPorts' is a record; Homebrew's owner is a rule and MacPorts' a query; only Homebrew has a dependency read to check; `LISTS_OUTSIDE_PREFIX` arises only under MacPorts and `OWNER_LEAVES_KEG` only under Homebrew. The initial table is balanced, so there is no asymmetry in effect.
+One `CheckAnswer` model and one judge per check, in both directions. Declared asymmetries, each the provider's own: Homebrew's list is generated and MacPorts' is a record; Homebrew's owner is a rule and MacPorts' a query; only Homebrew has a dependency read to check; `LISTS_OUTSIDE_PREFIX` arises only under MacPorts and `OWNER_LEAVES_KEG` only under Homebrew. The initial table is 6 Homebrew and 7 MacPorts rows; coverage differs as data, not as a code path (R-28 finding 25). The asymmetries above do have an effect, and each is reported rather than averaged away.
 
 ## Reviews
 

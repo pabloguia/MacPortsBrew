@@ -491,13 +491,6 @@ Left open:
 - Network traffic: not captured.
 - Third-party taps, and other machines, architectures and provider versions.
 
-### R-25 to R-28 · The four destination checks of work order 16 part H
-*Answered 2026-11-04, each partially, with its open states listed in the note:*
-[R-25](../research/R-25-provider-integrity-check.md) (`PROVIDER_INTEGRITY_CHECK`),
-[R-26](../research/R-26-executables-owned-by-destination.md) (`EXECUTABLES_OWNED_BY_DESTINATION`),
-[R-27](../research/R-27-no-cross-provider-linkage.md) (`NO_CROSS_PROVIDER_LINKAGE`),
-[R-28](../research/R-28-liveness-probes.md) (`LIVENESS_PROBE`).
-
 ### R-24 · What a read can say about a package's executables before it is installed, and about an inactive or file-less port
 *Open — raised 2026-11-01 by work order 16 part F (`docs/passes/16-plans/F.md`,
 "R-24"); note to be written at `docs/research/R-24-…` by `provider-researcher`.*
@@ -529,6 +522,13 @@ A form that can write is refused, whatever it would answer (the
 is recorded and not acted on without the owner.
 
 ---
+
+### R-25 to R-28 · The four destination checks of work order 16 part H
+*Answered 2026-11-04, each partially, with its open states listed in the note:*
+[R-25](../research/R-25-provider-integrity-check.md) (`PROVIDER_INTEGRITY_CHECK`),
+[R-26](../research/R-26-executables-owned-by-destination.md) (`EXECUTABLES_OWNED_BY_DESTINATION`),
+[R-27](../research/R-27-no-cross-provider-linkage.md) (`NO_CROSS_PROVIDER_LINKAGE`),
+[R-28](../research/R-28-liveness-probes.md) (`LIVENESS_PROBE`).
 
 ## Non-blocking research
 

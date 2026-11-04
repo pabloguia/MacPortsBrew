@@ -550,6 +550,8 @@ this note's observation, not a read the product should make.
 
 ## Impact on the specification
 
+Line numbers of `docs/spec/` below are at `9b8d68d`.
+
 - **`docs/spec/04-migration-and-safety.md` line 109 ("replacing that rule with an owner query
   is part H's") cannot be done, and `docs/passes/16-plans/F.md` line 197 says the same.** No Homebrew
   read answers ownership at this HEAD either (R-21 E-14 stands; `Keg.for` is the rule). The sentence
@@ -583,7 +585,7 @@ this note's observation, not a read the product should make.
 - Homebrew moves past `874c46a9`, particularly `keg.rb` (`Keg.for`, `unlink`, `initialize`),
   `formula.rb` `linked_keg`/`linked_version`, `pkg_version.rb`, `cli/named_args.rb`
   `resolve_default_keg`, or adds any "which formula owns this path" command, which would
-  change finding 20's table and supersede line 109 of spec 04 for real.
+  change finding 20's table and supersede spec 04's "so that rule stands" (`VERIFY_RESOLUTION` MUST) for real.
 - MacPorts base moves past 2.12.6, particularly `action_provides`, `file_registered`,
   `reg_entry_owner`'s `AND active`, or `mportselect` beginning to register its links.
 - `node` stops linking `npm` out of its keg, or a further formula class starts (finding 14).

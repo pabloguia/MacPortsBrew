@@ -16,15 +16,15 @@ are recorded.
 Raised 2026-11-04, work order 16 part H. R-21 named this the owner's trade-off; **it blocks nothing**, and the review found the choice within the part's authority (no dependency, no `unsafe`, no spawn, no allowlist growth). It is here so the owner can overrule it.
 
 - **(a) A hand-written reader in `crates/adapters/`.** Needs no developer tools at run time and no allowlist growth. Cost: a parser this project keeps correct, and the check answers unchecked under `--replay`.
-- **(b) `/usr/bin/otool`, staged for the allowlist.** Replays with no extra work. Cost: R-27 observed exit 0 on non-object files, `-L` hiding a slice, a write to `xcrun_db`, a spawned `sh` and `xcodebuild`, and **an install dialog raised from a cleared environment**.
+- **(b) `/usr/bin/otool`, staged for the allowlist.** Replays with no extra work. Cost: R-27 observed exit 0 on non-object files, `-L` hiding a slice, a write to `xcrun_db`, and, in one test with a deliberately bogus `SDKROOT` (attributed by timing and stderr, not proof, and not reachable under the sanitised environment unless `extra` carries it), an install dialog and a spawned `sh` and `xcodebuild`, with `xcode-select -p` succeeding.
 
-**Recommendation and default taken:** (a). Reversible while the switch is off; a false pass after removal ships is not, so part L names the reader and its limits.
+**Recommendation and default taken:** (a), which supersedes `docs/passes/16-staged/P/README.md`'s "part H stages `otool`". Reversible while the switch is off; a false pass after removal ships is not, so part L names the reader and its limits.
 
 ### DP-057 — Three readings of DP-051 that the four checks rest on
 
 Raised 2026-11-04, work order 16 part H, by `spec-guardian` and `security-reviewer`. DP-051 says a check that cannot be evaluated is reported unchecked. Each of these decides what "evaluated" means, so the owner should see them. **What it blocks:** nothing, because each default is reversible while the switch is off.
 
-1. **Homebrew's integrity check passes on a weaker basis.** `brew list --formula` runs `find` on the keg, so "every listed file exists" cannot fail, and **a file missing from a keg is not detected** (R-25). Neither provider offers a read-only verb. **(a)** pass on the receipt, a non-empty keg and the dependency names, stating the basis (default); **(b)** report Homebrew's check unchecked, which means MacPorts-to-Homebrew never removes.
+1. **Homebrew's integrity check passes on a weaker basis.** `brew list --formula` runs `find` on the keg, so "every listed file exists" cannot fail, and **a file missing from a keg is not detected** (R-25). Neither provider offers a read-only verb. **(a)** pass on the receipt, a non-empty keg, no dangling link and the dependency names, stating the basis (default); **(b)** report Homebrew's check unchecked, which means MacPorts-to-Homebrew never removes.
 2. **A package with no loadable file holds the linkage check,** with its basis stated, when no executable it lists is an `env` script (default); one that is stays unchecked. **(b)** every package with no Mach-O stays unchecked: R-27 counts 14 here.
 3. **A probe runs only at the exact observed version.** A row observed at 3.5.3 says nothing about 4.0, whose `--version` might start a server, and nothing can detect that. **(a)** exact match, so rows go stale at each upgrade and most packages stay unchecked until re-qualified (default); **(b)** a wider `applies_to` per row, which spends safety on coverage.
 
