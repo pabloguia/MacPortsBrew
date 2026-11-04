@@ -144,7 +144,9 @@ pub(crate) const INFO_FIELDS: &[&[&str]] = &[
 ///
 /// The Homebrew adapter's [`crate::homebrew::ALLOWED_ARGV`] asked the same
 /// question, and it is asked here for the same reason: nothing outside this
-/// list, and nothing outside [`ALLOWED_ARGV_PREFIXES`], reaches the executor
+/// list, [`ALLOWED_ARGV_PREFIXES`], and the `-q installed <name>` form
+/// [`is_allowed_argv`] names (the verify step's read, also the owner's version
+/// on the destination check, R-26 finding 5) reaches the executor
 /// (`04-migration-and-safety.md`, "Process execution").
 pub const ALLOWED_ARGV: &[&[&str]] = &[
     ARGV_VERSION,

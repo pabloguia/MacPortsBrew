@@ -75,7 +75,7 @@ use macportsbrew_adapters::registry::{
     destination_sites, plan_read_sites, reread_configuration, DestinationSites, PlanReadError,
     PlanReadSites, RegistryContext,
 };
-use macportsbrew_application::destination_judges::{answer_from_facts, basis_of};
+use macportsbrew_application::destination_judges::{answer_from_facts, basis_of, held_row};
 use macportsbrew_application::{
     certify_destination, consent_for, destination_still_verified, execution_refusals,
     judge_mutation, judge_resolution, judge_step, must_record, next_action, next_action_with,
@@ -386,7 +386,10 @@ impl DestinationSite for MachineDestinationSite<'_, '_, '_> {
         };
         let provider = &plan.destination;
         let facts = match question {
-            Question::Owned { executable } => self.reads.ownership(provider, package, executable),
+            Question::Owned { executable } => {
+                self.reads
+                    .ownership(provider, package, executable, held_row(self.planned))
+            }
             Question::Integrity => self.reads.integrity(provider, package),
             Question::Linkage => self.reads.linkage(provider, package),
             Question::Probe { leaf, argv } => {
@@ -815,7 +818,7 @@ pub fn run_mutating<M: MutationSite>(
 /// `destination` builds what answers DP-051's four checks on a
 /// `VERIFY_DESTINATION`, and check 3 again before a removal (work order 16 part H).
 /// Like `sites`, it is called only after the gate passed the plan, and it is
-/// handed the lock this run holds, so nothing can build one outside it.
+/// handed the lock this run holds, which is what a real site asks for.
 #[allow(clippy::needless_pass_by_value)]
 pub fn run_with_mutations<S: ReadSite, D: DestinationSite, M: MutationSite>(
     cleared: &GateClear,
@@ -1124,7 +1127,8 @@ pub fn run_with_mutations<S: ReadSite, D: DestinationSite, M: MutationSite>(
         &records,
         io.start.clone(),
         snapshot_file.as_deref(),
-    );
+    )
+    .with_check_bases(answering.bases());
     let mut history_error = None;
     let mut marker_left = None;
     let mut record_written = false;

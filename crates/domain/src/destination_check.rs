@@ -81,8 +81,9 @@ pub enum UncheckedCause {
     /// The probe was not run, because the entry's ownership could not be told
     /// (one that did not hold halts the step instead).
     OwnershipNotTold,
-    /// A file of the package could not be parsed, so nothing of the package's
-    /// was run.
+    /// A file of the package could not be read as an object, whether malformed,
+    /// over a cap, or a Java class whose magic is a fat header's, so nothing of
+    /// the package's was run.
     MalformedFile,
     /// A provider read failed, timed out, or answered in a shape not recognised.
     ReadFailed,
@@ -97,20 +98,34 @@ pub enum UncheckedCause {
     StatFailed,
     /// The provider's record of the package's dependencies could not be told.
     DependenciesNotTold,
-    /// A one-hop link is the package's and its final file lies outside it.
-    OwnerLeavesKeg,
+    /// The entry is the package's and what it finally resolves to lies outside
+    /// the package: outside its own directory, or outside the prefix.
+    EntryLeavesOwner,
+    /// The provider's record answered nothing for the entry, which means several
+    /// things, so it says nothing about who owns it.
+    OwnerNotNamed,
+    /// The package was held, and no active version was, so no version can be
+    /// pinned against the snapshot.
+    HeldVersionNotTold,
     /// A reference lies under a documented prefix where no provider was
     /// detected, so it is nobody's for certain.
     UnderUndetectedPrefix,
-    /// An `@rpath` name with no candidate, or an `@executable_path` that cannot
-    /// be resolved from the file alone.
+    /// An `@rpath` name with no candidate that exists or lies in the destination,
+    /// an `@executable_path` outside an executable, or a relative install name:
+    /// the file alone cannot say.
     RpathUnresolved,
-    /// An `env` shebang on the executable list: `PATH` decides at run time.
+    /// An `env` or relative shebang on the executable list: what runs is decided
+    /// at run time.
     InterpreterResolvedAtRunTime,
     /// A file could not be opened and read.
     UnreadableFile,
     /// The walk passed its bound, or reached a file it did not examine.
     WalkOverBound,
+    /// A listed file or a name under the destination leads outside every known
+    /// prefix, or a load command names something that is not a regular file.
+    FileNotExamined,
+    /// A path with `..` means one file written and another collapsed.
+    SpellingsDisagree,
 }
 
 /// One thing a `VERIFY_DESTINATION` could not tell: which check, about which

@@ -1965,16 +1965,36 @@ fn no_workspace_crate_depends_on_libc_directly() {
 
 /// The read-only loop passes no destination site, so nothing it does can reach a
 /// program or a walk: a site exists only under the run's lock (the design note;
-/// `.claude/rules/executor.md` rule 1).
+/// `.claude/rules/executor.md` rule 1). The bare identifier, across every crate's
+/// source, in exactly its definition and its one call.
 #[test]
 fn analysis_and_dry_run_never_reach_a_probe() {
+    let crates = root().join("crates");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&crates).expect("crates") {
+        let src = entry.expect("an entry").path().join("src");
+        if !src.is_dir() {
+            continue;
+        }
+        for (file, word) in words(&src) {
+            if word == "destination_sites" {
+                let name = file.rsplit("crates/").next().unwrap_or(&file).to_owned();
+                found.push(name);
+            }
+        }
+    }
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            "adapters/src/registry.rs".to_owned(),
+            "cli/src/executor/mod.rs".to_owned(),
+            "cli/src/executor/mod.rs".to_owned(),
+        ],
+        "the definition, the import, the one call"
+    );
     let text =
         std::fs::read_to_string(root().join("crates/cli/src/executor/mod.rs")).expect("the shell");
-    let calls: Vec<&str> = text
-        .lines()
-        .filter(|line| line.contains("destination_sites(ctx"))
-        .collect();
-    assert_eq!(calls.len(), 1, "{calls:?}");
     let read_only = &text[text.find("pub fn run_with_resolutions").unwrap()..];
     let read_only = &read_only[..read_only.find("\n}\n").unwrap()];
     assert!(read_only.contains("|| NothingObserved"), "{read_only}");

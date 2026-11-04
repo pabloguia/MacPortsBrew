@@ -6,8 +6,8 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use macportsbrew_adapters::destination_reads::{
-    checked_list, examine, placed_entry, stat_counts, CheckedList, Outside, StatCounts,
-    MAX_WALK_FILES,
+    checked_list, examine, examine_counted, placed_entry, stat_counts, CheckedList, Outside,
+    StatCounts, MAX_WALK_FILES, MAX_WALK_REFERENCES,
 };
 use macportsbrew_adapters::process::MAX_PATH_LEN;
 use macportsbrew_domain::{LinkageFacts, PrefixClass, PrefixTable, UncheckedCause};
@@ -341,7 +341,6 @@ fn a_shebang_counts_as_a_reference_and_env_is_indeterminate_on_the_list_only() {
     let off = put(&own.join("share/c"), b"#!/usr/bin/env python3\n");
     let facts = examine(&[off], &[bin], &table);
     assert!(!facts.env_shebang_on_list);
-    assert_eq!(facts.env_shebang_elsewhere, 1);
 }
 
 /// R-27's closing ruling: a Java class is not hidden from the fat-header rule.
@@ -440,4 +439,312 @@ fn the_placed_entry_is_bin_then_sbin_and_lstat_only() {
         Ok(Some(scratch.0.join("bin/x")))
     );
     assert_eq!(placed_entry(&scratch.0, "y"), Ok(None));
+}
+
+// --- review round 1 of H-2 --------------------------------------------------
+
+const DYLD_ENVIRONMENT: u32 = 0x27;
+
+/// A reference that says nothing by its spelling, carried each way a file can.
+fn every_carrier(own: &Path, reference: &Path) -> Vec<(&'static str, PathBuf)> {
+    let text = bytes_of(reference);
+    let mut environment = b"DYLD_LIBRARY_PATH=".to_vec();
+    environment.extend_from_slice(text);
+    let mut shebang = b"#!".to_vec();
+    shebang.extend_from_slice(text);
+    shebang.push(b'\n');
+    let mut argument = b"#!/usr/bin/env ".to_vec();
+    argument.extend_from_slice(text);
+    argument.push(b'\n');
+    vec![
+        (
+            "load",
+            put(&own.join("bin/load"), &thin(EXECUTE, &[(LOAD, text)])),
+        ),
+        (
+            "rpath",
+            put(&own.join("bin/rpath"), &thin(EXECUTE, &[(RPATH, text)])),
+        ),
+        (
+            "environment",
+            put(
+                &own.join("bin/env"),
+                &thin(EXECUTE, &[(DYLD_ENVIRONMENT, &environment)]),
+            ),
+        ),
+        ("shebang", put(&own.join("bin/script"), &shebang)),
+        ("argument", put(&own.join("share/argument"), &argument)),
+    ]
+}
+
+fn assert_found_by_each_carrier(scratch: &Scratch, reference: &Path) {
+    let (own, _, table) = scratch.table();
+    for (carrier, file) in every_carrier(&own, reference) {
+        let facts = examine(&[file], &[], &table);
+        assert!(
+            facts.links_detected_provider,
+            "{carrier} {}: {facts:?}",
+            reference.display()
+        );
+    }
+}
+
+/// A link outside every prefix, as `/private/tmp` or `$HOME` would hold one.
+#[test]
+fn invariant_07_a_plain_link_outside_every_prefix_is_followed_to_where_it_leads() {
+    let scratch = Scratch::new();
+    let (_, other, _) = scratch.table();
+    let outside = scratch.0.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    symlink(&other, outside.join("away")).unwrap();
+    put(&other.join("lib/x"), b"x");
+    assert_found_by_each_carrier(&scratch, &outside.join("away/lib/x"));
+    // So is one whose file is not there: the directory link is enough.
+    assert_found_by_each_carrier(&scratch, &outside.join("away/lib/absent"));
+}
+
+/// The firmlink spelling: the same inode, in text no prefix matches.
+#[test]
+fn invariant_07_a_firmlink_spelling_of_the_other_prefix_is_found_by_inode() {
+    let scratch = Scratch::new();
+    let (_, other, _) = scratch.table();
+    let data = Path::new("/System/Volumes/Data");
+    let spelled = data.join(other.strip_prefix("/").unwrap());
+    if !spelled.exists() {
+        return; // Not this kind of volume: the case does not arise.
+    }
+    put(&other.join("lib/x"), b"x");
+    assert_found_by_each_carrier(&scratch, &spelled.join("lib/x"));
+    assert_found_by_each_carrier(&scratch, &spelled.join("lib/absent"));
+}
+
+/// The Unicode fold: `ſ` opens `s` on a case-insensitive volume.
+#[test]
+fn invariant_07_a_unicode_fold_of_the_other_prefix_is_found_by_inode() {
+    let scratch = Scratch::new();
+    let (own, _, _) = scratch.table();
+    let solo = scratch.0.join("solo");
+    std::fs::create_dir_all(solo.join("lib")).unwrap();
+    let folded = scratch.0.join("\u{17f}olo");
+    if !folded.exists() {
+        return; // A case-sensitive volume: the spelling names nothing.
+    }
+    let mut table = PrefixTable::default();
+    table.add(bytes_of(&own), PrefixClass::Destination);
+    table.add(bytes_of(&solo), PrefixClass::DetectedOther);
+    let file = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, bytes_of(&folded.join("lib/x")))]),
+    );
+    assert!(examine(&[file], &[], &table).links_detected_provider);
+}
+
+/// Neither spelling nor resolution places it, so nobody examined it, and that is
+/// not `NO_LOAD_COMMANDS`.
+#[test]
+fn a_listed_or_reached_file_outside_every_prefix_is_not_examined_and_says_so() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let nowhere = put(&scratch.0.join("nowhere/file"), b"plain");
+    // Listed, through a directory link in the destination.
+    symlink(scratch.0.join("nowhere"), own.join("away")).unwrap();
+    let facts = examine(&[own.join("away/file")], &[], &table);
+    assert!(facts.file_not_examined, "{facts:?}");
+    assert_eq!(facts.loadable_files, 0);
+    // Reached by a load command, under the destination by its spelling.
+    let reaches = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, bytes_of(&own.join("away/file")))]),
+    );
+    assert!(examine(&[reaches], &[], &table).file_not_examined);
+    // A reference spelled outside every prefix, leading outside: nobody's, and
+    // the system's libraries are this case. Not flagged.
+    let elsewhere = put(
+        &own.join("bin/b"),
+        &thin(EXECUTE, &[(LOAD, bytes_of(&nowhere))]),
+    );
+    assert!(!examine(&[elsewhere], &[], &table).file_not_examined);
+    // A link in the list that leads outside every prefix.
+    let link = own.join("share/link");
+    std::fs::create_dir_all(own.join("share")).unwrap();
+    symlink(&nowhere, &link).unwrap();
+    assert!(examine(&[link], &[], &table).file_not_examined);
+}
+
+#[test]
+fn a_load_command_naming_something_not_a_regular_file_is_not_examined() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    std::fs::create_dir_all(own.join("lib/a-directory")).unwrap();
+    let file = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, bytes_of(&own.join("lib/a-directory")))]),
+    );
+    assert!(examine(&[file], &[], &table).file_not_examined);
+}
+
+fn numbered(prefix: &str, count: usize) -> Vec<Vec<u8>> {
+    (0..count)
+        .map(|n| format!("{prefix}{n}").into_bytes())
+        .collect()
+}
+
+/// The quadratic file: `LC_RPATH` entries times `@rpath` names. A bound in numbers,
+/// since an adapter reads no clock.
+#[test]
+fn a_quadratic_file_passes_the_reference_bound_and_says_so() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let rpaths = numbered(&format!("{}/r", own.display()), 300);
+    let names = numbered("@rpath/n", 300);
+    assert!(rpaths.len() * names.len() > MAX_WALK_REFERENCES);
+    let mut commands: Vec<(u32, &[u8])> = Vec::new();
+    commands.extend(rpaths.iter().map(|r| (RPATH, r.as_slice())));
+    commands.extend(names.iter().map(|n| (LOAD, n.as_slice())));
+    let file = put(&own.join("bin/a"), &thin(EXECUTE, &commands));
+    let (facts, work) = examine_counted(&[file], &[], &table);
+    assert!(facts.walk_over_bound, "{facts:?}");
+    assert!(work.operations <= MAX_WALK_REFERENCES + 1, "{work:?}");
+}
+
+/// A repeated candidate costs a count and no filesystem access; a mutant with no
+/// dedupe resolves it each time.
+#[test]
+fn a_repeated_candidate_reaches_the_filesystem_once() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let rpath = bytes_of(&own.join("lib")).to_vec();
+    let mut commands: Vec<(u32, &[u8])> = vec![(RPATH, rpath.as_slice()); 40];
+    commands.extend(vec![(LOAD, &b"@rpath/same"[..]); 40]);
+    let file = put(&own.join("bin/a"), &thin(EXECUTE, &commands));
+    let (_, work) = examine_counted(&[file], &[], &table);
+    assert!(work.operations > 1600, "{work:?}");
+    // The file, the rpath directory and the one candidate.
+    assert_eq!(work.resolutions, 3, "{work:?}");
+}
+
+/// Sixteen entries naming one range: read once. A mutant with no dedupe reads it
+/// sixteen times, and the count of operations shows it.
+#[test]
+fn overlapping_fat_slices_cost_one_read_of_the_range() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let slice = thin(EXECUTE, &[(LOAD, b"/usr/lib/libSystem.B.dylib")]);
+    let offset = 4096_u32;
+    let mut fat = Vec::new();
+    fat.extend_from_slice(&0xcafe_babe_u32.to_be_bytes());
+    fat.extend_from_slice(&16_u32.to_be_bytes());
+    for _ in 0..16 {
+        fat.extend_from_slice(&0x0100_0007_u32.to_be_bytes());
+        fat.extend_from_slice(&3_u32.to_be_bytes());
+        fat.extend_from_slice(&offset.to_be_bytes());
+        fat.extend_from_slice(&(slice.len() as u32).to_be_bytes());
+        fat.extend_from_slice(&0_u32.to_be_bytes());
+    }
+    fat.resize(offset as usize, 0);
+    fat.extend_from_slice(&slice);
+    let file = put(&own.join("bin/fat"), &fat);
+    let (facts, work) = examine_counted(&[file], &[], &table);
+    assert_eq!(facts.loadable_files, 1);
+    // The listed file, and the one reference.
+    assert_eq!(work.operations, 2, "{work:?}");
+}
+
+/// `..` after a directory link is another file than the collapsed text names.
+#[test]
+fn a_path_whose_parent_component_crosses_a_link_is_not_told_by_its_text() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    put(&own.join("lib/x"), b"x");
+    put(&other.join("lib/x"), b"x");
+    symlink(other.join("deep"), own.join("door")).unwrap();
+    std::fs::create_dir_all(other.join("deep")).unwrap();
+    // Collapsed this reads as the destination's own lib; written, it is the other's.
+    let written = format!("{}/door/../lib/x", own.display());
+    let file = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, written.as_bytes())]),
+    );
+    let facts = examine(&[file], &[], &table);
+    assert!(facts.spellings_disagree, "{facts:?}");
+    assert!(facts.links_detected_provider, "{facts:?}");
+    // Where nothing crosses a link, the two agree.
+    let plain = format!("{}/bin/../lib/x", own.display());
+    let file = put(
+        &own.join("bin/b"),
+        &thin(EXECUTE, &[(LOAD, plain.as_bytes())]),
+    );
+    assert!(!examine(&[file], &[], &table).spellings_disagree);
+}
+
+/// A chain: its first hop stays in the destination and its end does not.
+#[test]
+fn invariant_07_a_link_is_judged_by_its_whole_resolution_and_not_its_first_hop() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    std::fs::create_dir_all(own.join("share")).unwrap();
+    let last = other.join("real");
+    put(&last, b"x");
+    symlink(&last, own.join("share/second")).unwrap();
+    symlink(own.join("share/second"), own.join("share/first")).unwrap();
+    assert!(examine(&[own.join("share/first")], &[], &table).links_detected_provider);
+}
+
+#[test]
+fn an_rpath_name_with_candidates_none_there_and_none_in_the_destination_is_unresolved() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let elsewhere = bytes_of(&scratch.0.join("nowhere-at-all")).to_vec();
+    let file = put(
+        &own.join("bin/a"),
+        &thin(
+            EXECUTE,
+            &[(RPATH, elsewhere.as_slice()), (LOAD, b"@rpath/libx.dylib")],
+        ),
+    );
+    assert!(examine(&[file], &[], &table).rpath_unresolved);
+    // A candidate in the destination need not exist: it could have been its own.
+    let inside = bytes_of(&own.join("lib")).to_vec();
+    let file = put(
+        &own.join("bin/b"),
+        &thin(
+            EXECUTE,
+            &[(RPATH, inside.as_slice()), (LOAD, b"@rpath/libx.dylib")],
+        ),
+    );
+    assert!(!examine(&[file], &[], &table).rpath_unresolved);
+}
+
+/// What runs under a name on the executable list is its target, by link, by
+/// hardlink, and whichever name was read first.
+#[test]
+fn an_env_script_is_on_the_list_by_any_name_it_has_there() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let bin = own.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let script = put(&own.join("libexec/tool.py"), b"#!/usr/bin/env python3\n");
+    let dirs = std::slice::from_ref(&bin);
+
+    symlink(&script, bin.join("tool")).unwrap();
+    let by_link = examine(&[bin.join("tool")], dirs, &table);
+    assert!(by_link.env_shebang_on_list, "{by_link:?}");
+    // The target read first, under its own name, then the link.
+    let both = examine(&[script.clone(), bin.join("tool")], dirs, &table);
+    assert!(both.env_shebang_on_list, "{both:?}");
+
+    std::fs::hard_link(&script, bin.join("hard")).unwrap();
+    let hard = examine(&[script.clone(), bin.join("hard")], dirs, &table);
+    assert!(hard.env_shebang_on_list, "{hard:?}");
+    // By its own name alone it is off the list.
+    assert!(!examine(&[script], dirs, &table).env_shebang_on_list);
+}
+
+#[test]
+fn a_shebang_interpreter_argument_is_a_reference() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let text = format!("#!/usr/bin/env {}/bin/python3\n", other.display());
+    let file = put(&own.join("share/a"), text.as_bytes());
+    assert!(examine(&[file], &[], &table).links_detected_provider);
 }

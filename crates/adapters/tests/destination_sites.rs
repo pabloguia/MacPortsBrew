@@ -47,6 +47,10 @@ fn invariant_15_a_replayed_or_elsewhere_site_observes_nothing_and_asks_nothing()
     let (base, state) = state("scope");
     let lock = acquire(&state, std::fs::metadata(&base).unwrap().uid()).unwrap();
     let leaf = ExecutableName::parse("xz").unwrap();
+    // The third is the registry's own guard: `build` collapses a live runner's
+    // `Elsewhere` to this machine, so without the guard the adapter would ask, and
+    // this runner panics. The adapters' guard on its own is held by
+    // `invariant_15_the_adapters_own_guard_stops_a_read_of_this_disk`.
     let cases = [
         (true, FilesystemScope::Elsewhere),
         (true, FilesystemScope::ThisMachine),
@@ -65,7 +69,7 @@ fn invariant_15_a_replayed_or_elsewhere_site_observes_nothing_and_asks_nothing()
         for id in ["homebrew", "macports"] {
             let provider = ProviderId::new(id);
             assert_eq!(
-                sites.ownership(&provider, "xz", &leaf),
+                sites.ownership(&provider, "xz", &leaf, None),
                 DestinationFacts::NotObserved
             );
             assert_eq!(

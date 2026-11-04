@@ -2953,7 +2953,10 @@ fn a_precondition_about_a_providers_lock_keeps_its_own_exit_code() {
 
 // --- The destination's answers (work order 16 part H) ----------------------
 
-use macportsbrew_domain::{CheckFailure, DestinationCheck, UncheckedCause, UncheckedEntry};
+use macportsbrew_domain::{
+    CheckFailure, DestinationCheck, DestinationFacts, LinkageFacts, OwnershipFacts, UncheckedCause,
+    UncheckedEntry,
+};
 
 /// The whole run of questions, each answered by `site`.
 fn answered(
@@ -3161,6 +3164,84 @@ fn a_probe_is_asked_only_of_a_leaf_owned_and_only_when_no_file_was_malformed() {
             CheckAnswer::Holds
         }
     }));
+}
+
+/// A probe runs the destination's program. A file the reader could not read as an
+/// object, and a walk that stopped at its bound, both leave a program nobody
+/// examined, whichever cause the judge named first, so both stop the probe, and
+/// the entry says the probe was not asked for that reason.
+#[test]
+fn a_cause_that_stops_the_probe_stops_it_and_is_the_one_recorded() {
+    for cause in [UncheckedCause::MalformedFile, UncheckedCause::WalkOverBound] {
+        let run = full_run();
+        let plan = run.plan();
+        let verify = position(plan, StepKind::VerifyDestination);
+        let site = |q: &Question| {
+            if *q == Question::Linkage {
+                CheckAnswer::Unchecked(cause)
+            } else {
+                CheckAnswer::Holds
+            }
+        };
+        assert!(
+            !answered(plan, verify, site)
+                .iter()
+                .any(|a| matches!(a.question, Question::Probe { .. })),
+            "{cause:?}"
+        );
+        let outcome = certified(&run, site);
+        let unchecked = unchecked_by(&outcome);
+        assert!(
+            unchecked.iter().all(|entry| entry.cause == cause),
+            "{cause:?}: {unchecked:?}"
+        );
+    }
+}
+
+/// A destination holding the package only as an inactive image: no active version
+/// to pin, so nothing can say this is the version the plan saw; the planner's
+/// `destination_holds_it` counts the row, so the plan claims no `PACKAGE_NEWLY_PRESENT`
+/// and a link already there is not called this run's.
+#[test]
+fn a_destination_holding_only_an_inactive_row_is_held_and_never_pins_a_version() {
+    let mut snap = configured(snapshot(&[pkg("gnu-sed")], &[pkg("gsed")]));
+    let provider = snap
+        .providers
+        .get_mut(&ProviderId::new(MP))
+        .expect("provider");
+    for row in &mut provider.inventory.installed {
+        row.active = false;
+    }
+    let run = planned(&snap, "gnu-sed", MP);
+    let plan = run.plan();
+    let verify = position(plan, StepKind::VerifyDestination);
+    assert!(
+        !plan.steps[verify]
+            .verification
+            .iter()
+            .any(|check| matches!(check, VerificationCheck::PackageNewlyPresent)),
+        "the row counts as held"
+    );
+    assert!(crate::destination_judges::held_row(&run).is_none());
+    let owner = DestinationFacts::Ownership(OwnershipFacts::Owner {
+        name: "gsed".to_owned(),
+        version: "4.9".to_owned(),
+        active: Some("4.9".to_owned()),
+        versions_present: 1,
+        held: None,
+    });
+    assert!(matches!(
+        crate::destination_judges::answer_from_facts(&run, &owner),
+        CheckAnswer::Unchecked(_)
+    ));
+    let linkage = DestinationFacts::Linkage(LinkageFacts {
+        links_detected_provider: true,
+        ..LinkageFacts::default()
+    });
+    assert_eq!(
+        crate::destination_judges::answer_from_facts(&run, &linkage),
+        CheckAnswer::Fails(CheckFailure::LinkPresentBeforeTheRun)
+    );
 }
 
 #[test]

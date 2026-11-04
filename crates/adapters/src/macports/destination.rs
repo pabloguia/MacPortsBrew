@@ -15,8 +15,8 @@ use crate::listing::is_under;
 use crate::process::ProcessRunner;
 use macportsbrew_domain::{
     DependencyRecord, DestinationFacts, DestinationQuery, ExecutableName, InstallationRecord,
-    IntegrityBasis, IntegrityFacts, LinkageFacts, OwnershipFacts, PackageIdentity, PrefixTable,
-    UncheckedCause,
+    InstalledPackage, IntegrityBasis, IntegrityFacts, LinkageFacts, OwnershipFacts,
+    PackageIdentity, PrefixTable, UncheckedCause,
 };
 use std::path::Path;
 
@@ -45,6 +45,16 @@ pub fn row_version(row: &InstalledRow) -> String {
     }
 }
 
+/// A snapshot row's version in the shape an owner answer has: the row keeps the
+/// revision apart, and `port -q installed` prints them together.
+#[must_use]
+pub fn comparable_version(row: &InstalledPackage) -> String {
+    match &row.revision {
+        Some(revision) => format!("{}_{revision}", row.version),
+        None => row.version.to_string(),
+    }
+}
+
 impl<R: ProcessRunner> MacPortsAdapter<R> {
     /// The answer for `query`, on this machine only.
     pub(super) fn observed(
@@ -56,8 +66,8 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
             return DestinationFacts::NotObserved;
         }
         match query {
-            DestinationQuery::Ownership { leaf } => {
-                DestinationFacts::Ownership(self.ownership(pkg, leaf))
+            DestinationQuery::Ownership { leaf, held } => {
+                DestinationFacts::Ownership(self.ownership(pkg, leaf, *held))
             }
             DestinationQuery::Integrity => DestinationFacts::Integrity(self.integrity(pkg)),
             DestinationQuery::Linkage { prefixes } => {
@@ -103,33 +113,47 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     }
 
     /// The entry, and what it finally resolves to: both must answer the package,
-    /// and the answer is compared, never joined (R-26 findings 1, 20, 22).
-    fn ownership(&self, pkg: &PackageIdentity, leaf: &ExecutableName) -> OwnershipFacts {
+    /// and the answer is compared, never joined (R-26 findings 1, 20, 22). An empty
+    /// answer means several things (R-26 E-3), so it is not "another package's",
+    /// which only a named other owner is. A link leaving the prefix answers as one
+    /// leaving a package's directory does on the peer (INV-17).
+    fn ownership(
+        &self,
+        pkg: &PackageIdentity,
+        leaf: &ExecutableName,
+        held: Option<&InstalledPackage>,
+    ) -> OwnershipFacts {
         let entry = match destination_reads::placed_entry(&self.prefix, leaf.as_str()) {
             Ok(Some(entry)) => entry,
             Ok(None) => return OwnershipFacts::NoEntry,
             Err(cause) => return OwnershipFacts::CouldNotTell(cause),
         };
         // Existence is a filesystem read: an empty answer means several things,
-        // and a dangling registered link would pass (R-26 finding 20).
-        let Ok(real) = std::fs::canonicalize(&entry) else {
-            return OwnershipFacts::NoEntry;
+        // and a dangling registered link would pass (R-26 finding 20). Any other
+        // errno proves nothing about the entry.
+        let real = match std::fs::canonicalize(&entry) {
+            Ok(real) => real,
+            Err(error) if destination_reads::is_gone(&error) => return OwnershipFacts::NoEntry,
+            Err(_) => return OwnershipFacts::CouldNotTell(UncheckedCause::StatFailed),
         };
-        let real_prefix =
-            std::fs::canonicalize(&self.prefix).unwrap_or_else(|_| self.prefix.clone());
-        if !is_under(&real, &real_prefix) {
-            return OwnershipFacts::NotOwned;
-        }
+        let Ok(real_prefix) = std::fs::canonicalize(&self.prefix) else {
+            return OwnershipFacts::CouldNotTell(UncheckedCause::StatFailed);
+        };
+        let not_named = OwnershipFacts::CouldNotTell(UncheckedCause::OwnerNotNamed);
         let owner = match self.owner_read(&entry) {
             Ok(Some(owner)) => owner,
-            Ok(None) => return OwnershipFacts::NotOwned,
+            Ok(None) => return not_named,
             Err(cause) => return OwnershipFacts::CouldNotTell(cause),
         };
+        if !is_under(&real, &real_prefix) {
+            return OwnershipFacts::OwnerLeavesItsDirectory { owner };
+        }
         let another = |name: String| OwnershipFacts::Owner {
             name,
             version: String::new(),
             active: None,
             versions_present: 0,
+            held: None,
         };
         if owner != pkg.name {
             return another(owner);
@@ -138,7 +162,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
             match self.owner_read(&real) {
                 Ok(Some(last)) if last == pkg.name => {}
                 Ok(Some(last)) => return another(last),
-                Ok(None) => return OwnershipFacts::NotOwned,
+                Ok(None) => return not_named,
                 Err(cause) => return OwnershipFacts::CouldNotTell(cause),
             }
         }
@@ -149,12 +173,13 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         let active = rows.iter().find(|row| row.active).map(row_version);
         // `provides` is active only, so the owner is the active image, within the
         // window between the two reads (R-26 finding 5). It names no version of
-        // its own, so an absent active row fails on the comparison below.
+        // its own, so an absent active row fails on the comparison above it.
         OwnershipFacts::Owner {
             name: owner,
             version: active.clone().unwrap_or_default(),
             active,
             versions_present: rows.len(),
+            held: held.map(comparable_version),
         }
     }
 

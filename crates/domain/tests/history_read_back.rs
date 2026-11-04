@@ -1349,3 +1349,44 @@ fn each_rule_about_a_removal_answers_for_itself() {
     );
     assert_eq!(read_back(halted), Err(ErrorId::HistoryUnusable));
 }
+
+/// What a `VERIFY_DESTINATION` rested on is the run's own, and goes in the record.
+/// Absent from a run with no such answer, so an older record still reads.
+#[test]
+fn check_bases_round_trip_and_a_record_cannot_claim_them_out_of_shape() {
+    use macportsbrew_domain::CheckBasis;
+    let plain = record(completed_steps(), RunEnding::Completed, None);
+    assert!(
+        stored_json(&plain).get("checkBases").is_none(),
+        "absent when there are none"
+    );
+    let with = record(completed_steps(), RunEnding::Completed, None).with_check_bases(vec![
+        CheckBasis::NoLoadCommands,
+        CheckBasis::RecordedFileList,
+    ]);
+    let json = stored_json(&with);
+    assert_eq!(json["checkBases"].as_array().map(Vec::len), Some(2));
+    let back = read_back(json.clone()).expect("reads back");
+    assert_eq!(back, with);
+    assert_eq!(back.check_bases().len(), 2);
+
+    // Under a schema version that never held them.
+    let mut older = json.clone();
+    older["schemaVersion"] = serde_json::json!(3);
+    assert_eq!(read_back(older), Err(ErrorId::HistoryUnusable));
+    // Out of the order this build writes.
+    let mut swapped = json.clone();
+    swapped["checkBases"].as_array_mut().unwrap().reverse();
+    assert_eq!(read_back(swapped), Err(ErrorId::HistoryUnusable));
+    // A doubled one.
+    let mut doubled = json;
+    let first = doubled["checkBases"][0].clone();
+    doubled["checkBases"][1] = first;
+    assert_eq!(read_back(doubled), Err(ErrorId::HistoryUnusable));
+    // With no verified destination step to have rested on.
+    let none = record(Vec::new(), RunEnding::Completed, None);
+    let mut claimed = stored_json(&none);
+    assert!(read_back(claimed.clone()).is_ok(), "fine without the claim");
+    claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
+    assert_eq!(read_back(claimed), Err(ErrorId::HistoryUnusable));
+}

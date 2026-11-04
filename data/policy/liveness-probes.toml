@@ -12,7 +12,9 @@
 # OBSERVED ROWS ONLY. `argv` is arguments, never a program or a path: exactly one
 # of `--version`, `-version`, `-V`, `-v`, and growing that set is a reviewed code
 # change. `observed_version` is in the shape the owner rule answers, revision
-# included, and a probe runs only at exactly that version.
+# included. Nothing in this build runs a probe; H-3 has to run one only at exactly
+# that version (docs/passes/16-plans/H.md, "What H-3 owes"), which this file cannot
+# enforce by itself.
 #
 # How every row here was qualified on 2026-11-04 (x86_64, one machine; absence is
 # bounded by this sample):
@@ -22,7 +24,9 @@
 #   - exit 0 under the destination's bin plus the system PATH, and under the
 #     system PATH alone;
 #   - exit 0 again under a sandbox denying the network, every exec but the program
-#     itself, and every write outside scratch: no network, no /usr/bin shim reached;
+#     itself, and every write outside scratch. So neither was needed, which is what
+#     the sandbox can show; it does not show a program never tries. Three rounds, not
+#     the design note's four (R-28's last section);
 #   - nothing written in scratch, no process left, no crash report, xcrun's cache
 #     unchanged, nothing new under ~/Library naming the program, a search by name
 #     and not exhaustive (R-28's last section says what it left out);

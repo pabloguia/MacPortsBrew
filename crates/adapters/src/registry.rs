@@ -14,8 +14,8 @@ use crate::prefixes;
 use crate::process::{CommandSpec, Invocation, PlanReadRefusal, ProcessRunner};
 use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::{
-    DestinationFacts, DestinationProbe, DestinationQuery, ExecutableName, PackageIdentity,
-    PrefixClass, PrefixTable, ProbeObservation, UncheckedCause,
+    DestinationFacts, DestinationProbe, DestinationQuery, ExecutableName, InstalledPackage,
+    PackageIdentity, PrefixClass, PrefixTable, ProbeObservation, UncheckedCause,
 };
 use macportsbrew_domain::{
     DomainError, ErrorId, PlanCommand, ProviderConfiguration, ProviderId, ProviderRead,
@@ -383,8 +383,13 @@ impl DestinationSites<'_, '_> {
         provider: &ProviderId,
         package: &str,
         leaf: &ExecutableName,
+        held: Option<&InstalledPackage>,
     ) -> DestinationFacts {
-        self.facts(provider, package, &DestinationQuery::Ownership { leaf })
+        self.facts(
+            provider,
+            package,
+            &DestinationQuery::Ownership { leaf, held },
+        )
     }
 
     /// `PROVIDER_INTEGRITY_CHECK`.

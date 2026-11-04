@@ -321,6 +321,9 @@ fn check_liveness_probes(
         if row.observed_version.is_empty() {
             return Err(invalid(row, "says no version it was observed at"));
         }
+        if row.source.is_empty() || days_between(&row.read_on, &row.read_on).is_none() {
+            return Err(invalid(row, "carries no source or no date"));
+        }
         let listed = stateful.iter().any(|family| {
             family
                 .names
@@ -527,9 +530,6 @@ impl PolicyData {
         let probes: LivenessFile = parse(sources.liveness_probes, "liveness-probes.toml")?;
 
         let mut provenance: Vec<(&str, &str, &str)> = Vec::new();
-        for p in &probes.probe {
-            provenance.push((&p.package, &p.source, &p.read_on));
-        }
         for e in &support.entry {
             provenance.push((&e.id, &e.source, &e.read_on));
         }
@@ -658,7 +658,9 @@ impl PolicyData {
     /// drives the staleness notice, and the older date warns **earlier** — a
     /// data set is as fresh as its stalest half, not its freshest. Widening it
     /// would also mean this crate reading files it does not own, which is the
-    /// layering those files were placed by.
+    /// layering those files were placed by. The probe table is left out too: a row
+    /// was read on the day it was observed, and letting that push the notice back
+    /// would make support data look fresher than it is. It is in the version.
     pub fn newest_read_on(&self) -> &str {
         &self.newest_read_on
     }
@@ -1207,13 +1209,19 @@ mod tests {
             );
             assert!(!row.observed_version.is_empty(), "{row:?}");
         }
-        // A row with no date does not load, and a row's date moves the staleness
-        // notice and with it what the policy version must name.
+        // A row with no date does not load.
         let undated = "[[probe]]\nprovider = \"h\"\npackage = \"x\"\nexecutable = \"x\"\n\
                        argv = [\"-V\"]\nobserved_version = \"1\"\nsource = \"test\"\n";
         assert!(with_probes(undated).is_err());
+        let bad_date = row("homebrew", "x", "x", "[\"-V\"]").replace("2026-11-04", "soon");
+        assert!(with_probes(&bad_date).is_err());
+        // A row's date does not move the staleness notice: support data is as
+        // fresh as it was, whatever was observed since (H.md, as built).
         let later = row("homebrew", "x", "x", "[\"-V\"]").replace("2026-11-04", "2027-01-01");
-        assert_eq!(with_probes(&later).unwrap().newest_read_on(), "2027-01-01");
+        assert_eq!(
+            with_probes(&later).unwrap().newest_read_on(),
+            with_probes("").unwrap().newest_read_on()
+        );
     }
 
     #[test]

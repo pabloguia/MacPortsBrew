@@ -70,13 +70,13 @@ is never either of the others. `FAILS` stops the step, and the source is kept. A
 is never removed**, and the run ends `COMPLETED_WITH_UNCHECKED`, never `COMPLETED`.
 Removal requires all four to answer `HOLDS`.
 
-**What check 2 may claim** (R-25; not built: SE-113). MacPorts: every file its registry records for the
+**What check 2 may claim** (R-25; read and judged since H-2, and no run reaches it until the gate opens: SE-113). MacPorts: every file its registry records for the
 active image exists, and every recorded symlink resolves. Homebrew: the keg has a receipt and more than its metadata, every symlink in it resolves, and its recorded runtime dependencies are installed. **Absence of a file from a Homebrew
 keg is not detected**, because `brew list --formula` lists the keg at call time (Homebrew `874c46a`, read 2026-11-04); DP-057
 asks the owner to confirm this basis. Neither claim is content integrity, provenance,
 or that the package runs.
 
-**What check 4 does not prove** (R-28; not built: SE-113). It proves that this file, in this environment,
+**What check 4 does not prove** (R-28; its table landed in H-2 and the probe is not built, H-3: SE-113). It proves that this file, in this environment,
 with this flag, loaded and exited 0 once. Not that the program does its job, is the
 expected version, works under the user's configuration, or had no side effect: **a
 passing probe does not exclude a started server.**

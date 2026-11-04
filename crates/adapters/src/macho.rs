@@ -467,6 +467,26 @@ fn shebang(head: &[u8], file_len: u64) -> Result<Shebang, MachoError> {
     Ok(Shebang::Relative(name.to_vec()))
 }
 
+/// The words of a `#!` line after its interpreter, as bytes, from the first bytes
+/// of the file. `env` and the interpreter's own arguments are here, so a caller can
+/// test an absolute one (`#!/usr/bin/env /x/python3`). Empty for a file that is not a
+/// script. What is past [`HEAD_BYTES`] is not read: [`classify`] answers for a line
+/// that long.
+#[must_use]
+pub fn shebang_arguments(head: &[u8]) -> Vec<&[u8]> {
+    let Some(rest) = head.strip_prefix(SHEBANG) else {
+        return Vec::new();
+    };
+    let line = rest
+        .split(|byte| matches!(byte, b'\n' | b'\r' | 0))
+        .next()
+        .unwrap_or_default();
+    line.split(|byte| matches!(byte, b' ' | b'\t'))
+        .filter(|word| !word.is_empty())
+        .skip(1)
+        .collect()
+}
+
 /// A Mach-O header, decoded and not yet judged.
 #[derive(Debug, Clone, Copy)]
 struct Header {

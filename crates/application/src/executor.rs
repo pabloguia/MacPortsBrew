@@ -1493,7 +1493,9 @@ fn owned_executables(step: &MigrationStep) -> Option<Vec<ExecutableName>> {
 ///
 /// Ownership per executable; then integrity; then linkage; then a probe only
 /// of a leaf whose ownership answered `Holds`, and only when no check answered
-/// `Fails` and no file was malformed. **Any `Fails` stops what follows.** Pure,
+/// `Fails`, no file was malformed and the walk stayed in its bound: what was not
+/// examined might be what a program of this package loads. **Any `Fails` stops
+/// what follows.** Pure,
 /// and the only source of a [`Question::Probe`]. A step that is not a
 /// `VERIFY_DESTINATION` carrying the whole contract asks nothing, and the judge
 /// halts it.
@@ -1528,7 +1530,7 @@ pub fn next_destination_question(
     if answers.iter().any(|a| {
         matches!(
             a.answer,
-            CheckAnswer::Unchecked(UncheckedCause::MalformedFile)
+            CheckAnswer::Unchecked(UncheckedCause::MalformedFile | UncheckedCause::WalkOverBound)
         )
     }) {
         return Question::Done;
@@ -1629,9 +1631,15 @@ fn judge_destination(
     }
     // What was never asked is not therefore fine: a skip answers for itself,
     // and a probe not run answers why.
-    let malformed = unchecked
+    let stopped_by = unchecked
         .iter()
-        .any(|e: &UncheckedEntry| e.cause == UncheckedCause::MalformedFile);
+        .map(|e: &UncheckedEntry| e.cause)
+        .find(|c| {
+            matches!(
+                c,
+                UncheckedCause::MalformedFile | UncheckedCause::WalkOverBound
+            )
+        });
     for check in &step.verification {
         match check {
             VerificationCheck::LivenessProbeSkipped { executable, cause } => {
@@ -1668,11 +1676,7 @@ fn judge_destination(
                     unchecked.push(UncheckedEntry {
                         check: DestinationCheck::LivenessProbe,
                         executable: Some(leaf),
-                        cause: if malformed {
-                            UncheckedCause::MalformedFile
-                        } else {
-                            UncheckedCause::OwnershipNotTold
-                        },
+                        cause: stopped_by.unwrap_or(UncheckedCause::OwnershipNotTold),
                     });
                 }
             }

@@ -10,9 +10,20 @@
 use crate::executor::PlannedRun;
 use macportsbrew_domain::{
     CheckAnswer, CheckBasis, CheckFailure, DependencyRecord, DestinationFacts, InstallationRecord,
-    IntegrityBasis, IntegrityFacts, LinkageFacts, MigrationPlan, OwnershipFacts, Snapshot,
-    StepKind, UncheckedCause, VerificationCheck,
+    InstalledPackage, IntegrityBasis, IntegrityFacts, LinkageFacts, MigrationPlan, OwnershipFacts,
+    Snapshot, StepKind, UncheckedCause, VerificationCheck,
 };
+
+/// What the paired snapshot says about the destination package.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeldBefore {
+    /// No row of it: this run's install is what would put it there.
+    NotHeld,
+    /// Rows of it, and none active, so no version to pin against.
+    OnlyInactive,
+    /// A row active, whose version the adapter states in the owner's shape.
+    Active,
+}
 
 /// What the plan and its paired snapshot expect of an owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,8 +32,8 @@ pub struct OwnerExpectation<'a> {
     pub package: &'a str,
     /// The step carries `PACKAGE_NEWLY_PRESENT`: the snapshot held none of it.
     pub newly_present: bool,
-    /// The version the snapshot held active, when it held one.
-    pub held_version: Option<&'a str>,
+    /// What the snapshot held.
+    pub held: HeldBefore,
 }
 
 /// `EXECUTABLES_OWNED_BY_DESTINATION` (R-26). "The active version `v` owns this
@@ -36,7 +47,7 @@ pub fn judge_ownership(expected: &OwnerExpectation<'_>, facts: &OwnershipFacts) 
         OwnershipFacts::NotOwned => CheckAnswer::Fails(CheckFailure::AnotherPackagesEntry),
         OwnershipFacts::OwnerLeavesItsDirectory { owner } => {
             if owner == expected.package {
-                CheckAnswer::Unchecked(UncheckedCause::OwnerLeavesKeg)
+                CheckAnswer::Unchecked(UncheckedCause::EntryLeavesOwner)
             } else {
                 CheckAnswer::Fails(CheckFailure::AnotherPackagesEntry)
             }
@@ -46,6 +57,7 @@ pub fn judge_ownership(expected: &OwnerExpectation<'_>, facts: &OwnershipFacts) 
             version,
             active,
             versions_present,
+            held,
         } => {
             if name != expected.package {
                 return CheckAnswer::Fails(CheckFailure::AnotherPackagesEntry);
@@ -53,14 +65,24 @@ pub fn judge_ownership(expected: &OwnerExpectation<'_>, facts: &OwnershipFacts) 
             if active.as_deref() != Some(version.as_str()) {
                 return CheckAnswer::Fails(CheckFailure::ActiveRecordDiffers);
             }
-            if expected.newly_present && *versions_present != 1 {
-                return CheckAnswer::Fails(CheckFailure::MoreThanOneVersion);
+            if expected.newly_present {
+                return if *versions_present == 1 {
+                    CheckAnswer::Holds
+                } else {
+                    CheckAnswer::Fails(CheckFailure::MoreThanOneVersion)
+                };
             }
-            if !expected.newly_present && expected.held_version.is_some_and(|held| held != version)
-            {
-                return CheckAnswer::Fails(CheckFailure::OwnerVersionDiffers);
+            match (expected.held, held) {
+                (HeldBefore::Active, Some(held)) if held == version => CheckAnswer::Holds,
+                (HeldBefore::Active, Some(_)) => {
+                    CheckAnswer::Fails(CheckFailure::OwnerVersionDiffers)
+                }
+                // Nothing to pin against is not "it is the version it was".
+                (HeldBefore::Active, None)
+                | (HeldBefore::OnlyInactive | HeldBefore::NotHeld, _) => {
+                    CheckAnswer::Unchecked(UncheckedCause::HeldVersionNotTold)
+                }
             }
-            CheckAnswer::Holds
         }
     }
 }
@@ -110,17 +132,25 @@ pub fn judge_linkage(held_before: bool, facts: &LinkageFacts) -> CheckAnswer {
             CheckFailure::LinksAnotherProvider
         });
     }
-    if let Some(cause) = facts.list_unusable {
-        return CheckAnswer::Unchecked(cause);
-    }
+    // The two that stop a probe come first, so that no other cause can hide one
+    // and let a program of this package run.
     if facts.malformed_file {
         return CheckAnswer::Unchecked(UncheckedCause::MalformedFile);
+    }
+    if facts.walk_over_bound {
+        return CheckAnswer::Unchecked(UncheckedCause::WalkOverBound);
+    }
+    if let Some(cause) = facts.list_unusable {
+        return CheckAnswer::Unchecked(cause);
     }
     if facts.unreadable_file {
         return CheckAnswer::Unchecked(UncheckedCause::UnreadableFile);
     }
-    if facts.walk_over_bound {
-        return CheckAnswer::Unchecked(UncheckedCause::WalkOverBound);
+    if facts.file_not_examined {
+        return CheckAnswer::Unchecked(UncheckedCause::FileNotExamined);
+    }
+    if facts.spellings_disagree {
+        return CheckAnswer::Unchecked(UncheckedCause::SpellingsDisagree);
     }
     if facts.under_undetected_prefix {
         return CheckAnswer::Unchecked(UncheckedCause::UnderUndetectedPrefix);
@@ -160,19 +190,21 @@ pub fn answer_from_facts(run: &PlannedRun, facts: &DestinationFacts) -> CheckAns
     match facts {
         DestinationFacts::NotObserved => CheckAnswer::Unchecked(UncheckedCause::NotObserved),
         DestinationFacts::Integrity(facts) => judge_integrity(facts),
-        DestinationFacts::Linkage(facts) => {
-            judge_linkage(held_version(plan, run.before()).is_some(), facts)
-        }
+        // Held at all, active or not: a link an inactive image left was not made
+        // by this run.
+        DestinationFacts::Linkage(facts) => judge_linkage(
+            held_before(plan, run.before()) != HeldBefore::NotHeld,
+            facts,
+        ),
         DestinationFacts::Ownership(facts) => {
             let Some(package) = plan.destination_package.as_deref() else {
                 return CheckAnswer::Unchecked(UncheckedCause::NotObserved);
             };
-            let held = held_version(plan, run.before());
             judge_ownership(
                 &OwnerExpectation {
                     package,
                     newly_present: newly_present(plan),
-                    held_version: held.as_deref(),
+                    held: held_before(plan, run.before()),
                 },
                 facts,
             )
@@ -191,26 +223,41 @@ fn newly_present(plan: &MigrationPlan) -> bool {
         })
 }
 
-/// The version the snapshot held active for the destination package, in the
-/// shape an owner answer has: a version with its revision. One provider's version
-/// already carries it and the other's does not, so it is added only if absent; no
-/// provider is asked which it is. A linked keg older than the formula's revision
-/// reads as different, which fails in the safe direction.
-fn held_version(plan: &MigrationPlan, before: &Snapshot) -> Option<String> {
-    let name = plan.destination_package.as_deref()?;
-    let provider = before.providers.get(&plan.destination)?;
-    let row = provider
-        .inventory
-        .installed
-        .iter()
-        .find(|row| row.identity.name == name && row.active)?;
-    let version = row.version.to_string();
-    Some(match &row.revision {
-        Some(revision) if !version.ends_with(&format!("_{revision}")) => {
-            format!("{version}_{revision}")
-        }
-        _ => version,
-    })
+fn rows<'a>(plan: &MigrationPlan, before: &'a Snapshot) -> Vec<&'a InstalledPackage> {
+    let Some(name) = plan.destination_package.as_deref() else {
+        return Vec::new();
+    };
+    before
+        .providers
+        .get(&plan.destination)
+        .map_or_else(Vec::new, |provider| {
+            provider
+                .inventory
+                .installed
+                .iter()
+                .filter(|row| row.identity.name == name)
+                .collect()
+        })
+}
+
+fn held_before(plan: &MigrationPlan, before: &Snapshot) -> HeldBefore {
+    let rows = rows(plan, before);
+    if rows.iter().any(|row| row.active) {
+        HeldBefore::Active
+    } else if rows.is_empty() {
+        HeldBefore::NotHeld
+    } else {
+        HeldBefore::OnlyInactive
+    }
+}
+
+/// The snapshot's active row of the destination package, which the adapter that
+/// answers for it reads the comparable version from.
+#[must_use]
+pub fn held_row(run: &PlannedRun) -> Option<&InstalledPackage> {
+    rows(run.plan(), run.before())
+        .into_iter()
+        .find(|row| row.active)
 }
 
 #[cfg(test)]
@@ -223,19 +270,20 @@ mod tests {
             version: version.to_owned(),
             active: active.map(str::to_owned),
             versions_present: present,
+            held: Some("5.8.3_0".to_owned()),
         }
     }
 
     const FRESH: OwnerExpectation<'_> = OwnerExpectation {
         package: "xz",
         newly_present: true,
-        held_version: None,
+        held: HeldBefore::NotHeld,
     };
 
     const HELD: OwnerExpectation<'_> = OwnerExpectation {
         package: "xz",
         newly_present: false,
-        held_version: Some("5.8.3_0"),
+        held: HeldBefore::Active,
     };
 
     #[test]
@@ -279,7 +327,7 @@ mod tests {
                     owner: "xz".to_owned()
                 }
             ),
-            Unchecked(UncheckedCause::OwnerLeavesKeg)
+            Unchecked(UncheckedCause::EntryLeavesOwner)
         );
         assert_eq!(
             judge_ownership(
@@ -310,6 +358,33 @@ mod tests {
             record: InstallationRecord::NotKept,
             dependencies: DependencyRecord::NotKept,
         }
+    }
+
+    /// One judge, the same answer whichever provider's shape of facts it is
+    /// handed: a provider that keeps no record is simply not asked about one.
+    #[test]
+    fn a_package_held_only_inactive_has_no_version_to_pin_and_never_holds() {
+        let only_inactive = OwnerExpectation {
+            held: HeldBefore::OnlyInactive,
+            ..HELD
+        };
+        let holds = owner("xz", "5.8.3_0", Some("5.8.3_0"), 1);
+        assert_eq!(
+            judge_ownership(&only_inactive, &holds),
+            CheckAnswer::Unchecked(UncheckedCause::HeldVersionNotTold)
+        );
+        // Neither is an adapter that could not state the version.
+        let unstated = OwnershipFacts::Owner {
+            name: "xz".to_owned(),
+            version: "5.8.3_0".to_owned(),
+            active: Some("5.8.3_0".to_owned()),
+            versions_present: 1,
+            held: None,
+        };
+        assert_eq!(
+            judge_ownership(&HELD, &unstated),
+            CheckAnswer::Unchecked(UncheckedCause::HeldVersionNotTold)
+        );
     }
 
     /// One judge, the same answer whichever provider's shape of facts it is
@@ -395,7 +470,15 @@ mod tests {
     #[test]
     fn invariant_08_each_unknown_of_linkage_is_unchecked_and_none_holds() {
         type Set = fn(&mut LinkageFacts);
-        let cases: [(Set, UncheckedCause); 7] = [
+        let cases: [(Set, UncheckedCause); 9] = [
+            (
+                |f| f.file_not_examined = true,
+                UncheckedCause::FileNotExamined,
+            ),
+            (
+                |f| f.spellings_disagree = true,
+                UncheckedCause::SpellingsDisagree,
+            ),
             (|f| f.malformed_file = true, UncheckedCause::MalformedFile),
             (|f| f.unreadable_file = true, UncheckedCause::UnreadableFile),
             (|f| f.walk_over_bound = true, UncheckedCause::WalkOverBound),
@@ -423,6 +506,32 @@ mod tests {
         }
     }
 
+    /// What stops a probe outranks every other cause, or the other cause would
+    /// let a program of this package run.
+    #[test]
+    fn a_cause_that_stops_the_probe_is_never_hidden_by_another() {
+        let everything = LinkageFacts {
+            malformed_file: true,
+            walk_over_bound: true,
+            unreadable_file: true,
+            file_not_examined: true,
+            list_unusable: Some(UncheckedCause::ListsOutsidePrefix),
+            ..LinkageFacts::default()
+        };
+        assert_eq!(
+            judge_linkage(false, &everything),
+            CheckAnswer::Unchecked(UncheckedCause::MalformedFile)
+        );
+        let over = LinkageFacts {
+            malformed_file: false,
+            ..everything
+        };
+        assert_eq!(
+            judge_linkage(false, &over),
+            CheckAnswer::Unchecked(UncheckedCause::WalkOverBound)
+        );
+    }
+
     #[test]
     fn nothing_to_load_holds_on_its_own_stated_basis() {
         let none = DestinationFacts::Linkage(LinkageFacts::default());
@@ -431,12 +540,6 @@ mod tests {
             CheckAnswer::Holds
         );
         assert_eq!(basis_of(&none), Some(CheckBasis::NoLoadCommands));
-        // An `env` shebang off the list is counted and decides nothing.
-        let elsewhere = LinkageFacts {
-            env_shebang_elsewhere: 3,
-            ..LinkageFacts::default()
-        };
-        assert_eq!(judge_linkage(false, &elsewhere), CheckAnswer::Holds);
     }
 
     #[test]

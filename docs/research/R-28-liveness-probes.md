@@ -325,7 +325,7 @@ macports-only-intel-macos12 (synthesised): mp wget nginx
 | 5 | homebrew | xz | xz | observed | `xz (XZ Utils) 5.8.3` | yes |
 | 6 | macports | xz | xz | observed | same text | yes |
 | 7 | homebrew | gettext | gettext | observed | `gettext (GNU gettext-runtime) 1.0` | yes |
-| 8 | macports | gettext | gettext | observed | same text | yes |
+| 8 | macports | gettext | gettext | observed | same text | yes, and did not land: see the last section |
 | 9 | macports | jq | jq | observed | `jq-1.8.2` | yes |
 | 10 | homebrew | wget | wget | observed | `GNU Wget 1.25.0 built on darwin23.6.0.` | yes |
 | 11 | macports | m4 | gm4 | observed (E-6: one run) | `m4 (GNU M4) 1.4.21` | yes |
@@ -389,7 +389,7 @@ Line numbers of `docs/spec/` below are at `9b8d68d`.
 
 ## Re-qualification of rows 1-13 (2026-11-04, work order 16 H-2)
 
-Each row in the form it will run: the canonical path with `arg0` set to the placed leaf; a scratch path with a space, serving as `HOME`, `TMPDIR` and working directory; the design note's environment. Three rounds: the destination's `bin` plus `SYSTEM_PATH`; `SYSTEM_PATH` alone; and under `sandbox-exec` denying the network, every exec but the program itself, and every write outside scratch (there `arg0` is the path). The harness stayed in the session scratch directory. No other program was run, and never `httpd`.
+Each row in the form it will run: the canonical path with `arg0` set to the placed leaf; a scratch path with a space, serving as `HOME`, `TMPDIR` and working directory; the design note's environment. Three rounds, against the design note's "four" (the note's own list has these three; nothing was dropped to get there): the destination's `bin` plus `SYSTEM_PATH`; `SYSTEM_PATH` alone; and under `sandbox-exec` denying the network, every exec but the program itself, and every write outside scratch (there `arg0` is the path). The harness stayed in the session scratch directory. No other program was run, and never `httpd`.
 
 | Rows | Result |
 |---|---|

@@ -15,6 +15,7 @@
 
 use crate::destination_check::UncheckedCause;
 use crate::executable::ExecutableName;
+use crate::package::InstalledPackage;
 
 /// What a destination check asks of a provider.
 #[derive(Clone, Copy, Debug)]
@@ -23,6 +24,9 @@ pub enum DestinationQuery<'a> {
     Ownership {
         /// The executable, already of its name class.
         leaf: &'a ExecutableName,
+        /// The snapshot's active row of the package, when it held one, so the
+        /// adapter can state its version in the shape it states the owner's.
+        held: Option<&'a InstalledPackage>,
     },
     /// The provider's record of the package against the disk.
     Integrity,
@@ -70,6 +74,10 @@ pub enum OwnershipFacts {
         active: Option<String>,
         /// How many versions of the package are present.
         versions_present: usize,
+        /// The snapshot's active version, stated by the adapter so it compares
+        /// with `version`. Nothing above an adapter knows what a version string
+        /// holds.
+        held: Option<String>,
     },
     /// The read could not tell.
     CouldNotTell(UncheckedCause),
@@ -92,8 +100,10 @@ pub enum IntegrityBasis {
     GeneratedFileList,
 }
 
-/// The neutral basis a `HOLDS` rests on, for `--json` and the catalogue.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+/// The neutral basis a `HOLDS` rests on, for `--json`, history and the catalogue.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum CheckBasis {
     /// As [`IntegrityBasis::RecordedFileList`].
@@ -156,7 +166,9 @@ pub struct IntegrityFacts {
     pub dependencies: DependencyRecord,
 }
 
-/// The facts of `NO_CROSS_PROVIDER_LINKAGE` (R-27).
+/// The facts of `NO_CROSS_PROVIDER_LINKAGE` (R-27). `MH_OBJECT` and `ar` files, and
+/// `env` shebangs off the executable list, are not counted here: nothing read a
+/// count, which the plan's "counted in the basis" asked for (H.md, as built).
 // Each bool is one thing the walk can report, and more than one can hold at once;
 // a judge reads them in its own order, so an enum would lose what it needs.
 #[allow(clippy::struct_excessive_bools)]
@@ -166,15 +178,13 @@ pub struct LinkageFacts {
     pub list_unusable: Option<UncheckedCause>,
     /// `MH_EXECUTE`, `MH_DYLIB` and `MH_BUNDLE` files examined.
     pub loadable_files: usize,
-    /// `MH_OBJECT` and `ar` files, skipped and counted.
-    pub skipped_files: usize,
     /// A reference lies under a prefix a provider was detected at, other than
-    /// the destination's.
+    /// the destination's, by its spelling, where it resolves, or by inode.
     pub links_detected_provider: bool,
     /// A reference lies under a candidate prefix no provider was detected at.
     pub under_undetected_prefix: bool,
-    /// An `@rpath` name with no candidate, or an `@executable_path` that cannot
-    /// be resolved lexically.
+    /// An `@rpath` name with no candidate that exists or lies in the destination,
+    /// an `@executable_path` outside an executable, or a relative install name.
     pub rpath_unresolved: bool,
     /// A file this reader cannot answer for.
     pub malformed_file: bool,
@@ -182,10 +192,15 @@ pub struct LinkageFacts {
     pub unreadable_file: bool,
     /// The walk passed a bound, or a reference reached a file not examined.
     pub walk_over_bound: bool,
-    /// An `env` shebang on the package's executable list.
+    /// A listed file or a name under the destination leads outside every known
+    /// prefix, or a load command names something that is not a regular file.
+    pub file_not_examined: bool,
+    /// A path with `..` means one file written and another collapsed, because a
+    /// directory link lies under the `..`.
+    pub spellings_disagree: bool,
+    /// An `env` or relative shebang on the package's executable list, or on what a
+    /// link or a hardlink there leads to.
     pub env_shebang_on_list: bool,
-    /// `env` shebangs elsewhere in the list, counted (R-27 finding 12).
-    pub env_shebang_elsewhere: usize,
 }
 
 /// What a probe observed. This slice runs none: only `NotRun` can come back,
@@ -228,6 +243,7 @@ pub enum PrefixClass {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PrefixTable {
     entries: Vec<(Vec<Vec<u8>>, PrefixClass)>,
+    written: Vec<(Vec<u8>, PrefixClass)>,
 }
 
 impl PrefixTable {
@@ -243,6 +259,15 @@ impl PrefixTable {
             return;
         }
         self.entries.push((key, class));
+        self.written.push((normal, class));
+    }
+
+    /// Each prefix as it was added, strongest first, for a caller that can also
+    /// compare them by identity: this table is text only, and pure.
+    pub fn paths(&self) -> impl Iterator<Item = (&[u8], PrefixClass)> {
+        self.written
+            .iter()
+            .map(|(path, class)| (path.as_slice(), *class))
     }
 
     /// The class of `path`, which must already be absolute and normal: the
@@ -270,6 +295,10 @@ fn components_folded(path: &[u8]) -> Vec<Vec<u8>> {
 /// `base` when it is relative. `..` at the root stays at the root, as the kernel
 /// has it. `None` for a relative path with no base, or one holding a NUL. Bytes
 /// throughout: an install name is compared, never decoded.
+///
+/// **This collapse is text.** A `..` after a directory link names another file on
+/// disk, so a caller that can reach the disk resolves the path with `..` intact as
+/// well and treats a disagreement as not knowing.
 #[must_use]
 pub fn normalise(base: Option<&[u8]>, path: &[u8]) -> Option<Vec<u8>> {
     if path.contains(&0) {

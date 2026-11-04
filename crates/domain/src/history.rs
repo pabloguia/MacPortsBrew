@@ -32,6 +32,7 @@
 //! writes no record yet (pass 08, slice 1).
 
 use crate::destination_check::UncheckedEntry;
+use crate::destination_facts::CheckBasis;
 use crate::text::is_control_class;
 use crate::{DomainError, ExecutableName, FailureCause};
 use crate::{ErrorId, Outcome, PackageIdentity, ProviderId, ReadEvidence, StepKind, Version};
@@ -480,9 +481,29 @@ pub struct RunRecord {
     status: RunStatus,
     mutation_dispatched: bool,
     snapshot_path: Option<String>,
+    /// What a destination check that held rests on, sorted. A provider's list can
+    /// be a weaker basis than its peer's, which a later reader must still see
+    /// (R-25 finding 15).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    check_bases: Vec<CheckBasis>,
 }
 
 impl RunRecord {
+    /// This record, with what the checks that held rest on.
+    #[must_use]
+    pub fn with_check_bases(mut self, mut bases: Vec<CheckBasis>) -> Self {
+        bases.sort_unstable();
+        bases.dedup();
+        self.check_bases = bases;
+        self
+    }
+
+    /// What the checks that held rest on, sorted.
+    #[must_use]
+    pub fn check_bases(&self) -> &[CheckBasis] {
+        &self.check_bases
+    }
+
     /// Builds the record. `steps` are kept in the order given, which is the
     /// plan's. `snapshot_path` is where the `SNAPSHOT_BEFORE` step wrote its
     /// snapshot; this build performs no such step and passes `None`.
@@ -521,6 +542,7 @@ impl RunRecord {
             ending,
             mutation_dispatched,
             snapshot_path,
+            check_bases: Vec::new(),
         }
     }
 
@@ -967,6 +989,26 @@ impl RunRecord {
             }
         }
 
+        // Only this version states a basis, in the one order it is written in, and
+        // only of a destination check a step says was verified.
+        let check_bases = stored.check_bases;
+        if !check_bases.is_empty() && stored.schema_version != HISTORY_SCHEMA_VERSION {
+            return Err(unusable("states a check's basis its version does not have"));
+        }
+        if !check_bases.windows(2).all(|pair| pair[0] < pair[1]) {
+            return Err(unusable("states a check's bases out of order"));
+        }
+        if !check_bases.is_empty()
+            && !steps.iter().any(|s| {
+                s.kind == StepKind::VerifyDestination
+                    && matches!(
+                        s.result,
+                        StepResult::Verified { .. } | StepResult::VerifiedWithUnchecked { .. }
+                    )
+            })
+        {
+            return Err(unusable("states a check's basis no step verified"));
+        }
         let record = RunRecord::new(
             RunStart {
                 id: stored.id,
@@ -995,7 +1037,8 @@ impl RunRecord {
             steps,
             stored.ending.into_ending(),
             stored.snapshot_path,
-        );
+        )
+        .with_check_bases(check_bases);
         if record.mutation_dispatched != stored.mutation_dispatched {
             return Err(unusable("states a mutation dispatch its steps contradict"));
         }
@@ -1049,6 +1092,8 @@ pub struct StoredRunRecord {
     status: RunStatus,
     mutation_dispatched: bool,
     snapshot_path: Option<String>,
+    #[serde(default)]
+    check_bases: Vec<CheckBasis>,
 }
 
 impl StoredRunRecord {

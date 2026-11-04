@@ -150,7 +150,7 @@ impl StateDir {
     /// is deliberate: refusing would break those users, and the alternative —
     /// silently rejecting a location the user chose — is worse than
     /// documenting the boundary. It does mean the guarantee is "this code
-    /// never *creates* or *follows* a symbolic reference at the four paths it
+    /// never *creates* or *follows* a symbolic reference at the paths it
     /// owns", not "no symbolic reference is anywhere in the path".
     pub fn ensure(&self) -> Result<(), DomainError> {
         let directories = self.directories();

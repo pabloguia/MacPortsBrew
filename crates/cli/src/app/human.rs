@@ -1282,7 +1282,11 @@ fn unchecked_key(value: UncheckedCause) -> &'static str {
         UncheckedCause::ListOverCap => "migrate.unchecked.list_over_cap",
         UncheckedCause::StatFailed => "migrate.unchecked.stat_failed",
         UncheckedCause::DependenciesNotTold => "migrate.unchecked.dependencies_not_told",
-        UncheckedCause::OwnerLeavesKeg => "migrate.unchecked.owner_leaves_keg",
+        UncheckedCause::EntryLeavesOwner => "migrate.unchecked.entry_leaves_owner",
+        UncheckedCause::OwnerNotNamed => "migrate.unchecked.owner_not_named",
+        UncheckedCause::HeldVersionNotTold => "migrate.unchecked.held_version_not_told",
+        UncheckedCause::FileNotExamined => "migrate.unchecked.file_not_examined",
+        UncheckedCause::SpellingsDisagree => "migrate.unchecked.spellings_disagree",
         UncheckedCause::UnderUndetectedPrefix => "migrate.unchecked.under_undetected_prefix",
         UncheckedCause::RpathUnresolved => "migrate.unchecked.rpath_unresolved",
         UncheckedCause::InterpreterResolvedAtRunTime => {

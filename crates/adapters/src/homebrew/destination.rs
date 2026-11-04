@@ -15,8 +15,8 @@ use crate::destination_reads::{self, CheckedList, Outside};
 use crate::listing::is_under;
 use macportsbrew_domain::{
     DependencyRecord, DestinationFacts, DestinationQuery, ExecutableName, InstallationRecord,
-    IntegrityBasis, IntegrityFacts, LinkageFacts, OwnershipFacts, PackageIdentity, PrefixTable,
-    UncheckedCause,
+    InstalledPackage, IntegrityBasis, IntegrityFacts, LinkageFacts, OwnershipFacts,
+    PackageIdentity, PrefixTable, UncheckedCause,
 };
 use std::path::{Component, Path, PathBuf};
 
@@ -40,6 +40,15 @@ fn normal(component: Component<'_>) -> Option<String> {
         Component::Normal(text) => text.to_str().map(str::to_owned),
         _ => None,
     }
+}
+
+/// A snapshot row's version in the shape an owner answer has. A keg's directory
+/// already carries its revision (`0.7.6_3`), and the row's `revision` is the
+/// formula's current one, which an older keg need not have (`gts`, `0.7.6_3` beside
+/// revision 4; 19 of 194 here), so the row's version is compared as it stands.
+#[must_use]
+pub fn comparable_version(row: &InstalledPackage) -> String {
+    row.version.to_string()
 }
 
 /// `<keg>/INSTALL_RECEIPT.json` is listed, with at least one entry that is not
@@ -70,8 +79,8 @@ impl HomebrewAdapter<'_> {
             return DestinationFacts::NotObserved;
         }
         match query {
-            DestinationQuery::Ownership { leaf } => {
-                DestinationFacts::Ownership(self.ownership(pkg, leaf))
+            DestinationQuery::Ownership { leaf, held } => {
+                DestinationFacts::Ownership(self.ownership(pkg, leaf, *held))
             }
             DestinationQuery::Integrity => DestinationFacts::Integrity(self.integrity(pkg)),
             DestinationQuery::Linkage { prefixes } => {
@@ -82,7 +91,12 @@ impl HomebrewAdapter<'_> {
 
     /// The placed entry, never the keg's list path: `openssl@4` ships
     /// `bin/openssl` while `<prefix>/bin/openssl` is `openssl@3`'s (R-26 E-6).
-    fn ownership(&self, pkg: &PackageIdentity, leaf: &ExecutableName) -> OwnershipFacts {
+    fn ownership(
+        &self,
+        pkg: &PackageIdentity,
+        leaf: &ExecutableName,
+        held: Option<&InstalledPackage>,
+    ) -> OwnershipFacts {
         let entry = match destination_reads::placed_entry(&self.prefix, leaf.as_str()) {
             Ok(Some(entry)) => entry,
             Ok(None) => return OwnershipFacts::NoEntry,
@@ -94,9 +108,12 @@ impl HomebrewAdapter<'_> {
         let Ok(real_cellar) = std::fs::canonicalize(&cellar) else {
             return OwnershipFacts::CouldNotTell(UncheckedCause::ReadFailed);
         };
-        // A link to nothing is no entry on either provider (R-26 finding 22).
-        let Ok(real) = std::fs::canonicalize(&entry) else {
-            return OwnershipFacts::NoEntry;
+        // A link to nothing is no entry on either provider (R-26 finding 22). Any
+        // other errno proves nothing about the entry.
+        let real = match std::fs::canonicalize(&entry) {
+            Ok(real) => real,
+            Err(error) if destination_reads::is_gone(&error) => return OwnershipFacts::NoEntry,
+            Err(_) => return OwnershipFacts::CouldNotTell(UncheckedCause::StatFailed),
         };
         let Some((name, version)) = keg_of(&real, &real_cellar) else {
             // `Keg.for` says no, and `Keg#unlink`'s one-hop rule may say yes: the
@@ -116,6 +133,7 @@ impl HomebrewAdapter<'_> {
                 version,
                 active: None,
                 versions_present: 0,
+                held: None,
             };
         }
         let Ok(analysis) = self.analysis() else {
@@ -132,6 +150,7 @@ impl HomebrewAdapter<'_> {
             version,
             active,
             versions_present,
+            held: held.map(comparable_version),
         }
     }
 
