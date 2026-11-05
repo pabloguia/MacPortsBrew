@@ -29,6 +29,7 @@
 //!   nothing is on the default path — reading element zero reports every
 //!   package as prebuilt and is a silent-misparse bug.
 
+pub mod destination;
 pub mod json;
 pub mod keg;
 
@@ -258,6 +259,9 @@ struct Analysis {
     kegs: BTreeMap<String, KegFacts>,
     /// The installed casks' tokens: no allow-listed read lists their files.
     casks: BTreeSet<String>,
+    /// Every name an installed formula answers to: its name, aliases and old
+    /// names (R-25 finding 12). Compared, never joined into a path.
+    installed_names: BTreeSet<String>,
 }
 
 /// The facts about one formula's kegs that decide which keg a `list
@@ -271,11 +275,35 @@ struct KegFacts {
     linked_keg: Option<String>,
     /// The provider's keg-only reason, when the formula is keg-only.
     keg_only: Option<String>,
+    /// Each keg's recorded dependencies, base names, by keg version. `None` when
+    /// the document gave no list: not the same as an empty one (R-25 finding 11).
+    dependencies: BTreeMap<String, Option<Vec<String>>>,
 }
 
 impl KegFacts {
     fn of(formula: &Formula) -> Self {
         Self {
+            dependencies: formula
+                .installed
+                .iter()
+                .map(|k| {
+                    let names = k.runtime_dependencies_told.then(|| {
+                        k.runtime_dependencies
+                            .iter()
+                            .map(|d| {
+                                // `full_name` may be tap-qualified; the base is the
+                                // last `/` component, Homebrew's own rule (R-25 E-8).
+                                d.full_name
+                                    .rsplit('/')
+                                    .next()
+                                    .unwrap_or(&d.full_name)
+                                    .to_string()
+                            })
+                            .collect()
+                    });
+                    (k.version.clone(), names)
+                })
+                .collect(),
             versions: formula
                 .installed
                 .iter()
@@ -525,7 +553,7 @@ impl<'r> HomebrewAdapter<'r> {
                 .capabilities
                 .insert(Capability::ServiceMetadata, CapabilityState::Unknown);
         }
-        let (kegs, casks) = match &parsed {
+        let (kegs, casks, installed_names) = match &parsed {
             Ok(document) => (
                 document
                     .formulae
@@ -533,14 +561,26 @@ impl<'r> HomebrewAdapter<'r> {
                     .map(|f| (f.name.clone(), KegFacts::of(f)))
                     .collect(),
                 document.casks.iter().map(|c| c.token.clone()).collect(),
+                document
+                    .formulae
+                    .iter()
+                    .filter(|f| !f.installed.is_empty())
+                    .flat_map(|f| {
+                        std::iter::once(&f.name)
+                            .chain(&f.aliases)
+                            .chain(&f.oldnames)
+                            .cloned()
+                    })
+                    .collect(),
             ),
-            Err(_) => (BTreeMap::new(), BTreeSet::new()),
+            Err(_) => (BTreeMap::new(), BTreeSet::new(), BTreeSet::new()),
         };
         let analysis = Analysis {
             inventory,
             capabilities,
             kegs,
             casks,
+            installed_names,
         };
         *self.analysis.borrow_mut() = Some(analysis.clone());
         Ok(analysis)
@@ -1238,6 +1278,14 @@ impl ProviderRead for HomebrewAdapter<'_> {
         )
     }
 
+    fn destination_facts(
+        &self,
+        pkg: &PackageIdentity,
+        query: &macportsbrew_domain::DestinationQuery<'_>,
+    ) -> macportsbrew_domain::DestinationFacts {
+        self.observed(pkg, query)
+    }
+
     /// `brew list --formula <formula>`, for an installed formula only
     /// (`docs/passes/16-plans/F.md` §2). A cask is
     /// [`ListReason::CaskNotCovered`] and several kegs with none linked
@@ -1675,11 +1723,13 @@ mod tests {
                             versions: vec!["1.0".into()],
                             linked_keg: Some("1.0".into()),
                             keg_only: None,
+                            dependencies: BTreeMap::new(),
                         },
                     )
                 })
                 .collect(),
             casks: BTreeSet::new(),
+            installed_names: BTreeSet::new(),
         });
         adapter
     }

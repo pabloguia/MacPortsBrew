@@ -30,7 +30,7 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
-- The checks on a destination now answer holds, fails or unchecked (work order 16 part H-1, DP-051). A check that fails stops the run; one that cannot be told keeps the source and the run ends `COMPLETED_WITH_UNCHECKED`, exit 3, recorded as `PARTIAL` or `NO_CHANGE` and never as success. Nothing observes the four new checks yet, and no plan is run. Breaking, so new versions: [`plan.v2`](docs/schemas/plan.v2.md) (`LIVENESS_PROBE`'s `flag` is now `argv`, and `LIVENESS_PROBE_SKIPPED` is new), [`migrate.v2`](docs/schemas/migrate.v2.md), [`restore.v2`](docs/schemas/restore.v2.md), [`history.v4`](docs/schemas/history.v4.md).
+- The checks on a destination now answer holds, fails or unchecked (work order 16 part H-1, DP-051). A check that fails stops the run; one that cannot be told keeps the source and the run ends `COMPLETED_WITH_UNCHECKED`, exit 3, recorded as `PARTIAL` or `NO_CHANGE` and never as success. The reads for integrity, ownership and linkage exist (part H-2), including a Mach-O reader in-process, and `checkBases`, on the receipt and in history, says what a check that held rests on; no plan is run yet, since the gate refuses every plan, and the probe is not built. New unchecked causes and failures are in `migrate.v2`; `data/policy/liveness-probes.toml` holds twelve observed probe rows, in the policy version and out of the staleness date, and `data/policy/dyld-fallbacks.toml` holds where dyld looks next. Breaking, so new versions: [`plan.v2`](docs/schemas/plan.v2.md) (`LIVENESS_PROBE`'s `flag` is now `argv`, and `LIVENESS_PROBE_SKIPPED` is new), [`migrate.v2`](docs/schemas/migrate.v2.md), [`restore.v2`](docs/schemas/restore.v2.md), [`history.v4`](docs/schemas/history.v4.md).
 
 - **Live commands now sample the package managers' own locks** (DP-030 (b)). `analyze`,
   `plan`, `migrate`, `explain`, `doctor` and `restore` say in text whether a provider's
@@ -297,7 +297,7 @@ the provider could say what depends on it; MacPorts deprecation status, which
 matched to the other provider only if that provider already has an equivalent
 installed, or the curated table (26 rows; 19 of them for versioned runtimes, GNU
 tools and libraries whose names differ) names one. For anything else the plan
-stops at *Needs a human decision* with "no equivalent found" — nothing was
+stops at *Needs a human decision* with "No equivalent under <provider> reaches confidence level Strong" — nothing was
 found, which does not mean no equivalent exists. Searching the other provider's
 full catalogue is planned for a later release.
 
@@ -311,7 +311,7 @@ See [`docs/support-matrix.md`](docs/support-matrix.md).
 by a model and reviewed by others, not by a native speaker; `--json`, error
 identifiers, flags and command names stay English.
 
-**Policy data:** version `2026.10.18-2`. Dated provider facts — Homebrew's
+**Policy data:** version `2026.11.04-3`. Dated provider facts — Homebrew's
 support tiers and Intel timeline among them — carry their source and the date
 they were read, and the tool says when the newest of them (a row read from a local index counts
 at that index's date) is more than 180 days old.
@@ -327,7 +327,7 @@ The detailed record of how 0.1.0 was built, kept for contributors. It uses the
 project's internal vocabulary (passes, slices, decision and specification
 identifiers); the summary above is the user-facing account.
 
-**Policy version: `2026.10.18-1`.** The provider facts it carries were read on
+**Policy version when this record was written: `2026.10.18-1`.** The provider facts it carries were read on
 2026-09-02, 2026-09-04, 2026-09-06, 2026-09-08, 2026-09-19, 2026-10-02,
 2026-10-03, 2026-10-12 and 2026-10-18 and are dated in `data/policy/*.toml`; the staleness threshold is
 180 days, after which the CLI says the data may be out of date without refusing

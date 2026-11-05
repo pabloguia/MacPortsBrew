@@ -70,7 +70,7 @@ that describes a migration says plainly where the plan ends.
 **Mapping looks only at what is already installed.** In 0.1.0 a package is
 matched to the other provider only if that provider already has an equivalent
 installed, or the small curated table names one. For anything else the plan
-stops at *Needs a human decision* with "no equivalent found" — nothing was
+stops at *Needs a human decision* with "No equivalent under <provider> reaches confidence level Strong" — nothing was
 found, which does not mean no equivalent exists. Searching the other provider's
 full catalogue is planned for a later release.
 

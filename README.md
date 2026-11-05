@@ -109,7 +109,7 @@ The binary says so in its own `--help`:
 - **Mapping looks only at what is already installed.** In 0.1.0 a package is
   matched to the other provider only if that provider already has an
   equivalent installed, or the small curated table names one. For anything
-  else the plan stops at *Needs a human decision* with "no equivalent found" —
+  else the plan stops at *Needs a human decision* with "No equivalent under <provider> reaches confidence level Strong" —
   nothing was found, which does not mean no equivalent exists. Searching the
   other provider's full catalogue is planned for a later release.
 - **It never asks for elevation.** Analysis, inventory, mapping, planning and
@@ -181,7 +181,7 @@ Providers
 Provider  Presence  Version  Prefix      Support    Packages
 homebrew  Present   6.0.21   /usr/local  Degraded   189 packages (47 top-level)
 macports  Absent    -        -           Supported  0 packages (0 top-level)
-56 packages in the default view; 15 need manual review. Policy 2026.10.18-2.
+56 packages in the default view; 15 need manual review. Policy 2026.11.04-3.
 Ownership is unknown for 9 rows: the provider kept no record, or this analysis could not read one.
 ```
 

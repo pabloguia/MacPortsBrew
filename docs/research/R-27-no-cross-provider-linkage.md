@@ -1,7 +1,7 @@
 # R-27 — What `NO_CROSS_PROVIDER_LINKAGE` can read, examine and honestly claim, and whether it needs `otool` or an in-process Mach-O reader
 
 - **Status:** partially answered (sweep, formats, cache and comparison answered; the items under "Cannot determine" are UNRESOLVED)
-- **Answered on:** 2026-11-04
+- **Answered on:** 2026-11-04 to 11-05
 - **Machine:** macOS 26.7.2 (25G332), x86_64, Homebrew 7.0.11-143-g874c46a @ `/usr/local` (`/usr/local/Homebrew` HEAD `874c46a98f1832f5c872c94f7d5a33503022c154`), MacPorts 2.12.6 @ `/opt/local`; Xcode 26.5 (17F42) selected (`xcode-select -p` = `/Applications/Xcode.app/Contents/Developer`), Command Line Tools 26.6 also installed, `otool` cctools-1040 / LLVM 21.0.0; repository at `9b8d68d`
 - **Blocking:** work order 16 part H item 1 (`NO_CROSS_PROVIDER_LINKAGE`, verification check 5 in `docs/spec/04-migration-and-safety.md`), and the owner's choice between a staged `otool` program entry and an ADR-0004 decision (R-21 Impact)
 
@@ -510,3 +510,96 @@ Nothing here was edited. For the main agent to weigh:
 - The set of installed packages changes materially. The counts here describe this machine on this date, not a population.
 - Homebrew moves past 7.0.11-143-g874c46a or MacPorts past 2.12.6, particularly if either changes rpath or install-name handling, or `brew list --formula` / `port -q contents` output.
 - Before any `otool` staging is applied: re-run E-10 and E-12 (never the `SDKROOT` case of E-1).
+
+## The Rust reader against `otool` (2026-11-04)
+
+This is the agreement of `crates/adapters/src/macho.rs` itself, which is what part H's plan asks for. E-15's 2224 of 2224 was the Python prototype's. The harness lived in the session scratch directory and is not in the repository. Same machine and Homebrew as above; `/Library/Developer/CommandLineTools/usr/bin/otool` (cctools-1040) run directly, `SDKROOT` and `DEVELOPER_DIR` unset, stdin null, `cwd=/`. `xcrun_db`'s mtime and size were the same before and after. MacPorts' files were not in this run.
+
+**The reader alone, every regular file under `/usr/local/Cellar`, no spawn (139,759 files):**
+
+```
+thin refs: Execute 1226, Dylib 406, Bundle 423     fat refs 8     fat of archives 15
+skipped: Object 100, Archive 964
+script: absolute 622, env 422, relative 43         not an object 135524
+Malformed(FatTable) 3, TooLarge(Slices) 3          largest window total for one file 7016 bytes
+```
+
+The counts match E-2 (2155 thin including objects, 8 fat, 15 fat around archives, 964 archives). No real Mach-O answered an error, an unknown file type or an unknown `LC_REQ_DYLD` command, so the stricter refusals here than in the prototype (`sizeofcmds` must equal the commands walked, a name offset must be past the fixed structure, a name must be non-empty and NUL-terminated) cost nothing on this machine.
+
+**All 6 errors are Java `.class` files**, whose version reads as `nfat`: the 3 `Malformed` answers and the 3 `TooLarge`, in `gettext` and `nmap`. That is the plan's rule working as written: a `0xcafebabe` that is not a fat table is not "not Mach-O". Its cost is that those two packages answer `Unchecked` for a file no loader reads. Reported, not decided here.
+
+**Against `otool`, 200 files:** every fat file with references (8), 5 fat wrappers around archives, 5 archives, 5 objects, 5 scripts, 5 other non-objects, and 167 thin files at an even stride over the sorted list.
+
+```
+-arch all -l agrees 175 of 175     per slice, in order: each linking kind, LC_LOAD_DYLINKER, LC_RPATH; LC_ID_DYLIB excluded
+-arch all -L agrees 175 of 175     per slice, as a multiset, adding back the id -l names
+slices compared 191, of which 61 carry an id; load references 786; rpaths 144
+archives: 5 of 5 no tab lines      objects and fat wrappers: 10 of 10 no tab lines
+scripts and non-objects: 10 of 10 "is not an object file"
+disagreements 0                    otool nonzero exits 0
+```
+
+The 200 are a sample, not the sweep, and `otool` is the reference here as E-15 says, not `dyld`. No file here holds a cross-provider reference, a `LC_LAZY_LOAD_DYLIB`, a `LC_LOAD_UPWARD_DYLIB` or a `LC_DYLD_ENVIRONMENT` (E-3), so those kinds and detection itself are shown only on specimens built in `crates/adapters/tests/macho.rs`.
+
+## Ruling on Java classes (2026-11-04, work order 16 H-2)
+
+The 6 files above stay `Unchecked`. A `0xcafebabe` that does not fit a fat table answers `MALFORMED_FILE`, because a crafted fat header must not hide as a Java class; `gettext` and `nmap` therefore answer unchecked on this check and keep their sources. **An accepted cost, in the safe direction**, and one that also keeps a probe from running for them (no file may be malformed). `crates/adapters/src/destination_reads.rs`, `a_cafebabe_that_does_not_fit_is_malformed_and_never_not_macho`.
+
+The reader's first live run on 2026-11-04 (session scratch, read-only, no package's program started) found the same in MacPorts' `gettext`, and both `gettext` packages also carry an `env` shebang on their executable lists, so `gettext` answers unchecked here on either provider, and its probe is not reached. The same run: `xz`, `htop`, `m4` and `pkgconf` read clean on each provider that has them; `openssl@4`'s `openssl` answered `openssl@3`, and `npm` left its keg (`ENTRY_LEAVES_OWNER`, the name since H-2 review round 1), as R-26 predicted.
+
+## Accepted limits of the reader (2026-11-04 to 11-05, work order 16 H-2, review rounds)
+
+**The limit of this claim, for part L.** A static read of what this reader found, on this macOS (x86_64, 26.7.2, one machine). The age threshold at which dyld stops applying its default fallback is known only as `man dyld`'s "Fall 2023 or later", and the reader cannot tell a binary's age, so it asks of all of them. **No chain beyond the walk:** an `@rpath` name is tried against every rpath this walk saw, and never against those of a loader the walk did not reach, so no whole-machine loader chain is read. Results on the 10.12 floor were not observed.
+
+**The system's own roots (work order 16 H-2 round 4, an allow-list).** `/usr/lib`, `/System/Library/Frameworks` and `/System/Library/PrivateFrameworks`, tested on where a path really is, through its deepest existing ancestor. `man dyld` (read 2026-11-04) writes dylibs by full paths under `/usr/lib`, keeps `/System/Library/Frameworks` on its default fallback, and says an image may come from the shared cache. Round 3's list was the other way round, `/System/Library` with exclusions, and a firmlink a later macOS adds would have reopened a false `HOLDS`. What it found stays true, on this machine, and is why:
+
+- `/usr/share/firmlinks` lists seven under `/System/Library`, each the Data volume: `Caches`, `Assets`, `PreinstalledAssets`, `AssetsV2`, `PreinstalledAssetsV2`, `Speech` and `CoreServices/CoreTypes.bundle/Contents/Library`.
+- `AssetsV2/locks` and `AssetsV2/downloadDir` are `drwxrwxrwx`, and `Caches/MobileActivation/data_ark.plist` is `-rw-rw-rw-`.
+- `/System/Volumes/Data` is the whole writable volume, `canonicalize` keeps that spelling, dyld honours it, and everything reports one `st_dev`.
+- `/usr/lib/cron` is a link to `/private/var/at`, which is why an absent candidate's text does not decide. `realpath` returns the stored name, for a case or a Unicode fold, so a fold of a root is that root (observed 2026-11-04).
+- `WebKit`, `JavaScriptCore` and others under `/System/Library/Frameworks`, and `SafariCore` and others under `PrivateFrameworks`, are links into `/System/Volumes/Preboot/Cryptexes/OS`, so they do not qualify. **No installed package here reaches one as a real file:** the measurement below has none, and a package that does answers `FILE_NOT_EXAMINED`.
+
+**`@rpath`, by dyld's semantics (round 4).** `man dyld` keeps a run path list "built from the LC_RPATH load commands", so a name is tried against every rpath the walk saw (finding 4 already said an entry can serve another file). Security proved a real load through the executable's rpath while `libD`'s only rpath was `/usr/lib/swift`, answering `HOLDS`. A name none of whose candidates exists is `RPATH_UNRESOLVED`, except that an absent candidate under the roots answers it, since a system library may be in the shared cache; a candidate that exists elsewhere has already been measured. **Observed 2026-11-04:** `/usr/lib/swift/libswiftCore.dylib` is not on disk, and `dlopen` of it succeeds from a Python process. That the file comes from the cache is still inferred. A rpath entry that is a real directory in no known prefix, outside the roots, is `FILE_NOT_EXAMINED`.
+
+**dyld's default fallback (round 4), `FALLBACK_UNDER_OTHER_PREFIX`.** An earlier statement in this work that there is no fallback was wrong, and is withdrawn: `man dyld` (read 2026-11-04) says "for new binaries (Fall 2023 or later) there is no default", and for older ones `/usr/local/lib:/usr/lib` and `/Library/Frameworks:/System/Library/Frameworks`. This is the project's founding direction, a MacPorts destination with Homebrew at `/usr/local`. A binary marked as older was measured in review to try `/usr/local/lib/<leaf>` and then `/usr/lib/<leaf>` after a name that resolves to nothing, or an `@rpath` answered only by an absent system candidate. So those names also look there, and a file of that name under another prefix is `UNCHECKED`, never `FAILS`, since the reader cannot tell which loads.
+
+**A relocated cellar answers `UNCHECKED`, and that is accepted.** A listed or reached file whose canonical path is outside the destination and in no known prefix answers `FILE_NOT_EXAMINED`, never `NO_LOAD_COMMANDS`, since nothing was read. A Homebrew whose cellar lives elsewhere by a link therefore keeps its source. Rounds 2 to 4 widened this to any real file a load command names, any real rpath directory, and any real interpreter or path in a `#!` line outside the roots and `SYSTEM_PATH`. It costs a removal, not a claim.
+
+**Rounds 5 and 6 (2026-11-05, macOS 26.7.2, x86_64, this machine).**
+
+**The run path list, per file (round 5).** `man dyld` (read 2026-11-04): "The run path stack is built from the LC_RPATH load commands in the dependency chain that lead to the current dylib load." A name found only through a sibling's rpath, which is no part of that chain, skipped both `RPATH_UNRESOLVED` and the fallback, and a real binary loaded the other provider's file. The walk holds no load graph and does not build one. So the union still decides how a name is classified, what joins the walk and `RPATH_UNRESOLVED`, and each name carries one more bit: some file loads it and that file's own rpaths do not find it. Any name with that bit looks at the fallback locations, whatever the union found. **This over-approximates, and its cost is `UNCHECKED` only:** a name a real ancestor's rpath finds looks there too, so another provider's file of that name reads as a doubt where dyld would never have reached it. The over-approximation runs the other way for `RPATH_UNRESOLVED`, which a sibling's rpath still answers, and the bit is what covers that.
+
+**`LC_DYLD_ENVIRONMENT` (round 5), `DYLD_ENVIRONMENT_NOT_MODELLED`.** A real binary loaded from an outside directory through this command. Any such command answers `UNCHECKED`, because the search rules it changes are not modelled; the paths in its value are still classified, so a value naming another provider still fails.
+
+**A fallback location is measured as a reached file is (round 5).** The destination's own file there joins the walk, which can bring more names, so the fallback is part of the fixed point. A real file nobody can place is `FILE_NOT_EXAMINED`. Another prefix, detected or only a candidate, is the doubt.
+
+**`#!` words (round 5).** A word on an interpreter's line that is no flag and holds no `/` is found by `PATH` (`nohup python3`, `caffeinate -i python3` ran so), so on the executable list the script answers `INTERPRETER_RESOLVED_AT_RUN_TIME`, whatever the interpreter. The list of programs that run others is gone. `env` stays named, since `env -Spython3` has no such word. Of 1,165 `#!` lines read on 2026-11-05 in both prefixes' `bin`, `sbin`, `libexec` and `share`, 8 non-`env` lines carry such a word, all under `/usr/local/share/google-cloud-sdk`: 7 are `/usr/bin env python`, whose interpreter is literally `/usr/bin`, and 1 is `#!not for running standalone`. None is on an executable list seen here, so this cost nothing here.
+
+**Accepted, with no change (round 5).** A real framework under the Preboot Cryptexes answers `FILE_NOT_EXAMINED`. The fixed point's cost is bounded by the work count, and the measurement below hits no new bound for it. A script body's own lookups stay unread. `SYSTEM_ROOTS` in the reader and `data/policy/dyld-fallbacks.toml` state overlapping facts, and they answer different questions: what is the system's, and where dyld looks.
+
+**What dyld would refuse answers nothing (round 6).** A name counted as found if a candidate existed. Real binaries with plain text, an empty file, an arm64-only dylib on this x86_64 host, or a Mach-O executable at the named path loaded the other provider's file, through the fallback. So a file counts as found only if a read of it showed an `MH_DYLIB` slice for this build's architecture, on macOS: no build-version or version-min command naming another platform, and no such command at all reads as an older macOS file. It is decided when the candidates have been read, inside the fixed point. **Accepted:** a file dyld refuses for another reason, a bad signature under a hardened binary say, reads as found, and Rosetta's architecture is not modelled: an x86_64 dylib under Rosetta reads as refused from an arm64 build, in the safe direction (**reasoning, not observed: no arm64 machine**).
+
+**A relative `#!` word (round 6).** Round 5's rule covered a word with no `/`; a word that is no flag and does not start with `/` is just as much found at run time (`#!/usr/bin/nohup bin/x` ran `bin/x`, as did `./x`, and `#!/bin/sh lib/y` is the same). The 1,165 `#!` lines read on 2026-11-05 hold the same 8, so the wider rule found nothing new here. The `/...` tail of such a word is not classified. A word's path is measured whole from its first absolute path, as well as by pieces, since `sh` gets the whole word.
+
+**A real file under the system's roots (round 7, 2026-11-05, this machine).** It answers a name only if its head shows a dylib, since dyld refused what is not one and loaded the other provider's. A system dylib in the shared cache has no file and never reaches this read. `/usr/lib/libgmalloc.dylib` carries `LC_BUILD_VERSION` for macOS and for Mac Catalyst, by `otool`, so a macOS mark beside another platform's counts as macOS. A flag's attached value starts at its first `/`, since `env -iS/x` ran `/x`; `-cbin/x`'s tail is measured for nothing, and what it runs is on part L's open list.
+
+**What that costs, measured 2026-11-05, after rounds 5 to 7.** Read-only, over this machine's installed packages through the product's own reads and judges, no package's program run. One row per first cause the judge names:
+
+| Linkage answer | Homebrew (194) | MacPorts (18) |
+|---|---|---|
+| `HOLDS` | 163 | 16 |
+| `INTERPRETER_RESOLVED_AT_RUN_TIME` | 10 | 1 |
+| `WALK_OVER_BOUND` | 9 | 0 |
+| `FILE_LIST_NOT_KNOWN` | 4 | 0 |
+| `FILE_NOT_EXAMINED` | 3 | 0 |
+| `RPATH_UNRESOLVED` | 3 | 0 |
+| `MALFORMED_FILE` | 2 | 1 |
+| `FALLBACK_UNDER_OTHER_PREFIX` | 0 | 0 |
+| `DYLD_ENVIRONMENT_NOT_MODELLED` | 0 | 0 |
+| `FAILS` | 0 | 0 |
+
+The counts are round 4's, unchanged by the rules of rounds 5 to 7: no installed package's `RPATH_UNRESOLVED` or fallback answer moved when a candidate had to be a dylib for this architecture. Whatever came first, the fallback flag is set on 0 packages of either provider and `LC_DYLD_ENVIRONMENT` on 0, so neither turned anything unchecked here, and the sibling rule, the fixed point and the bare-word rule added no answer and no new `WALK_OVER_BOUND`. **The real-rpath rule costs 3 packages, each because of a developer tool on this machine:** `swiftformat` and `xcodegen` carry an rpath into the Xcode toolchain at `/Applications/Xcode.app/.../swift-5.5/macosx`, which exists here, and `phpbrew`'s interpreter, `php@8.4`, carries `/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/lib`. What a machine with no Xcode or Command Line Tools answers for them was not observed. `imath`, `openexr` and `jpeg-xl` answer `RPATH_UNRESOLVED` by an older rule: `libImath` and `openexr`'s libraries carry `@executable_path/../lib` in a dylib. `jpeg-xl`'s own files carry no such rpath in what was searched, and its executables set the flag only when walked, which is consistent with reaching those libraries and was not traced further. Integrity on the same packages: 190 and 18 hold, and 4 Homebrew `FILE_LIST_NOT_KNOWN`, the same four.
+
+**Script bodies are unread, and that is accepted scope.** A shebang's interpreter, and any `/...` inside a word on its line, are classified (`#!/usr/bin/env /opt/homebrew/bin/python3`). What the script then runs, loads or names is not read: nothing short of running it would answer, and the claim is about references in load commands and shebangs, as the basis `REFERENCES_EXAMINED` says.
+
+**The window between `canonicalize` and `open` is accepted.** The walk classifies by what resolved and then opens the name, so something swapped between the two is read under the first answer. The directories differ in who could do that, as read on 2026-11-04: `/opt/local`, `bin` and `lib` are `root:wheel` 755, so only root can swap a file where a port installs; the `macports` account owns `distfiles`, `home` and `incoming` under `/opt/local/var/macports`, and nothing else found outside that directory, and `/usr/local/Cellar` is `pirado:admin` 775, so the owner's account and any process running as it, or as a member of `admin`, can under Homebrew's. Anyone able to race it there could as easily have written the file before the check, so closing the window would not remove the exposure, and the reader claims nothing about a machine under attack. A handle-only walk would not change what a later `exec` loads.

@@ -1492,8 +1492,9 @@ fn owned_executables(step: &MigrationStep) -> Option<Vec<ExecutableName>> {
 /// `position`, given the answers so far (work order 16 part H).
 ///
 /// Ownership per executable; then integrity; then linkage; then a probe only
-/// of a leaf whose ownership answered `Holds`, and only when no check answered
-/// `Fails` and no file was malformed. **Any `Fails` stops what follows.** Pure,
+/// of a leaf whose ownership answered `Holds`, and only when linkage answered
+/// `Holds`: a probe runs this package's program, and whatever linkage could not tell
+/// might be what that program loads. **Any `Fails` stops what follows.** Pure,
 /// and the only source of a [`Question::Probe`]. A step that is not a
 /// `VERIFY_DESTINATION` carrying the whole contract asks nothing, and the judge
 /// halts it.
@@ -1525,12 +1526,7 @@ pub fn next_destination_question(
     if let Some(question) = first_asked {
         return question;
     }
-    if answers.iter().any(|a| {
-        matches!(
-            a.answer,
-            CheckAnswer::Unchecked(UncheckedCause::MalformedFile)
-        )
-    }) {
+    if answer_to(answers, &Question::Linkage) != Some(&CheckAnswer::Holds) {
         return Question::Done;
     }
     for check in &step.verification {
@@ -1629,9 +1625,10 @@ fn judge_destination(
     }
     // What was never asked is not therefore fine: a skip answers for itself,
     // and a probe not run answers why.
-    let malformed = unchecked
+    let stopped_by = unchecked
         .iter()
-        .any(|e: &UncheckedEntry| e.cause == UncheckedCause::MalformedFile);
+        .find(|e: &&UncheckedEntry| e.check == DestinationCheck::NoCrossProviderLinkage)
+        .map(|e| e.cause);
     for check in &step.verification {
         match check {
             VerificationCheck::LivenessProbeSkipped { executable, cause } => {
@@ -1665,14 +1662,19 @@ fn judge_destination(
                     argv: argv.clone(),
                 };
                 if answer_to(answers, &probe).is_none() {
+                    let owned = Question::Owned {
+                        executable: leaf.clone(),
+                    };
+                    // The reason the question was not asked, ownership's first.
+                    let cause = if answer_to(answers, &owned) == Some(&CheckAnswer::Holds) {
+                        stopped_by.unwrap_or(UncheckedCause::OwnershipNotTold)
+                    } else {
+                        UncheckedCause::OwnershipNotTold
+                    };
                     unchecked.push(UncheckedEntry {
                         check: DestinationCheck::LivenessProbe,
                         executable: Some(leaf),
-                        cause: if malformed {
-                            UncheckedCause::MalformedFile
-                        } else {
-                            UncheckedCause::OwnershipNotTold
-                        },
+                        cause,
                     });
                 }
             }

@@ -1073,3 +1073,38 @@ fn invariant_17_no_executables_plans_the_same_toward_either_provider() {
         assert_eq!(plan.destination, id(to));
     }
 }
+
+// --- work order 16 part H-2: the curated table reaches the plan ---------------
+
+/// The same rule, both directions: a row becomes a probe with the row's argv, and
+/// the gate compares that argv with the table. `htop` has a row under each provider.
+#[test]
+fn invariant_17_the_planner_writes_a_probe_from_a_row_in_both_directions() {
+    let snap = htop_both_ways();
+    for to in [HB, MP] {
+        let built = plan(&snap, "htop", to);
+        let verify = built
+            .steps
+            .iter()
+            .find(|s| s.kind == StepKind::VerifyDestination)
+            .expect("a verify step");
+        assert!(
+            verify
+                .verification
+                .contains(&VerificationCheck::LivenessProbe {
+                    executable: "htop".into(),
+                    argv: vec!["--version".into()],
+                }),
+            "{to}: {:?}",
+            verify.verification
+        );
+        let report = macportsbrew_application::execution_refusals(&built);
+        assert!(
+            !report.refusals().iter().any(|r| matches!(
+                r,
+                macportsbrew_application::ExecutionRefusal::ProbeIsNotTheTables { .. }
+            )),
+            "{to}: the gate's table is the planner's"
+        );
+    }
+}

@@ -14,12 +14,14 @@
 
 mod argv;
 pub mod configuration;
+pub mod destination_reads;
 pub mod entropy;
 pub mod filesystem;
 pub mod homebrew;
 pub mod installations;
 mod listing;
 pub mod lock_probe;
+pub mod macho;
 pub mod macports;
 pub mod persistence;
 pub mod prefixes;

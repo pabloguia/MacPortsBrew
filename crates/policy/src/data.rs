@@ -14,8 +14,8 @@
 //! decide anything: it answers questions about data, and the rules decide.
 
 use macportsbrew_domain::{
-    Architecture, Confidence, DatedFact, DomainError, ErrorId, Machine, MacosVersion, ProviderId,
-    SupportState, SupportTier,
+    Architecture, Confidence, DatedFact, DomainError, ErrorId, ExecutableName, Machine,
+    MacosVersion, ProviderId, SupportState, SupportTier,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -40,6 +40,8 @@ pub struct PolicySources<'a> {
     pub curated_mappings: &'a str,
     /// `cross-provider-advice.toml`.
     pub cross_provider_advice: &'a str,
+    /// `liveness-probes.toml`.
+    pub liveness_probes: &'a str,
 }
 
 /// The data files shipped with this build.
@@ -52,6 +54,7 @@ pub fn embedded_sources() -> PolicySources<'static> {
         runtime_managers: include_str!("../../../data/policy/runtime-managers.toml"),
         curated_mappings: include_str!("../../../data/policy/curated-mappings.toml"),
         cross_provider_advice: include_str!("../../../data/policy/cross-provider-advice.toml"),
+        liveness_probes: include_str!("../../../data/policy/liveness-probes.toml"),
     }
 }
 
@@ -252,6 +255,94 @@ impl StatefulFamily {
     }
 }
 
+/// The whole set of flags a curated probe may pass. Growing it is a reviewed code
+/// change: `--init`, `--daemon` and `-D` would all pass a character class
+/// (`docs/passes/16-liveness-design.md`, condition 5).
+pub const PROBE_FLAGS: [&str; 4] = ["--version", "-version", "-V", "-v"];
+
+/// One curated liveness probe: an observation, and the only thing that lets a
+/// package's own program run (DP-051 (a); R-28).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LivenessProbeRow {
+    /// The destination provider.
+    pub provider: String,
+    /// The destination package.
+    pub package: String,
+    /// The executable's leaf.
+    pub executable: String,
+    /// Arguments only, never a program or a path: one of [`PROBE_FLAGS`].
+    pub argv: Vec<String>,
+    /// The version it was observed at, in the owner rule's shape.
+    pub observed_version: String,
+    /// What was seen, and how.
+    pub source: String,
+    /// When, `YYYY-MM-DD`.
+    pub read_on: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LivenessFile {
+    #[serde(default)]
+    probe: Vec<LivenessProbeRow>,
+}
+
+/// Fails closed: at most one row per key; an executable of its name class; `argv`
+/// exactly one flag of the closed set; and no package any stateful family lists,
+/// **under any provider**, because `httpd` is listed under only one (INV-19).
+fn check_liveness_probes(
+    rows: &[LivenessProbeRow],
+    stateful: &[StatefulFamily],
+) -> Result<(), DomainError> {
+    let invalid = |row: &LivenessProbeRow, why: &str| {
+        DomainError::new(
+            ErrorId::PolicyDataInvalid,
+            format!(
+                "liveness-probes.toml: ({}, {}, {}) {why}",
+                row.provider, row.package, row.executable
+            ),
+        )
+    };
+    let mut keys = BTreeSet::new();
+    for row in rows {
+        if !keys.insert((&row.provider, &row.package, &row.executable)) {
+            return Err(invalid(row, "appears twice"));
+        }
+        // Presence only: which providers exist is the registry's, and policy names
+        // none. An empty key would match nothing and read as a row.
+        if row.provider.is_empty() || row.package.is_empty() {
+            return Err(invalid(row, "names no provider or no package"));
+        }
+        if ExecutableName::parse(&row.executable).is_err() {
+            return Err(invalid(row, "names no executable"));
+        }
+        let [flag] = row.argv.as_slice() else {
+            return Err(invalid(row, "must pass exactly one flag"));
+        };
+        if !PROBE_FLAGS.contains(&flag.as_str()) {
+            return Err(invalid(row, "passes a flag outside the closed set"));
+        }
+        if row.observed_version.is_empty() {
+            return Err(invalid(row, "says no version it was observed at"));
+        }
+        if row.source.is_empty() || days_between(&row.read_on, &row.read_on).is_none() {
+            return Err(invalid(row, "carries no source or no date"));
+        }
+        let listed = stateful.iter().any(|family| {
+            family
+                .names
+                .values()
+                .flatten()
+                .any(|pattern| pattern_matches(pattern, &row.package))
+        });
+        if listed {
+            return Err(invalid(row, "is a stateful package"));
+        }
+    }
+    Ok(())
+}
+
 /// A version manager to suggest for a runtime, never to act with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeManager {
@@ -420,6 +511,7 @@ pub struct PolicyData {
     managers: Vec<RuntimeManager>,
     mappings: Vec<CuratedMapping>,
     advice: Vec<CrossProviderAdvice>,
+    probes: Vec<LivenessProbeRow>,
     equivalences: BTreeMap<(String, String, String), BTreeSet<String>>,
 }
 
@@ -440,6 +532,7 @@ impl PolicyData {
         let mappings: MappingFile = parse(sources.curated_mappings, "curated-mappings.toml")?;
         let advice: AdviceFile =
             parse(sources.cross_provider_advice, "cross-provider-advice.toml")?;
+        let probes: LivenessFile = parse(sources.liveness_probes, "liveness-probes.toml")?;
 
         let mut provenance: Vec<(&str, &str, &str)> = Vec::new();
         for e in &support.entry {
@@ -478,7 +571,12 @@ impl PolicyData {
         check_curated_names(&mappings.entry)?;
         check_index_dates(&mappings.entry)?;
         check_artifact_tags(&tags.tagset)?;
+        check_liveness_probes(&probes.probe, &stateful.entry)?;
         let equivalences = index_equivalences(&mappings.entry);
+        let mut probe_rows = probes.probe;
+        probe_rows.sort_by(|a, b| {
+            (&a.provider, &a.package, &a.executable).cmp(&(&b.provider, &b.package, &b.executable))
+        });
 
         let mut support_entries = support.entry;
         support_entries.sort_by(|a, b| a.id.cmp(&b.id));
@@ -516,8 +614,27 @@ impl PolicyData {
             managers: manager_entries,
             mappings: mapping_entries,
             advice: advice_entries,
+            probes: probe_rows,
             equivalences,
         })
+    }
+
+    /// The curated probe of `executable` of `package` under `provider`, if the
+    /// table holds one. The same row answers either migration direction (INV-17).
+    pub fn liveness_probe(
+        &self,
+        provider: &str,
+        package: &str,
+        executable: &str,
+    ) -> Option<&LivenessProbeRow> {
+        self.probes
+            .iter()
+            .find(|p| p.provider == provider && p.package == package && p.executable == executable)
+    }
+
+    /// Every curated probe, sorted by key.
+    pub fn liveness_probes(&self) -> &[LivenessProbeRow] {
+        &self.probes
     }
 
     /// The policy version every recommendation carries.
@@ -546,7 +663,9 @@ impl PolicyData {
     /// drives the staleness notice, and the older date warns **earlier** — a
     /// data set is as fresh as its stalest half, not its freshest. Widening it
     /// would also mean this crate reading files it does not own, which is the
-    /// layering those files were placed by.
+    /// layering those files were placed by. The probe table is left out too: a row
+    /// was read on the day it was observed, and letting that push the notice back
+    /// would make support data look fresher than it is. It is in the version.
     pub fn newest_read_on(&self) -> &str {
         &self.newest_read_on
     }
@@ -1031,6 +1150,135 @@ pub fn shift_date(date: &str, days: i64) -> Option<String> {
 mod tests {
     use super::*;
     use macportsbrew_domain::{CommandLineTools, Translation};
+
+    /// A row with a field missing does not load, and neither does one with an empty
+    /// key: serde defaults would otherwise make it a row that matches nothing.
+    #[test]
+    fn a_probe_row_with_a_field_missing_or_empty_does_not_load() {
+        let whole = row("homebrew", "x", "x", "[\"-V\"]");
+        assert!(with_probes(&whole).is_ok());
+        for key in [
+            "provider",
+            "package",
+            "executable",
+            "argv",
+            "observed_version",
+            "source",
+            "read_on",
+        ] {
+            let without: Vec<&str> = whole.lines().filter(|l| !l.starts_with(key)).collect();
+            assert!(with_probes(&without.join("\n")).is_err(), "{key}");
+        }
+        for (key, value) in [
+            ("provider", "homebrew"),
+            ("package", "x"),
+            ("observed_version", "1"),
+        ] {
+            let empty = whole.replace(&format!("{key} = \"{value}\""), &format!("{key} = \"\""));
+            assert_ne!(empty, whole);
+            assert!(with_probes(&empty).is_err(), "{key}");
+        }
+    }
+
+    fn with_probes(rows: &str) -> Result<PolicyData, DomainError> {
+        PolicyData::load_from(PolicySources {
+            liveness_probes: rows,
+            ..embedded_sources()
+        })
+    }
+
+    fn row(provider: &str, package: &str, executable: &str, argv: &str) -> String {
+        format!(
+            "[[probe]]\nprovider = \"{provider}\"\npackage = \"{package}\"\n\
+             executable = \"{executable}\"\nargv = {argv}\nobserved_version = \"1\"\n\
+             source = \"test\"\nread_on = \"2026-11-04\"\n"
+        )
+    }
+
+    /// `httpd` is listed under one provider only, which is why the rule reads
+    /// every provider's names: `httpd --version` starts a server (R-28 E-4).
+    #[test]
+    fn invariant_19_a_stateful_package_is_no_row() {
+        for provider in ["homebrew", "macports", "another"] {
+            let error = with_probes(&row(provider, "httpd", "httpd", "[\"-v\"]")).unwrap_err();
+            assert_eq!(error.id, ErrorId::PolicyDataInvalid, "{provider}");
+        }
+        assert!(with_probes(&row("homebrew", "postgresql@17", "psql", "[\"-V\"]")).is_err());
+        assert!(with_probes(&row("homebrew", "ripgrep", "rg", "[\"--version\"]")).is_ok());
+    }
+
+    #[test]
+    fn the_loader_refuses_every_row_outside_the_closed_shape() {
+        for argv in [
+            "[]",
+            "[\"--init\"]",
+            "[\"--daemon\"]",
+            "[\"-D\"]",
+            "[\"version\"]",
+            "[\"--version\", \"-v\"]",
+            "[\"/bin/sh\"]",
+        ] {
+            let rows = row("homebrew", "x", "x", argv);
+            assert!(with_probes(&rows).is_err(), "{argv}");
+        }
+        for executable in ["a/b", "..", "-x"] {
+            let rows = row("homebrew", "x", executable, "[\"--version\"]");
+            assert!(with_probes(&rows).is_err(), "{executable}");
+        }
+        let twice = row("homebrew", "x", "x", "[\"-V\"]") + &row("homebrew", "x", "x", "[\"-v\"]");
+        assert!(with_probes(&twice).is_err());
+        let unknown = row("homebrew", "x", "x", "[\"-V\"]") + "program = \"/bin/sh\"\n";
+        assert!(with_probes(&unknown).is_err(), "a row names no program");
+    }
+
+    #[test]
+    fn invariant_20_every_probe_row_is_dated() {
+        let data = PolicyData::load_embedded().unwrap();
+        assert!(!data.liveness_probes().is_empty());
+        for row in data.liveness_probes() {
+            assert!(!row.source.is_empty(), "{row:?}");
+            assert!(
+                days_between(&row.read_on, &row.read_on) == Some(0),
+                "{row:?}"
+            );
+            assert!(!row.observed_version.is_empty(), "{row:?}");
+        }
+        // A row with no date does not load.
+        let undated = "[[probe]]\nprovider = \"h\"\npackage = \"x\"\nexecutable = \"x\"\n\
+                       argv = [\"-V\"]\nobserved_version = \"1\"\nsource = \"test\"\n";
+        assert!(with_probes(undated).is_err());
+        let bad_date = row("homebrew", "x", "x", "[\"-V\"]").replace("2026-11-04", "soon");
+        assert!(with_probes(&bad_date).is_err());
+        // A row's date does not move the staleness notice: support data is as
+        // fresh as it was, whatever was observed since (H.md, as built).
+        let later = row("homebrew", "x", "x", "[\"-V\"]").replace("2026-11-04", "2027-01-01");
+        assert_eq!(
+            with_probes(&later).unwrap().newest_read_on(),
+            with_probes("").unwrap().newest_read_on()
+        );
+    }
+
+    #[test]
+    fn invariant_17_a_row_is_keyed_by_provider_and_either_direction_reads_it() {
+        let data = PolicyData::load_embedded().unwrap();
+        let of = |provider, package, leaf| {
+            data.liveness_probe(provider, package, leaf)
+                .map(|r| r.observed_version.clone())
+        };
+        // One leaf, two programs (R-28 finding 25).
+        assert_eq!(
+            of("homebrew", "pkgconf", "pkg-config").as_deref(),
+            Some("3.0.7")
+        );
+        assert_eq!(
+            of("macports", "pkgconfig", "pkg-config").as_deref(),
+            Some("0.29.2_0")
+        );
+        assert_eq!(of("macports", "pkgconf", "pkg-config"), None);
+        // Row 8 of R-28 did not requalify, and `httpd` has no row by any name.
+        assert_eq!(of("macports", "gettext", "gettext"), None);
+        assert_eq!(of("homebrew", "httpd", "httpd"), None);
+    }
 
     fn machine(arch: Architecture, macos: &str) -> Machine {
         Machine {

@@ -2953,7 +2953,10 @@ fn a_precondition_about_a_providers_lock_keeps_its_own_exit_code() {
 
 // --- The destination's answers (work order 16 part H) ----------------------
 
-use macportsbrew_domain::{CheckFailure, DestinationCheck, UncheckedCause, UncheckedEntry};
+use macportsbrew_domain::{
+    CheckFailure, DestinationCheck, DestinationFacts, LinkageFacts, OwnershipFacts, UncheckedCause,
+    UncheckedEntry,
+};
 
 /// The whole run of questions, each answered by `site`.
 fn answered(
@@ -3161,6 +3164,113 @@ fn a_probe_is_asked_only_of_a_leaf_owned_and_only_when_no_file_was_malformed() {
             CheckAnswer::Holds
         }
     }));
+}
+
+/// A probe runs the destination's program, and whatever linkage could not tell may
+/// be what that program loads. So every linkage answer but `Holds` stops the probe,
+/// and the entry says it was that cause and not the ownership's.
+#[test]
+fn every_linkage_answer_but_holds_stops_the_probe_and_is_the_reason_given() {
+    for cause in [
+        UncheckedCause::NotObserved,
+        UncheckedCause::MalformedFile,
+        UncheckedCause::WalkOverBound,
+        UncheckedCause::UnreadableFile,
+        UncheckedCause::FileNotExamined,
+        UncheckedCause::SpellingsDisagree,
+        UncheckedCause::UnderUndetectedPrefix,
+        UncheckedCause::RpathUnresolved,
+        UncheckedCause::InterpreterResolvedAtRunTime,
+        UncheckedCause::ReadFailed,
+        UncheckedCause::ListsOutsidePrefix,
+        UncheckedCause::ListOverCap,
+        UncheckedCause::FileListNotKnown,
+        UncheckedCause::FallbackUnderOtherPrefix,
+        UncheckedCause::DyldEnvironmentNotModelled,
+    ] {
+        let run = full_run();
+        let plan = run.plan();
+        let verify = position(plan, StepKind::VerifyDestination);
+        let site = |q: &Question| {
+            if *q == Question::Linkage {
+                CheckAnswer::Unchecked(cause)
+            } else {
+                CheckAnswer::Holds
+            }
+        };
+        assert!(
+            !answered(plan, verify, site)
+                .iter()
+                .any(|a| matches!(a.question, Question::Probe { .. })),
+            "{cause:?}"
+        );
+        let outcome = certified(&run, site);
+        let probe = unchecked_by(&outcome)
+            .iter()
+            .find(|e| e.check == DestinationCheck::LivenessProbe)
+            .expect("the probe not run says so");
+        assert_eq!(probe.cause, cause);
+    }
+    // A probe not run for ownership keeps ownership's reason.
+    let run = full_run();
+    let outcome = certified(&run, |q| {
+        if matches!(q, Question::Owned { .. }) {
+            CheckAnswer::Unchecked(UncheckedCause::NotObserved)
+        } else {
+            CheckAnswer::Holds
+        }
+    });
+    let probe = unchecked_by(&outcome)
+        .iter()
+        .find(|e| e.check == DestinationCheck::LivenessProbe)
+        .expect("the probe not run says so");
+    assert_eq!(probe.cause, UncheckedCause::OwnershipNotTold);
+}
+
+/// A destination holding the package only as an inactive image: no active version
+/// to pin, so nothing can say this is the version the plan saw; the planner's
+/// `destination_holds_it` counts the row, so the plan claims no `PACKAGE_NEWLY_PRESENT`
+/// and a link already there is not called this run's.
+#[test]
+fn a_destination_holding_only_an_inactive_row_is_held_and_never_pins_a_version() {
+    let mut snap = configured(snapshot(&[pkg("gnu-sed")], &[pkg("gsed")]));
+    let provider = snap
+        .providers
+        .get_mut(&ProviderId::new(MP))
+        .expect("provider");
+    for row in &mut provider.inventory.installed {
+        row.active = false;
+    }
+    let run = planned(&snap, "gnu-sed", MP);
+    let plan = run.plan();
+    let verify = position(plan, StepKind::VerifyDestination);
+    assert!(
+        !plan.steps[verify]
+            .verification
+            .iter()
+            .any(|check| matches!(check, VerificationCheck::PackageNewlyPresent)),
+        "the row counts as held"
+    );
+    assert!(crate::destination_judges::held_row(&run).is_none());
+    let owner = DestinationFacts::Ownership(OwnershipFacts::Owner {
+        name: "gsed".to_owned(),
+        version: "4.9".to_owned(),
+        active: Some("4.9".to_owned()),
+        versions_present: 1,
+        held: None,
+    });
+    assert!(matches!(
+        crate::destination_judges::answer_from_facts(&run, &owner),
+        CheckAnswer::Unchecked(_)
+    ));
+    let linkage = DestinationFacts::Linkage(LinkageFacts {
+        links_detected_provider: true,
+        ..LinkageFacts::default()
+    });
+    assert_eq!(
+        crate::destination_judges::answer_from_facts(&run, &linkage),
+        CheckAnswer::Fails(CheckFailure::LinkPresentBeforeTheRun)
+    );
 }
 
 #[test]
@@ -3581,8 +3691,9 @@ fn a_read_that_did_not_pass_lets_nothing_be_asked() {
 
 #[test]
 fn a_probe_passes_the_gate_only_for_the_tables_row() {
-    // Here, in the unit test build, the row exists; in the shipped build, and an
-    // integration test's, it does not, and every probe is refused.
+    // Here, in the unit test build, the table is the shipped one plus a fixture row
+    // (`TEST_PROBE_EXECUTABLE`); a row the table does not hold is refused, here and
+    // in the shipped build, where the twelve of `liveness-probes.toml` are all there is.
     let refused_for = |executable: &str| {
         let plan = with_probes(consolidation_run().plan());
         let verify = position(&plan, StepKind::VerifyDestination);
@@ -3605,4 +3716,54 @@ fn a_probe_passes_the_gate_only_for_the_tables_row() {
     };
     assert!(!refused_for(crate::execution_gate::TEST_PROBE_EXECUTABLE));
     assert!(refused_for("not-the-fixture-row"));
+}
+
+/// The row exists, and this argv is not its argv: the table is the security decision
+/// and `--init` is the shape of what it keeps out.
+#[test]
+fn a_probe_with_another_argv_than_its_row_is_not_the_tables() {
+    let mut plan = with_probes(consolidation_run().plan());
+    let verify = position(&plan, StepKind::VerifyDestination);
+    let row = crate::execution_gate::TEST_PROBE_EXECUTABLE;
+    for check in &mut plan.steps[verify].verification {
+        match check {
+            VerificationCheck::ExecutablesOwnedByDestination { executables } => {
+                *executables = vec![row.to_owned()];
+            }
+            VerificationCheck::LivenessProbe { executable, argv } => {
+                *executable = row.to_owned();
+                *argv = vec!["--init".to_owned()];
+            }
+            _ => {}
+        }
+    }
+    assert!(crate::execution_refusals(&plan)
+        .refusals()
+        .iter()
+        .any(|r| matches!(r, ExecutionRefusal::ProbeIsNotTheTables { .. })));
+}
+
+/// No facts, and no package to judge them against, are never a yes.
+#[test]
+fn no_facts_and_no_destination_package_are_never_a_yes() {
+    let holds = DestinationFacts::Ownership(OwnershipFacts::Owner {
+        name: "gsed".to_owned(),
+        version: "1.0".to_owned(),
+        active: Some("1.0".to_owned()),
+        versions_present: 1,
+        held: None,
+    });
+    let unchecked = CheckAnswer::Unchecked(UncheckedCause::NotObserved);
+    assert_eq!(
+        crate::destination_judges::answer_from_facts(
+            &consolidation_run(),
+            &DestinationFacts::NotObserved
+        ),
+        unchecked
+    );
+    let no_package = consolidation_run().map_plan(|plan| plan.destination_package = None);
+    assert_eq!(
+        crate::destination_judges::answer_from_facts(&no_package, &holds),
+        unchecked
+    );
 }

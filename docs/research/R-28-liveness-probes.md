@@ -325,7 +325,7 @@ macports-only-intel-macos12 (synthesised): mp wget nginx
 | 5 | homebrew | xz | xz | observed | `xz (XZ Utils) 5.8.3` | yes |
 | 6 | macports | xz | xz | observed | same text | yes |
 | 7 | homebrew | gettext | gettext | observed | `gettext (GNU gettext-runtime) 1.0` | yes |
-| 8 | macports | gettext | gettext | observed | same text | yes |
+| 8 | macports | gettext | gettext | observed | same text | yes, and did not land: see the last section |
 | 9 | macports | jq | jq | observed | `jq-1.8.2` | yes |
 | 10 | homebrew | wget | wget | observed | `GNU Wget 1.25.0 built on darwin23.6.0.` | yes |
 | 11 | macports | m4 | gm4 | observed (E-6: one run) | `m4 (GNU M4) 1.4.21` | yes |
@@ -386,3 +386,17 @@ Line numbers of `docs/spec/` below are at `9b8d68d`.
 - `ripgrep` or `gnupg` is installed on a machine available to this project: replace the `cited` rows, and settle `gpg`.
 - Part I builds shims (Finding 17); an arm64 machine is available (Findings 12, 19).
 - `man dyld`'s fallback text changes (E-6): Intel `/usr/local/lib` is why it matters.
+
+## Re-qualification of rows 1-13 (2026-11-04, work order 16 H-2)
+
+Each row in the form it will run: the canonical path with `arg0` set to the placed leaf; a scratch path with a space, serving as `HOME`, `TMPDIR` and working directory; the design note's environment. Three rounds, plus the `ro` round, against the sweep's four: **the cold/warm split was dropped and the sandbox added.** Rows 11-13, added after the sweep with "want the same four-round treatment", had never had an `ro` round; it was first run here. The rounds: the destination's `bin` plus `SYSTEM_PATH`; `SYSTEM_PATH` alone; and under `sandbox-exec` denying the network, every exec but the program itself, and every write outside scratch (there `arg0` is the path). The harness stayed in the session scratch directory. No other program was run, and never `httpd`.
+
+| Rows | Result |
+|---|---|
+| 1-7, 9-13 | Exit 0 in all three rounds; no process left; nothing in scratch; nothing on stderr. All compiled programs and regular files, no setuid or setgid. So no network and no `/usr/bin` shim was **needed**, which is what the sandbox can show |
+| The 12 landed rows, `ro` (work order 16 H-2 round 3) | Scratch `chmod 555` as `HOME`, `TMPDIR` and working directory, plain with the destination's `bin` on `PATH` and under the same sandbox with `SYSTEM_PATH`. Exit 0 in both, nothing on stderr, no process left, the version line printed. All twelve pass, `gettext` (Homebrew) and rows 11-13 included |
+| 8 (`macports`, `gettext`, `gettext`) | **Does not land.** The program behaves, but `port -q provides` answers `gettext-runtime` for the placed file, so the key is wrong and check 3 would fail it. A row keyed `gettext-runtime` would need its own decision; not invented here |
+
+`observed_version` is in the owner rule's shape: `pkgconf` holds two kegs here (3.0.6, 3.0.7) and 3.0.7 is linked. `~/Library`, **searched by name and not exhaustively:** nothing naming a row's program was newer than the run's marker, to depth 8 everywhere but `Containers`, `Group Containers`, `Mobile Documents`, `CloudStorage` and `Developer` (not searched), and to depth 3 of `Caches`. A walk of the whole of it did not finish in over an hour and was stopped, so a write under another name, or in those directories, is not excluded; the sandbox round would have denied such a write, and the program exited 0; whether one was attempted was not recorded. No crash report named one, and `xcrun_db` and the Command Line Tools marker were unchanged. **The same limits as above:** one Intel machine, and a sample. Row `gettext` (Homebrew) lands, but its keg holds Java classes (R-27, Ruling on Java classes), so the probe is not reached for it.
+
+Rows 14-15 (`rg`) did not land and cited rows were rejected (SE-113). The `evidence` field did not land. Rows are excluded from `policyReadOn` (DP-057), so Finding 25's staleness sentence is superseded.

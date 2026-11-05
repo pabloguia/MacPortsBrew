@@ -69,29 +69,28 @@ Steps, in order
 Possibly inconsistent: this was read from a recording or a snapshot file, which cannot show whether a package manager was changing the machine it came from while it was read.
 ```
 
-Four things to notice.
+Three things to notice.
 
 **The plan says it goes against the recommendation.** You asked to move
 something the engine would not have moved. That is allowed — it is your
 machine — and the plan says so rather than quietly accepting it.
-
-**MacPorts being absent is a step, not an assumption.** MacPortsBrew does not
-install package managers. If you want the package under MacPorts, install
-MacPorts yourself first, then build the plan again. Even then, the "no equivalent"
-step stays unless MacPorts already has curl installed or the small curated
-table names its port: in 0.1.0 mapping looks only at what the destination
-already has installed. "No equivalent found" means nothing was found, not that
-no equivalent exists — searching the other provider's full catalogue is planned
-for a later release.
 
 **Each blocking risk becomes a step.** A plan is not a summary of a decision;
 it is the decision, in order, with the reasons attached. A plan with a step
 that needs a human decision exits 4 and names the step.
 
 **The last line says what the read cannot vouch for.** Live, the last line says
-what one sample of the providers' own locks answered. Here it says a recording
+what one sample of the providers' own locks answered. Here it says a snapshot file
 cannot show that. `--json` carries the same answer as
 `concurrentProviderActivity`.
+
+If MacPorts is absent, the plan makes that a step: MacPortsBrew does not install
+package managers, so install MacPorts yourself first, then build the plan again.
+Even then, "No equivalent under macports" stays unless MacPorts already has curl
+installed or the small curated table names its port: in 0.1.0 mapping looks only at
+what the destination already has installed. That line means nothing was found, not
+that no equivalent exists — searching the other provider's full catalogue is planned
+for a later release.
 
 Add `--json` for the machine-readable form — see
 [`../docs/schemas/plan.v2.md`](../docs/schemas/plan.v2.md).
@@ -107,10 +106,16 @@ this order, and the order is enforced rather than conventional:
    take your own with `macportsbrew snapshot --out before.json`.
 2. **Add destination** — install under MacPorts.
 3. **Verify destination** — the package is installed and active, what it
-   records of itself is on disk, its executables belong to it when read, no file
-   refers to the other package manager's directory, and a curated probe exits 0
+   records of itself is on disk, its executables belong to it when read, no load
+   command or `#!` line refers to the other package manager's directory, and a curated probe exits 0
    where one exists. What cannot be told is reported as unchecked, the source is
-   kept, and the run exits 3. This version observes none of the last four yet.
+   kept, and the run exits 3. This version has the reads for integrity, ownership and
+   linkage, but refuses every plan before any of them runs, and it runs no probe. With MacPorts
+   as the destination, every file its registry records for the active image must
+   exist, and every recorded symlink must resolve (R-25); this says nothing of content.
+   Linkage reads load commands and `#!` lines: it does not see `dlopen`, static links, a
+   binary outside the file list or a script body's own lookups, and it cannot prove
+   what dyld loads.
 4. **Set primary** — decide which copy actually runs. See
    [Primary Provider](Primary-Provider.md).
 5. **Verify resolution** — confirm it does.

@@ -14,9 +14,14 @@ use crate::prefixes;
 use crate::process::{CommandSpec, Invocation, PlanReadRefusal, ProcessRunner};
 use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::{
+    DestinationFacts, DestinationProbe, DestinationQuery, ExecutableName, InstalledPackage,
+    PackageIdentity, PrefixClass, PrefixTable, ProbeObservation, UncheckedCause,
+};
+use macportsbrew_domain::{
     DomainError, ErrorId, PlanCommand, ProviderConfiguration, ProviderId, ProviderRead,
 };
 use std::collections::BTreeMap;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 /// The provider ids this build knows, in a stable order.
@@ -312,6 +317,165 @@ pub fn plan_read_sites<'r>(ctx: &RegistryContext<'r>) -> PlanReadSites<'r> {
             .iter()
             .filter_map(|id| detected_prefix(ctx, id))
             .collect(),
+    }
+}
+
+/// What answers the destination checks of a run (work order 16 part H), after the
+/// gate and under the run's lock.
+///
+/// **The one place a liveness probe can come from**, which is why it is not a
+/// method of [`ProviderRead`] and why it takes the lock: any other holder of an
+/// adapter could otherwise start a third-party program (the design note).
+/// `crates/cli/tests/executor.rs` keeps the constructor in the loop's module.
+pub struct DestinationSites<'c, 'r> {
+    ctx: &'c RegistryContext<'r>,
+    /// A replay, or a filesystem that is not the machine described: nothing here
+    /// consults the disk, and every answer is `NOT_OBSERVED` (INV-15). As asked of
+    /// the context, not through [`effective_scope`]: that collapse stops an
+    /// unprobed prefix being executed, and here the contradiction of a live runner
+    /// and `Elsewhere` resolves towards not looking, as the lock probe's does.
+    live: bool,
+    /// The state root the staged probe sweeps and scratches under.
+    _state: &'c crate::persistence::StateDir,
+}
+
+/// The destination sites `ctx` describes. Safe only after the execution gate has
+/// passed the plan. `_lock` is the proof this run holds the lock, which is what
+/// makes the staged probe's sweep of leftovers safe; it is not kept.
+pub fn destination_sites<'c, 'r>(
+    ctx: &'c RegistryContext<'r>,
+    state: &'c crate::persistence::StateDir,
+    _lock: &crate::persistence::run_lock::RunLock,
+) -> DestinationSites<'c, 'r> {
+    DestinationSites {
+        ctx,
+        live: !ctx.runner.is_replay() && ctx.filesystem.is_this_machine(),
+        _state: state,
+    }
+}
+
+impl DestinationSites<'_, '_> {
+    /// Whether this site may look at the disk at all (INV-15). False under a replay
+    /// and under a filesystem that is not this machine, each on its own.
+    #[must_use]
+    pub fn is_live(&self) -> bool {
+        self.live
+    }
+
+    /// Whether `provider` can answer here: live, and detected. False for a provider
+    /// no prefix was detected for, which `facts` answers `NOT_OBSERVED`.
+    #[must_use]
+    pub fn observes(&self, provider: &ProviderId) -> bool {
+        self.live && detected_prefix(self.ctx, provider).is_some()
+    }
+
+    /// What linkage is measured against, or `None` where nothing may be looked at:
+    /// building it `canonicalize`s every documented prefix on this disk, and this is
+    /// the only way to it, so no route skips the guard. The destination's prefix, each
+    /// other detected prefix, and then every documented candidate no provider was
+    /// detected at, the last only where nothing stronger claimed the path. Each as
+    /// written and canonically, so a canonical load target is measured against a
+    /// canonical prefix.
+    #[must_use]
+    pub fn linkage_prefixes(&self, destination: &ProviderId) -> Option<PrefixTable> {
+        if !self.live {
+            return None;
+        }
+        let mut table = PrefixTable::default();
+        let mut add = |path: &Path, class: PrefixClass| {
+            table.add(path.as_os_str().as_bytes(), class);
+            if let Ok(real) = std::fs::canonicalize(path) {
+                table.add(real.as_os_str().as_bytes(), class);
+            }
+        };
+        let ids = known_provider_ids();
+        if let Some(site) = detected_prefix(self.ctx, destination) {
+            add(site.prefix(), PrefixClass::Destination);
+        }
+        for id in ids.iter().filter(|id| *id != destination) {
+            if let Some(site) = detected_prefix(self.ctx, id) {
+                add(site.prefix(), PrefixClass::DetectedOther);
+            }
+        }
+        for id in &ids {
+            for candidate in candidate_prefixes(id) {
+                add(&candidate, PrefixClass::UndetectedCandidate);
+            }
+        }
+        Some(table)
+    }
+
+    /// What `provider` observes for `query` about `package`, on an adapter built
+    /// for this question, so nothing read before a step's install can answer
+    /// after it. A provider not detected observes nothing.
+    fn facts(
+        &self,
+        provider: &ProviderId,
+        package: &str,
+        query: &DestinationQuery<'_>,
+    ) -> DestinationFacts {
+        if !self.observes(provider) {
+            return DestinationFacts::NotObserved;
+        }
+        let identity = PackageIdentity::new(provider.clone(), package);
+        build(self.ctx)
+            .iter()
+            .find(|adapter| adapter.id() == provider)
+            .map_or(DestinationFacts::NotObserved, |adapter| {
+                adapter.destination_facts(&identity, query)
+            })
+    }
+
+    /// `EXECUTABLES_OWNED_BY_DESTINATION` for one leaf.
+    #[must_use]
+    pub fn ownership(
+        &self,
+        provider: &ProviderId,
+        package: &str,
+        leaf: &ExecutableName,
+        held: Option<&InstalledPackage>,
+    ) -> DestinationFacts {
+        self.facts(
+            provider,
+            package,
+            &DestinationQuery::Ownership { leaf, held },
+        )
+    }
+
+    /// `PROVIDER_INTEGRITY_CHECK`.
+    #[must_use]
+    pub fn integrity(&self, provider: &ProviderId, package: &str) -> DestinationFacts {
+        self.facts(provider, package, &DestinationQuery::Integrity)
+    }
+
+    /// `NO_CROSS_PROVIDER_LINKAGE`, against where every provider is right now.
+    #[must_use]
+    pub fn linkage(&self, provider: &ProviderId, package: &str) -> DestinationFacts {
+        let Some(prefixes) = self.linkage_prefixes(provider) else {
+            return DestinationFacts::NotObserved;
+        };
+        self.facts(
+            provider,
+            package,
+            &DestinationQuery::Linkage {
+                prefixes: &prefixes,
+            },
+        )
+    }
+}
+
+impl DestinationProbe for DestinationSites<'_, '_> {
+    /// No program starts in this build. The admission is staged, because it
+    /// touches the frozen process module (`docs/passes/16-liveness-design.md`,
+    /// Staging), and until it is applied every probe is `NOT_OBSERVED`: the source
+    /// is kept and the run says so.
+    fn liveness_probe(
+        &self,
+        _package: &str,
+        _leaf: &ExecutableName,
+        _argv: &[String],
+    ) -> ProbeObservation {
+        ProbeObservation::NotRun(UncheckedCause::NotObserved)
     }
 }
 
@@ -789,6 +953,51 @@ mod tests {
     use super::effective_scope;
     use crate::filesystem::FilesystemScope;
     use crate::process::SystemRunner;
+
+    /// The destination is the destination and every other detected prefix is
+    /// another provider's, whichever way round the plan goes (INV-17).
+    #[test]
+    fn the_prefix_table_says_which_is_the_destination_and_which_is_the_other() {
+        use super::{DestinationSites, RegistryContext};
+        use macportsbrew_domain::{PrefixClass, ProviderId};
+        let runner = replay();
+        let (one, two) = (ProviderId::new("homebrew"), ProviderId::new("macports"));
+        let ctx = RegistryContext {
+            runner: &runner,
+            home: None,
+            platform_tags: Box::new(|_| Vec::new()),
+            filesystem: FilesystemScope::Elsewhere,
+            prefix_override: Some(vec![
+                (one.clone(), "/mpb-test/one".into()),
+                (two.clone(), "/mpb-test/two".into()),
+            ]),
+        };
+        let state = crate::persistence::StateDir::resolve(None, Some("/mpb-test/state")).unwrap();
+        // `live` is what a guard decides, and this is what lies behind it.
+        let sites = DestinationSites {
+            ctx: &ctx,
+            live: true,
+            _state: &state,
+        };
+        let table = sites.linkage_prefixes(&one).expect("live");
+        assert_eq!(
+            table.class_of(b"/mpb-test/one/x"),
+            Some(PrefixClass::Destination)
+        );
+        assert_eq!(
+            table.class_of(b"/mpb-test/two/x"),
+            Some(PrefixClass::DetectedOther)
+        );
+        let table = sites.linkage_prefixes(&two).expect("live");
+        assert_eq!(
+            table.class_of(b"/mpb-test/one/x"),
+            Some(PrefixClass::DetectedOther)
+        );
+        assert_eq!(
+            table.class_of(b"/mpb-test/two/x"),
+            Some(PrefixClass::Destination)
+        );
+    }
 
     #[test]
     fn a_live_runner_is_always_reading_this_machine() {

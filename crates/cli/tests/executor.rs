@@ -900,7 +900,12 @@ fn the_command_line_crate_builds_no_command_spec_and_no_read_site_outside_the_lo
         // would be a way to read on a plan the gate never saw (review of S5).
         let in_loop = Path::new(&file).starts_with(&executor);
         if !in_loop {
-            for banned in ["planreadsites", "plan_read_sites"] {
+            for banned in [
+                "planreadsites",
+                "plan_read_sites",
+                "destinationsites",
+                "destination_sites",
+            ] {
                 assert_ne!(word, banned, "{file} builds a read site outside the loop");
             }
             if !file.contains("/app/") {
@@ -1867,8 +1872,8 @@ fn the_switch_needs_the_destination_contract_observed() {
     };
     assert!(evaluable_in_this_build(StepKind::VerifyDestination, &skip));
     assert!(observed_by_this_build(&skip));
-    // Exactly DP-051's four checks of 04's contract are not observed, and each
-    // is answered through the destination site.
+    // DP-051's four checks of 04's contract are each answered through the
+    // destination site.
     let dp_051: BTreeSet<String> = [
         "ProviderIntegrityCheck",
         "ExecutablesOwnedByDestination",
@@ -1887,15 +1892,24 @@ fn the_switch_needs_the_destination_contract_observed() {
         probe,
     ];
     for check in &four {
-        assert!(!observed_by_this_build(check), "{check:?}");
+        // Three have their observer since H-2; the probe's is H-3's, behind the
+        // owner-applied admission.
+        assert_eq!(
+            observed_by_this_build(check),
+            !matches!(check, VerificationCheck::LivenessProbe { .. }),
+            "{check:?}"
+        );
         assert!(is_site_answered(StepKind::VerifyDestination, check));
         assert!(evaluable_in_this_build(StepKind::VerifyDestination, check));
     }
     assert_eq!(four.iter().map(kind_of).collect::<BTreeSet<_>>(), dp_051);
-    // What the planner's plan lacks an observer for is DP-051's, and only it:
-    // three of the four here (this fixture records no executable list).
+    // What lacks an observer is DP-051's, and only the probe of it.
     assert!(not_observed.is_subset(&dp_051));
-    assert_eq!(not_observed, dp_051);
+    assert_eq!(
+        not_observed,
+        BTreeSet::from(["LivenessProbe".to_owned()]),
+        "the switch stays off for the check nothing here runs"
+    );
 }
 
 #[test]
@@ -1947,4 +1961,118 @@ fn no_workspace_crate_depends_on_libc_directly() {
             "{name}: sha2 is the application crate's alone"
         );
     }
+}
+
+/// The read-only loop passes no destination site, so nothing it does can reach a
+/// program or a walk: a site exists only under the run's lock (the design note;
+/// `.claude/rules/executor.md` rule 1). The bare identifier, across every crate's
+/// source, in exactly its definition and its one call.
+#[test]
+fn analysis_and_dry_run_never_reach_a_probe() {
+    let crates = root().join("crates");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&crates).expect("crates") {
+        let src = entry.expect("an entry").path().join("src");
+        if !src.is_dir() {
+            continue;
+        }
+        for (file, word) in words(&src) {
+            if word == "destination_sites" {
+                let name = file.rsplit("crates/").next().unwrap_or(&file).to_owned();
+                found.push(name);
+            }
+        }
+    }
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            "adapters/src/registry.rs".to_owned(),
+            "cli/src/executor/mod.rs".to_owned(),
+            "cli/src/executor/mod.rs".to_owned(),
+        ],
+        "the definition, the import, the one call"
+    );
+    let text =
+        std::fs::read_to_string(root().join("crates/cli/src/executor/mod.rs")).expect("the shell");
+    let read_only = &text[text.find("pub fn run_with_resolutions").unwrap()..];
+    let read_only = &read_only[..read_only.find("\n}\n").unwrap()];
+    assert!(read_only.contains("|| NothingObserved"), "{read_only}");
+    let mutating = &text[text.find("pub fn run_mutating").unwrap()..];
+    let mutating = &mutating[..mutating.find("\n}\n").unwrap()];
+    assert!(mutating.contains("destination_sites(ctx"), "{mutating}");
+}
+
+/// The site under a replay, built as `run_mutating` builds it, asked every question:
+/// nothing observed, never a yes, and the probe says so itself. A plan with no
+/// destination package has nothing to ask about, and says the same. Here and not
+/// beside the site: the source scans refuse a provider's name, `map_plan` and a
+/// fourth use of the constructor in `crates/cli/src`.
+#[test]
+fn invariant_15_the_machine_site_under_a_replay_answers_every_question_not_observed() {
+    use macportsbrew::executor::MachineDestinationSite;
+    use macportsbrew_adapters::filesystem::FilesystemScope;
+    use macportsbrew_adapters::persistence::{run_lock, StateDir};
+    use macportsbrew_adapters::process::{Recording, RecordingProvenance, ReplayRunner};
+    use macportsbrew_adapters::registry::{destination_sites, RegistryContext};
+    use macportsbrew_domain::ExecutableName;
+    use std::os::unix::fs::MetadataExt;
+
+    let (snap, package, to) = install_needed(HB);
+    let run = planned(&snap, package, to, false);
+    assert!(run.plan().destination_package.is_some());
+    let no_package =
+        planned(&snap, package, to, false).map_plan(|plan| plan.destination_package = None);
+
+    let base = std::env::temp_dir().join(format!("mpb-site-{}", std::process::id()));
+    std::fs::remove_dir_all(&base).ok();
+    std::fs::create_dir_all(&base).unwrap();
+    let state = StateDir::resolve(None, Some(base.join("state").to_str().unwrap())).unwrap();
+    state.ensure().unwrap();
+    let lock = run_lock::acquire(&state, std::fs::metadata(&base).unwrap().uid()).unwrap();
+    let runner = ReplayRunner::new(Recording {
+        schema_version: 1,
+        provenance: RecordingProvenance {
+            macos: "26.0.0".into(),
+            architecture: "x86_64".into(),
+            provider_versions: Vec::new(),
+            captured_at: "2026-11-04T00:00:00Z".into(),
+            captured_by: "executor.rs".into(),
+            origin: "synthesised".into(),
+            note: None,
+        },
+        invocations: Vec::new(),
+    });
+    let ctx = RegistryContext {
+        runner: &runner,
+        home: None,
+        platform_tags: Box::new(|_| Vec::new()),
+        filesystem: FilesystemScope::Elsewhere,
+        prefix_override: None,
+    };
+    let leaf = ExecutableName::parse("gsed").unwrap();
+    for run in [&run, &no_package] {
+        let site = MachineDestinationSite::new(run, destination_sites(&ctx, &state, &lock));
+        for question in [
+            Question::Owned {
+                executable: leaf.clone(),
+            },
+            Question::Integrity,
+            Question::Linkage,
+            Question::Probe {
+                leaf: leaf.clone(),
+                argv: vec!["--version".to_owned()],
+            },
+            Question::Done,
+        ] {
+            assert_eq!(
+                site.answer(&question),
+                CheckAnswer::Unchecked(UncheckedCause::NotObserved),
+                "{question:?}"
+            );
+        }
+        assert!(site.bases().is_empty());
+    }
+    drop(lock);
+    std::fs::remove_dir_all(&base).ok();
 }

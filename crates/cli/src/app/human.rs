@@ -760,6 +760,11 @@ fn verification_line(ctx: &Context, value: &VerificationCheck) -> String {
         VerificationCheck::ProviderIntegrityCheck => {
             label(ctx, "verification.provider_integrity_check")
         }
+        VerificationCheck::ExecutablesOwnedByDestination { executables }
+            if executables.is_empty() =>
+        {
+            label(ctx, "verification.executables_owned_by_destination_none")
+        }
         VerificationCheck::ExecutablesOwnedByDestination { executables } => ctx.messages.render(
             "verification.executables_owned_by_destination",
             &params(&[("executables", executables.join(", "))]),
@@ -1080,6 +1085,9 @@ pub fn run_report(ctx: &Context, plan: &MigrationPlan, report: &RunReport) -> St
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", label(ctx, "migrate.execution_heading"));
     let _ = writeln!(out, "  {}", outcome_line(ctx, &report.outcome));
+    for basis in &report.receipt.check_bases {
+        let _ = writeln!(out, "  {}", label(ctx, basis_key(*basis)));
+    }
     // Which provider and why, not only that a lock stopped the run.
     if let Some(activity) = &report.provider_locks_at_halt {
         out.push_str(&locks_at_halt(ctx, activity));
@@ -1254,6 +1262,18 @@ fn destination_check_key(value: DestinationCheck) -> &'static str {
     })
 }
 
+/// The catalogue key for what a check that held rests on. Exhaustive, so a basis
+/// cannot reach a reader without its own sentence (R-25 finding 15).
+fn basis_key(value: macportsbrew_domain::CheckBasis) -> &'static str {
+    use macportsbrew_domain::CheckBasis;
+    match value {
+        CheckBasis::RecordedFileList => "migrate.basis.recorded_file_list",
+        CheckBasis::GeneratedFileList => "migrate.basis.generated_file_list",
+        CheckBasis::ReferencesExamined => "migrate.basis.references_examined",
+        CheckBasis::NoLoadCommands => "migrate.basis.no_load_commands",
+    }
+}
+
 fn unchecked_key(value: UncheckedCause) -> &'static str {
     match value {
         UncheckedCause::NotObserved => "migrate.unchecked.not_observed",
@@ -1261,6 +1281,48 @@ fn unchecked_key(value: UncheckedCause) -> &'static str {
         UncheckedCause::NoExecutableToProbe => "migrate.unchecked.no_executable_to_probe",
         UncheckedCause::OwnershipNotTold => "migrate.unchecked.ownership_not_told",
         UncheckedCause::MalformedFile => "migrate.unchecked.malformed_file",
+        UncheckedCause::ReadFailed => "migrate.unchecked.read_failed",
+        UncheckedCause::FileListNotKnown => "migrate.unchecked.file_list_not_known",
+        UncheckedCause::ListsOutsidePrefix => "migrate.unchecked.lists_outside_prefix",
+        UncheckedCause::ListOverCap => "migrate.unchecked.list_over_cap",
+        UncheckedCause::StatFailed => "migrate.unchecked.stat_failed",
+        UncheckedCause::DependenciesNotTold => "migrate.unchecked.dependencies_not_told",
+        UncheckedCause::EntryLeavesOwner => "migrate.unchecked.entry_leaves_owner",
+        UncheckedCause::OwnerNotNamed => "migrate.unchecked.owner_not_named",
+        UncheckedCause::DyldEnvironmentNotModelled => {
+            "migrate.unchecked.dyld_environment_not_modelled"
+        }
+        UncheckedCause::FallbackUnderOtherPrefix => "migrate.unchecked.fallback_under_other_prefix",
+        UncheckedCause::ProbeVersionNotQualified => "migrate.unchecked.probe_version_not_qualified",
+        UncheckedCause::ProbeAsRoot => "migrate.unchecked.probe_as_root",
+        UncheckedCause::ProbeLeafRefused => "migrate.unchecked.probe_leaf_refused",
+        UncheckedCause::ProbeArgvNotTheRows => "migrate.unchecked.probe_argv_not_the_rows",
+        UncheckedCause::ProbeArgvNotPermitted => "migrate.unchecked.probe_argv_not_permitted",
+        UncheckedCause::ProbeEntryNotThePackages => {
+            "migrate.unchecked.probe_entry_not_the_packages"
+        }
+        UncheckedCause::ProbeTargetNotThePackages => {
+            "migrate.unchecked.probe_target_not_the_packages"
+        }
+        UncheckedCause::ProbeTargetModeRefused => "migrate.unchecked.probe_target_mode_refused",
+        UncheckedCause::ProbeProgramExcluded => "migrate.unchecked.probe_program_excluded",
+        UncheckedCause::ProbeTargetIsEnvScript => "migrate.unchecked.probe_target_is_env_script",
+        UncheckedCause::ProbeTargetChanged => "migrate.unchecked.probe_target_changed",
+        UncheckedCause::ProbeNotStarted => "migrate.unchecked.probe_not_started",
+        UncheckedCause::ProbeTimedOut => "migrate.unchecked.probe_timed_out",
+        UncheckedCause::ProbeLeftAProcess => "migrate.unchecked.probe_left_a_process",
+        UncheckedCause::ProbeOutputOverCap => "migrate.unchecked.probe_output_over_cap",
+        UncheckedCause::ProbeEndNotRead => "migrate.unchecked.probe_end_not_read",
+        UncheckedCause::HeldVersionNotTold => "migrate.unchecked.held_version_not_told",
+        UncheckedCause::FileNotExamined => "migrate.unchecked.file_not_examined",
+        UncheckedCause::SpellingsDisagree => "migrate.unchecked.spellings_disagree",
+        UncheckedCause::UnderUndetectedPrefix => "migrate.unchecked.under_undetected_prefix",
+        UncheckedCause::RpathUnresolved => "migrate.unchecked.rpath_unresolved",
+        UncheckedCause::InterpreterResolvedAtRunTime => {
+            "migrate.unchecked.interpreter_resolved_at_run_time"
+        }
+        UncheckedCause::UnreadableFile => "migrate.unchecked.unreadable_file",
+        UncheckedCause::WalkOverBound => "migrate.unchecked.walk_over_bound",
     }
 }
 
@@ -1272,6 +1334,7 @@ fn check_failure_key(value: CheckFailure) -> &'static str {
         CheckFailure::NoInstallationRecord => "migrate.check_failure.no_installation_record",
         CheckFailure::NoPlacedEntry => "migrate.check_failure.no_placed_entry",
         CheckFailure::AnotherPackagesEntry => "migrate.check_failure.another_packages_entry",
+        CheckFailure::EntryOfNoPackage => "migrate.check_failure.entry_of_no_package",
         CheckFailure::MoreThanOneVersion => "migrate.check_failure.more_than_one_version",
         CheckFailure::ActiveRecordDiffers => "migrate.check_failure.active_record_differs",
         CheckFailure::OwnerVersionDiffers => "migrate.check_failure.owner_version_differs",
@@ -1791,6 +1854,33 @@ mod tests {
         }
     }
 
+    /// An empty list renders no dangling `when read: `, in either catalogue.
+    #[test]
+    fn an_empty_executable_list_leaves_no_dangling_clause() {
+        for locale in ["en", "pt-BR"] {
+            let messages =
+                crate::i18n::Messages::for_locale(&crate::i18n::resolve(Some(locale), None));
+            let none = messages.render(
+                "verification.executables_owned_by_destination_none",
+                &std::collections::BTreeMap::new(),
+            );
+            assert!(!none.trim_end().ends_with(':'), "{locale}: {none}");
+            assert!(!none.contains("{executables}"), "{locale}: {none}");
+        }
+    }
+
+    #[test]
+    fn an_empty_list_renders_its_own_line() {
+        let ctx = context();
+        let line = super::verification_line(
+            &ctx,
+            &VerificationCheck::ExecutablesOwnedByDestination {
+                executables: Vec::new(),
+            },
+        );
+        assert!(!line.trim_end().ends_with(':'), "{line}");
+    }
+
     #[test]
     fn a_plan_word_is_quoted_unless_no_shell_would_read_it_specially() {
         use super::shell_word;
@@ -2002,6 +2092,28 @@ mod tests {
         assert!(steps.contains('1') && steps.contains('4'), "{steps}");
         let provider = gate_refusal_line(&pt, &refusals[22]);
         assert!(provider.contains("macports"), "{provider}");
+    }
+
+    /// R-25 finding 1: a list generated from the disk cannot notice a missing
+    /// file, so its sentence says so and never claims every file is present, in
+    /// either locale.
+    #[test]
+    fn the_generated_basis_never_renders_a_completeness_claim() {
+        let en = include_str!("../../../../locales/en.toml");
+        let pt = include_str!("../../../../locales/pt-BR.toml");
+        let value = |text: &str, key: &str| {
+            text.lines()
+                .find(|l| l.starts_with(&format!("\"{key}\"")))
+                .map(str::to_owned)
+                .expect(key)
+        };
+        let generated = "migrate.basis.generated_file_list";
+        let english = value(en, generated);
+        assert!(!english.contains("every file"), "{english}");
+        assert!(english.contains("would not be noticed"), "{english}");
+        let portuguese = value(pt, generated);
+        assert!(!portuguese.contains("todos os arquivos"), "{portuguese}");
+        assert!(portuguese.contains("não seria notado"), "{portuguese}");
     }
 
     /// One thing a `VERIFY_DESTINATION` could not tell.

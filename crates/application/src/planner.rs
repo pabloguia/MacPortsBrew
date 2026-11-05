@@ -972,17 +972,21 @@ pub fn plan_outcome(
                         executables: expected.iter().map(ToString::to_string).collect(),
                     },
                 ]);
-                // No curated row exists in this build (part H-2 brings the
-                // table), so every executable is a recorded skip, and a package
-                // with none records that: it is never vacuously probed.
-                checks.extend(
-                    expected
-                        .iter()
-                        .map(|e| VerificationCheck::LivenessProbeSkipped {
+                // A probe from the table's row, and otherwise a recorded skip; a
+                // package with no executable records that: it is never vacuously
+                // probed. The row names the argv, so the plan carries what runs.
+                checks.extend(expected.iter().map(|e| {
+                    match policy.liveness_probe(request.to.as_str(), &dest_name, e.as_str()) {
+                        Some(row) => VerificationCheck::LivenessProbe {
+                            executable: e.to_string(),
+                            argv: row.argv.clone(),
+                        },
+                        None => VerificationCheck::LivenessProbeSkipped {
                             executable: Some(e.to_string()),
                             cause: ProbeSkipCause::NoCuratedProbe,
-                        }),
-                );
+                        },
+                    }
+                }));
                 if expected.is_empty() {
                     checks.push(VerificationCheck::LivenessProbeSkipped {
                         executable: None,

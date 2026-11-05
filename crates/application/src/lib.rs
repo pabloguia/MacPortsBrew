@@ -18,6 +18,7 @@ pub mod capture;
 pub mod classify;
 pub mod configuration_recheck;
 pub mod consent;
+pub mod destination_judges;
 pub mod doctor;
 pub mod execution_gate;
 pub mod executor;

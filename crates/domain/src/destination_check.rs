@@ -49,6 +49,10 @@ pub enum CheckFailure {
     NoPlacedEntry,
     /// What is placed under the executable's name is another package's.
     AnotherPackagesEntry,
+    /// What is placed under the executable's name belongs to no package this
+    /// provider's rule can name: a file somebody put there, or a link it does not
+    /// cover, such as one a cask placed.
+    EntryOfNoPackage,
     /// More than one version is present after a fresh install.
     MoreThanOneVersion,
     /// The active record is not the version that owns the entry.
@@ -69,6 +73,43 @@ pub enum CheckFailure {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UncheckedCause {
+    /// The package is not at the version a probe's row was observed at, so the row
+    /// says nothing about it. **Nothing answers this yet:** H-3's probe will, and
+    /// it is here so that `migrate.v2` holds it before its first release.
+    ProbeVersionNotQualified,
+    // Reserved for the admission H/01 stages (`docs/passes/16-liveness-design.md`), so
+    // the owner's patch stays inside the frozen module. **Nothing answers these yet,**
+    // like the one above.
+    /// Condition 2: this process runs as root.
+    ProbeAsRoot,
+    /// Condition 3: the name is no executable name.
+    ProbeLeafRefused,
+    /// Condition 4: the arguments are not the row's.
+    ProbeArgvNotTheRows,
+    /// Condition 5: the arguments are not of the closed set.
+    ProbeArgvNotPermitted,
+    /// Condition 7: the placed entry is not the package's, by the owner rule run now.
+    ProbeEntryNotThePackages,
+    /// Condition 8: the file it resolves to is not the package's.
+    ProbeTargetNotThePackages,
+    /// Condition 9: its file type, mode or owner.
+    ProbeTargetModeRefused,
+    /// Condition 10: a provider's program, a system probe, a shell or an interpreter.
+    ProbeProgramExcluded,
+    /// Condition 11: an `env` shebang.
+    ProbeTargetIsEnvScript,
+    /// What the name resolves to differed before and after.
+    ProbeTargetChanged,
+    /// The spawn failed.
+    ProbeNotStarted,
+    /// It outlived the timeout.
+    ProbeTimedOut,
+    /// Exit 0, and something kept its pipe open.
+    ProbeLeftAProcess,
+    /// Exit 0, over the output cap.
+    ProbeOutputOverCap,
+    /// A failed wait or a read error on a pipe.
+    ProbeEndNotRead,
     /// Nothing observed this: a replayed run, a run from a snapshot file, or a
     /// build with no observer for the check.
     NotObserved,
@@ -81,9 +122,62 @@ pub enum UncheckedCause {
     /// The probe was not run, because the entry's ownership could not be told
     /// (one that did not hold halts the step instead).
     OwnershipNotTold,
-    /// A file of the package could not be parsed, so nothing of the package's
-    /// was run.
+    /// A file of the package could not be read as an object, whether malformed,
+    /// over a cap, or a Java class whose magic is a fat header's, so nothing of
+    /// the package's was run.
     MalformedFile,
+    /// A provider read failed, timed out, or answered in a shape not recognised.
+    ReadFailed,
+    /// No allowed read lists this package's files: an inactive image, several
+    /// versions with none selected, an application.
+    FileListNotKnown,
+    /// The package lists a path outside the prefix, which was not tested.
+    ListsOutsidePrefix,
+    /// The package's file list passed the read's cap.
+    ListOverCap,
+    /// A path's `stat` failed with something other than "does not exist".
+    StatFailed,
+    /// The provider's record of the package's dependencies could not be told.
+    DependenciesNotTold,
+    /// The entry is the package's and what it finally resolves to lies outside
+    /// the package: outside its own directory, or outside the prefix.
+    EntryLeavesOwner,
+    /// The provider's record answered nothing for the entry, which means several
+    /// things, so it says nothing about who owns it.
+    OwnerNotNamed,
+    /// The package was held, and no active version was, so no version can be
+    /// pinned against the snapshot.
+    HeldVersionNotTold,
+    /// A reference lies under a documented prefix where no provider was
+    /// detected, so it is nobody's for certain.
+    UnderUndetectedPrefix,
+    /// An `@rpath` name none of whose candidates, across every rpath the walk saw, is a
+    /// file a read showed dyld could take, unless an absent one lies under the system's
+    /// roots; an `@executable_path` outside an executable; a path over the system's
+    /// limit; or a relative install name: what was read cannot say.
+    RpathUnresolved,
+    /// A file carries `LC_DYLD_ENVIRONMENT`, and the search rules it changes are not
+    /// modelled, so what loads cannot be told.
+    DyldEnvironmentNotModelled,
+    /// A name resolved to nothing dyld could take, or some file's own rpaths do not find
+    /// such a file whatever a sibling's found, and a file of that name lies under another
+    /// prefix where dyld's default fallback looks. Which loads cannot be told from here.
+    FallbackUnderOtherPrefix,
+    /// On the executable list: an `env` shebang, a relative one, or a word on the line
+    /// that is no flag and does not start with `/`. What runs is decided at run time.
+    InterpreterResolvedAtRunTime,
+    /// A file could not be opened and read.
+    UnreadableFile,
+    /// The walk passed its bound, or reached a file it did not examine.
+    WalkOverBound,
+    /// Something the package lists, loads or searches: a listed or reached file that is
+    /// not a regular file; a real file or rpath directory in no known prefix and outside
+    /// the system's own roots; a real file at a fallback location that no known prefix
+    /// holds; or a real interpreter or path in a `#!` line in no known prefix and outside
+    /// those and the system `PATH`.
+    FileNotExamined,
+    /// A path with `..` means one file written and another collapsed.
+    SpellingsDisagree,
 }
 
 /// One thing a `VERIFY_DESTINATION` could not tell: which check, about which

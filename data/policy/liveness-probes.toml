@@ -1,0 +1,151 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The curated liveness probes (DP-051 (a); docs/passes/16-liveness-design.md;
+# docs/research/R-28-liveness-probes.md). A row is the security decision: a flag
+# is not safe by default, and `httpd --version` starts a server and exits 0
+# (R-28 E-4). So this file is an allowlist of what was seen, and nothing else.
+#
+# Keyed (provider, package, executable), because a leaf is not a program:
+# `pkg-config` is pkgconf under one provider and pkg-config under the other.
+# `provider` names the destination; both migration directions read one row.
+#
+# OBSERVED ROWS ONLY. `argv` is arguments, never a program or a path: exactly one
+# of `--version`, `-version`, `-V`, `-v`, and growing that set is a reviewed code
+# change. `observed_version` is in the shape the owner rule answers, revision
+# included. Nothing in this build runs a probe; H-3 has to run one only at exactly
+# that version (docs/passes/16-plans/H.md, "What H-3 owes"), which this file cannot
+# enforce by itself.
+#
+# How every row here was qualified on 2026-11-04 (x86_64, one machine; absence is
+# bounded by this sample):
+#   - run as the canonical path with arg0 = the placed leaf (under the sandbox arg0
+#     is the path), from a scratch path with a space in it, serving as HOME, TMPDIR
+#     and the working directory, with the design note's exact environment;
+#   - exit 0 under the destination's bin plus the system PATH, and under the
+#     system PATH alone;
+#   - exit 0 again under a sandbox denying the network, every exec but the program
+#     itself, and every write outside scratch. So neither was needed, which is what
+#     the sandbox can show; it does not show a program never tries;
+#   - exit 0 again, plain and under that sandbox, with the scratch `chmod 555`. Four
+#     rounds, with no cold/warm split (R-28's last section);
+#   - nothing written in scratch, no process left, no crash report, xcrun's cache
+#     unchanged, nothing new under ~/Library naming the program, a search by name
+#     and not exhaustive (R-28's last section says what it left out);
+#   - a compiled program, not an env script; a regular file, no setuid or setgid
+#     (R-28's last section records these).
+#
+# The Homebrew `gettext` row lands and is not reached today: its keg holds Java
+# classes, which stop the probe (R-27, Ruling on Java classes).
+#
+# R-28's row 8 (macports, gettext, gettext) did not requalify and is absent: the
+# file placed as `gettext` belongs to the port `gettext-runtime`. Rows 14-15 (`rg`)
+# were cited and never observed, and do not land. A package any
+# stateful-packages.toml family lists, under any provider, is a load error.
+
+[[probe]]
+provider = "homebrew"
+package = "gettext"
+executable = "gettext"
+argv = ["--version"]
+observed_version = "1.0"
+source = "Observed: R-28 row 7, re-qualified as above; printed `gettext (GNU gettext-runtime) 1.0`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "homebrew"
+package = "htop"
+executable = "htop"
+argv = ["--version"]
+observed_version = "3.5.3"
+source = "Observed: R-28 row 1, re-qualified as above; printed `htop 3.5.3-3.5.3`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "homebrew"
+package = "pkgconf"
+executable = "pkg-config"
+argv = ["--version"]
+observed_version = "3.0.7"
+source = "Observed: R-28 row 12, re-qualified as above; printed `3.0.7`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "homebrew"
+package = "tree"
+executable = "tree"
+argv = ["--version"]
+observed_version = "2.3.2"
+source = "Observed: R-28 row 3, re-qualified as above; printed `tree v2.3.2 (c) 1996 - 2026`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "homebrew"
+package = "wget"
+executable = "wget"
+argv = ["--version"]
+observed_version = "1.25.0"
+source = "Observed: R-28 row 10, re-qualified as above; printed `GNU Wget 1.25.0 built on darwin23.6.0.`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "homebrew"
+package = "xz"
+executable = "xz"
+argv = ["--version"]
+observed_version = "5.8.3"
+source = "Observed: R-28 row 5, re-qualified as above; printed `xz (XZ Utils) 5.8.3`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "macports"
+package = "htop"
+executable = "htop"
+argv = ["--version"]
+observed_version = "3.5.2_0"
+source = "Observed: R-28 row 2, re-qualified as above; printed `htop 3.5.2-3.5.2`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "macports"
+package = "jq"
+executable = "jq"
+argv = ["--version"]
+observed_version = "1.8.2_0"
+source = "Observed: R-28 row 9, re-qualified as above; printed `jq-1.8.2`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "macports"
+package = "m4"
+executable = "gm4"
+argv = ["--version"]
+observed_version = "1.4.21_0"
+source = "Observed: R-28 row 11, re-qualified as above; printed `m4 (GNU M4) 1.4.21`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "macports"
+package = "pkgconfig"
+executable = "pkg-config"
+argv = ["--version"]
+observed_version = "0.29.2_0"
+source = "Observed: R-28 row 13, re-qualified as above; printed `0.29.2`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "macports"
+package = "tree"
+executable = "tree"
+argv = ["--version"]
+observed_version = "2.3.2_0"
+source = "Observed: R-28 row 4, re-qualified as above; printed `tree v2.3.2 (c) 1996 - 2026`"
+read_on = "2026-11-04"
+
+[[probe]]
+provider = "macports"
+package = "xz"
+executable = "xz"
+argv = ["--version"]
+observed_version = "5.8.3_0"
+source = "Observed: R-28 row 6, re-qualified as above; printed `xz (XZ Utils) 5.8.3`"
+read_on = "2026-11-04"

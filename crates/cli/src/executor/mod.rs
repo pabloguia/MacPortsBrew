@@ -72,8 +72,10 @@ use macportsbrew_adapters::persistence::snapshot_store::{self, StateSnapshot};
 use macportsbrew_adapters::persistence::{history_store, StateDir};
 use macportsbrew_adapters::process::{Invocation, PlanReadRefusal};
 use macportsbrew_adapters::registry::{
-    plan_read_sites, reread_configuration, PlanReadError, PlanReadSites, RegistryContext,
+    destination_sites, plan_read_sites, reread_configuration, DestinationSites, PlanReadError,
+    PlanReadSites, RegistryContext,
 };
+use macportsbrew_application::destination_judges::{answer_from_facts, basis_of, held_row};
 use macportsbrew_application::{
     certify_destination, consent_for, destination_still_verified, execution_refusals,
     judge_mutation, judge_resolution, judge_step, must_record, next_action, next_action_with,
@@ -85,12 +87,15 @@ use macportsbrew_application::{
     StepRead, StepRecord,
 };
 use macportsbrew_domain::{
-    redact_home, CheckAnswer, CommandEnd, ConcurrentProviderActivity, DomainError, ErrorId,
-    ExecutableName, HomeRedaction, InterruptedRun, MachineRead, MigrationPlan, PlanCommand,
-    ProviderConfiguration, ProviderId, ProviderLockProbe, ProviderRead, ResolutionState, RunStart,
-    Snapshot, UncheckedCause, VerificationCheck,
+    redact_home, CheckAnswer, CheckBasis, CommandEnd, ConcurrentProviderActivity, DestinationFacts,
+    DestinationProbe, DomainError, ErrorId, ExecutableName, HomeRedaction, InterruptedRun,
+    MachineRead, MigrationPlan, PlanCommand, ProbeObservation, ProviderConfiguration, ProviderId,
+    ProviderLockProbe, ProviderRead, ResolutionState, RunStart, Snapshot, UncheckedCause,
+    VerificationCheck,
 };
 use serde::Serialize;
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 
 mod only_resolution;
 use only_resolution::OnlyResolution;
@@ -319,6 +324,11 @@ pub struct RunReceipt {
     /// How the read-back of the record failed, when it did.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record_read_back: Option<ReadBackFailure>,
+    /// What a check that held rests on: a neutral identifier per basis, so the
+    /// difference in strength between the providers' lists is visible and not
+    /// averaged away (R-25 finding 15). Absent when nothing held.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub check_bases: Vec<CheckBasis>,
 }
 
 impl RunReport {
@@ -340,11 +350,86 @@ impl RunReport {
 pub trait DestinationSite {
     /// The answer to `question`.
     fn answer(&self, question: &Question) -> CheckAnswer;
+
+    /// The neutral basis of what held, for `--json`, sorted. A site that observed
+    /// nothing has none.
+    fn bases(&self) -> Vec<CheckBasis> {
+        Vec::new()
+    }
+}
+
+impl<T: DestinationSite + ?Sized> DestinationSite for &T {
+    fn answer(&self, question: &Question) -> CheckAnswer {
+        (**self).answer(question)
+    }
+
+    fn bases(&self) -> Vec<CheckBasis> {
+        (**self).bases()
+    }
+}
+
+/// The site on this machine, under a live scope and the run's lock: it passes the
+/// question to the registry's reads and the facts to the application's judge, and
+/// decides nothing (work order 16 part H). Under a replay or a snapshot file the
+/// reads answer `NOT_OBSERVED` before touching anything (INV-15).
+pub struct MachineDestinationSite<'a, 'c, 'r> {
+    planned: &'a PlannedRun,
+    reads: DestinationSites<'c, 'r>,
+    bases: RefCell<BTreeSet<CheckBasis>>,
+}
+
+impl<'a, 'c, 'r> MachineDestinationSite<'a, 'c, 'r> {
+    /// The site for `planned` over `reads`. Building `reads` took the run's lock as
+    /// proof at that moment; nothing here holds it or knows it is still held.
+    #[must_use]
+    pub fn new(planned: &'a PlannedRun, reads: DestinationSites<'c, 'r>) -> Self {
+        Self {
+            planned,
+            reads,
+            bases: RefCell::new(BTreeSet::new()),
+        }
+    }
+}
+
+impl DestinationSite for MachineDestinationSite<'_, '_, '_> {
+    fn answer(&self, question: &Question) -> CheckAnswer {
+        let plan = self.planned.plan();
+        let Some(package) = plan.destination_package.as_deref() else {
+            return CheckAnswer::Unchecked(UncheckedCause::NotObserved);
+        };
+        let provider = &plan.destination;
+        let facts = match question {
+            Question::Owned { executable } => {
+                self.reads
+                    .ownership(provider, package, executable, held_row(self.planned))
+            }
+            Question::Integrity => self.reads.integrity(provider, package),
+            Question::Linkage => self.reads.linkage(provider, package),
+            Question::Probe { leaf, argv } => {
+                let ProbeObservation::NotRun(cause) =
+                    self.reads.liveness_probe(package, leaf, argv);
+                return CheckAnswer::Unchecked(cause);
+            }
+            Question::Done => DestinationFacts::NotObserved,
+        };
+        let answer = answer_from_facts(self.planned, &facts);
+        if answer == CheckAnswer::Holds {
+            if let Some(basis) = basis_of(&facts) {
+                self.bases.borrow_mut().insert(basis);
+            }
+        }
+        answer
+    }
+
+    fn bases(&self) -> Vec<CheckBasis> {
+        self.bases.borrow().iter().copied().collect()
+    }
 }
 
 /// The site with no observer behind it: every question is
-/// `Unchecked(NOT_OBSERVED)`, never `Holds`. A replayed run, a run from a snapshot
-/// file, and in this build every run (`observed_by_this_build`).
+/// `Unchecked(NOT_OBSERVED)`, never `Holds`. The read-only loop's: a dry run holds
+/// no lock, and no program or walk starts for it
+/// (`analysis_and_dry_run_never_reach_a_probe`).
 pub struct NothingObserved;
 
 impl DestinationSite for NothingObserved {
@@ -664,9 +749,6 @@ pub struct MutatingRun<'a, M: MutationSite> {
     pub consent: Consent<'a>,
     /// Re-reads a provider's configuration before a mutating command (D7).
     pub reread: Reread<'a>,
-    /// Answers DP-051's four checks on a `VERIFY_DESTINATION`, and check 3 again
-    /// before a removal (work order 16 part H).
-    pub destination: &'a dyn DestinationSite,
     /// Answers `RESOLVES_TO`. [`Unresolved`] in this build: the part that wires
     /// `SET_PRIMARY` wires a machine here (F.md "As built (F-3)").
     pub resolutions: &'a dyn ResolutionSite,
@@ -703,7 +785,15 @@ pub fn run_mutating<M: MutationSite>(
     io: MutatingRun<'_, M>,
     home: &HomeRedaction,
 ) -> Result<RunReport, DomainError> {
-    run_with_mutations(cleared, || plan_read_sites(ctx), io, home)
+    let planned = cleared.run();
+    let state = io.state;
+    run_with_mutations(
+        cleared,
+        || plan_read_sites(ctx),
+        |lock: &RunLock| MachineDestinationSite::new(planned, destination_sites(ctx, state, lock)),
+        io,
+        home,
+    )
 }
 
 /// Runs a plan the gate cleared **under a mutation allowance** (pass 08
@@ -733,10 +823,16 @@ pub fn run_mutating<M: MutationSite>(
 /// ran, and on a consent refusal nothing was written.
 // `io` by value: the run spends the witness it carries, so one confirmation
 // cannot be handed to a second run.
+///
+/// `destination` builds what answers DP-051's four checks on a
+/// `VERIFY_DESTINATION`, and check 3 again before a removal (work order 16 part H).
+/// Like `sites`, it is called only after the gate passed the plan, and it is
+/// handed the lock this run holds, which is what a real site asks for.
 #[allow(clippy::needless_pass_by_value)]
-pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
+pub fn run_with_mutations<S: ReadSite, D: DestinationSite, M: MutationSite>(
     cleared: &GateClear,
     sites: impl FnOnce() -> S,
+    destination: impl FnOnce(&RunLock) -> D,
     io: MutatingRun<'_, M>,
     home: &HomeRedaction,
 ) -> Result<RunReport, DomainError> {
@@ -811,6 +907,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
     let marker = InterruptedRun::new(&io.start.id)
         .map_err(|why| DomainError::new(ErrorId::Internal, why))?;
     let site = sites();
+    let answering = destination(&lock);
     let mut marker_written = false;
     let mut snapshot_file: Option<String> = None;
     let mut records: Vec<StepRecord> = Vec::new();
@@ -846,7 +943,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                 planned,
                 position,
                 &site,
-                io.destination,
+                &answering,
                 io.reread,
                 home,
                 &mut refusal,
@@ -934,7 +1031,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
                             reverify_questions(plan, reverify)
                                 .into_iter()
                                 .map(|question| {
-                                    let answer = io.destination.answer(&question);
+                                    let answer = answering.answer(&question);
                                     DestinationAnswer { question, answer }
                                 })
                                 .collect()
@@ -1039,7 +1136,8 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
         &records,
         io.start.clone(),
         snapshot_file.as_deref(),
-    );
+    )
+    .with_check_bases(answering.bases());
     let mut history_error = None;
     let mut marker_left = None;
     let mut record_written = false;
@@ -1113,6 +1211,7 @@ pub fn run_with_mutations<S: ReadSite, M: MutationSite>(
             run_id: must_record(&record).then(|| record.id().to_string()),
             snapshot_file,
             record_read_back,
+            check_bases: answering.bases(),
         },
     })
 }

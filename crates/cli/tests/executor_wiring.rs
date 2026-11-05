@@ -177,7 +177,7 @@ fn snapshot(hb: &[&str], mp: &[&str]) -> Snapshot {
 
 /// A destination site that answers every question `Holds`: the checks of
 /// DP-051 are observed in a test only by being granted here (work order 16 part
-/// H); nothing in this build observes them.
+/// H); no run in this build reaches the machine's own site.
 struct AllHold;
 
 impl DestinationSite for AllHold {
@@ -725,8 +725,8 @@ fn run_sampling<M: MutationSite>(
     run_with_mutations(
         cleared,
         || Reads(Box::leak(Box::new(plan))),
+        |_: &RunLock| AllHold,
         MutatingRun {
-            destination: &AllHold,
             resolutions: &Resolves::of(cleared.run().plan()),
             locks,
             shown: shown(cleared),
@@ -1150,8 +1150,8 @@ fn invariant_01_a_destination_that_is_not_there_stops_the_removal() {
     let report = run_with_mutations(
         &cleared,
         || Absent,
+        |_: &RunLock| AllHold,
         MutatingRun {
-            destination: &AllHold,
             resolutions: &Resolves::of(cleared.run().plan()),
             locks: &LocksFree,
             shown: shown(&cleared),
@@ -1396,8 +1396,8 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
         let report = run_with_mutations(
             &direction.cleared(),
             || Reads(Box::leak(Box::new(plan.clone()))),
+            |_: &RunLock| AllHold,
             MutatingRun {
-                destination: &AllHold,
                 resolutions: &Resolves::of(&plan),
                 locks: &LocksFree,
                 shown: shown(&direction.cleared()),
@@ -1618,6 +1618,70 @@ fn stored(scratch: &Scratch) -> macportsbrew_domain::RunRecord {
     history_store::read_one(&scratch.state, &scratch.id, scratch.euid)
         .expect("the record reads")
         .expect("the record is there")
+}
+
+/// Holds up to linkage, which fails: integrity's basis is a true statement about a
+/// check that held.
+struct LinkageFails;
+
+impl DestinationSite for LinkageFails {
+    fn answer(&self, question: &Question) -> CheckAnswer {
+        if *question == Question::Linkage {
+            CheckAnswer::Fails(macportsbrew_domain::CheckFailure::LinksAnotherProvider)
+        } else {
+            CheckAnswer::Holds
+        }
+    }
+
+    fn bases(&self) -> Vec<macportsbrew_domain::CheckBasis> {
+        vec![macportsbrew_domain::CheckBasis::GeneratedFileList]
+    }
+}
+
+/// The first version refused its own record: a halted `VERIFY_DESTINATION` with a
+/// basis read back as unusable, the history error fired, and the marker stayed.
+#[test]
+fn a_run_halted_by_a_failed_check_writes_a_record_that_reads_back_with_its_bases() {
+    use macportsbrew_domain::{CheckBasis, RunStatus, StepResult};
+    let direction = Direction::toward_homebrew_completable();
+    let scratch = Scratch::new("halted-bases");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let cleared = direction.cleared();
+    let plan = cleared.run().plan().clone();
+    let setup = unchanged(&direction, &scratch);
+    let report = run_with_mutations(
+        &cleared,
+        || Reads(Box::leak(Box::new(plan))),
+        |_: &RunLock| LinkageFails,
+        MutatingRun {
+            resolutions: &Resolves::of(cleared.run().plan()),
+            locks: &LocksFree,
+            shown: shown(&cleared),
+            live: setup.live,
+            state: &scratch.state,
+            euid: scratch.euid,
+            start: scratch.start(),
+            site: &site,
+            recapture: &*setup.recapture,
+            consent: &never_asked,
+            reread: setup.reread,
+            read_back: setup.read_back,
+            observer: &seen,
+        },
+        &HomeRedaction::Recorded,
+    )
+    .expect("a report");
+    assert_eq!(report.history_error, None, "{report:?}");
+    assert_eq!(report.marker_left, None);
+    assert!(!scratch.marker().exists(), "the marker is cleared");
+    let record = stored(&scratch);
+    assert_eq!(record.check_bases(), [CheckBasis::GeneratedFileList]);
+    assert_ne!(record.status(), RunStatus::Success);
+    assert!(record.steps().iter().any(|step| {
+        step.kind() == StepKind::VerifyDestination
+            && matches!(step.result(), StepResult::Halted { .. })
+    }));
 }
 
 #[test]
@@ -2051,8 +2115,8 @@ fn run_reading<'s, S: ReadSite + 's>(
     run_with_mutations(
         cleared,
         move || reads,
+        |_: &RunLock| AllHold,
         MutatingRun {
-            destination: &AllHold,
             resolutions: &Resolves::of(cleared.run().plan()),
             locks: &LocksFree,
             shown: shown(cleared),
@@ -2088,8 +2152,8 @@ fn run_answered(
     let report = run_with_mutations(
         &cleared,
         || &reads,
+        |_: &RunLock| destination,
         MutatingRun {
-            destination,
             resolutions: &Resolves::of(cleared.run().plan()),
             locks: &LocksFree,
             shown: shown(&cleared),
@@ -2223,8 +2287,8 @@ fn a_reread_that_failed_stops_the_site_being_asked_again() {
     let report = run_with_mutations(
         &cleared,
         || &reads,
+        |_: &RunLock| &counting,
         MutatingRun {
-            destination: &counting,
             resolutions: &Resolves::of(&plan),
             locks: &LocksFree,
             shown: shown(&cleared),
@@ -2262,8 +2326,8 @@ fn a_read_that_failed_stops_the_site_being_asked_at_all() {
     let report = run_with_mutations(
         &cleared,
         || &reads,
+        |_: &RunLock| &counting,
         MutatingRun {
-            destination: &counting,
             resolutions: &Resolves::of(&plan),
             locks: &LocksFree,
             shown: shown(&cleared),
@@ -2422,8 +2486,8 @@ fn a_destination_configuration_that_drifted_stops_the_removal_before_the_reread(
         let report = run_with_mutations(
             &cleared,
             || &reads,
+            |_: &RunLock| AllHold,
             MutatingRun {
-                destination: &AllHold,
                 resolutions: &Resolves::of(cleared.run().plan()),
                 locks: &LocksFree,
                 shown: shown(&cleared),
@@ -2522,8 +2586,8 @@ fn invariant_02_a_plan_other_than_the_one_shown_dispatches_nothing_and_takes_no_
     let result = run_with_mutations(
         &cleared,
         || Reads(Box::leak(Box::new(plan))),
+        |_: &RunLock| AllHold,
         MutatingRun {
-            destination: &AllHold,
             resolutions: &Resolves::of(cleared.run().plan()),
             locks: &LocksFree,
             live: setup.live,
@@ -2674,8 +2738,8 @@ fn invariant_17_the_tie_behaves_alike_in_both_directions() {
             let result = run_with_mutations(
                 &cleared,
                 || Reads(Box::leak(Box::new(plan))),
+                |_: &RunLock| AllHold,
                 MutatingRun {
-                    destination: &AllHold,
                     resolutions: &Resolves::of(cleared.run().plan()),
                     locks: &LocksFree,
                     live: setup.live,
@@ -2970,9 +3034,10 @@ fn plan_digest_is_pinned_for_a_fixed_plan() {
 // `SET_PRIMARY` command (F.md Design §4). Moved by G-2: the policy version
 // went to `2026.10.18-2` with `provider-locks.toml` (G.md, As built). Moved by
 // H-1: `plan.v2` (schema version 2), and a `VERIFY_DESTINATION` that records a
-// liveness skip where it recorded a probe with a `flag`.
+// liveness skip where it recorded a probe with a `flag`. Moved by H-2: the policy
+// version went to `2026.11.04-1` with `liveness-probes.toml`.
 const PINNED_DIGEST: &str =
-    "sha256:7ac66e7ea64402e6de8b0dfb606bcc2b7676804619e674acd2e97be71f6983ea";
+    "sha256:0abdddf9774cfd4311904fc4d132b568d3e044891def319325bcb47f590ff44d";
 
 #[test]
 fn a_plan_digest_reads_back_as_written_and_nothing_else() {
@@ -3043,8 +3108,8 @@ fn invariant_17_a_digest_tie_behaves_alike_in_both_directions() {
             let result = run_with_mutations(
                 &cleared,
                 || Reads(Box::leak(Box::new(plan))),
+                |_: &RunLock| AllHold,
                 MutatingRun {
-                    destination: &AllHold,
                     resolutions: &Resolves::of(cleared.run().plan()),
                     locks: &LocksFree,
                     live: setup.live,

@@ -327,7 +327,6 @@ fn execute_mutating(
             recapture: &recapture,
             consent: &consent,
             reread: &reread,
-            destination: &crate::executor::NothingObserved,
             resolutions: &crate::executor::Unresolved,
             read_back: &macportsbrew_adapters::persistence::history_store::read_back,
             observer: &executor::Unobserved,

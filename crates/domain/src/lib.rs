@@ -17,6 +17,7 @@ pub mod availability;
 pub mod class;
 pub mod concurrency;
 pub mod destination_check;
+pub mod destination_facts;
 pub mod error;
 pub mod executable;
 pub mod history;
@@ -46,6 +47,11 @@ pub use concurrency::{
 };
 pub use destination_check::{
     CheckAnswer, CheckFailure, DestinationCheck, ProbeSkipCause, UncheckedCause, UncheckedEntry,
+};
+pub use destination_facts::{
+    normalise, CheckBasis, DependencyRecord, DestinationFacts, DestinationProbe, DestinationQuery,
+    InstallationRecord, IntegrityBasis, IntegrityFacts, LinkageFacts, OwnershipFacts, PrefixClass,
+    PrefixTable, ProbeObservation,
 };
 pub use error::{DomainError, ErrorId};
 pub use executable::{

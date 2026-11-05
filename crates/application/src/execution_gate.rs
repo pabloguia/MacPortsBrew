@@ -641,35 +641,49 @@ pub fn is_site_answered(kind: StepKind, check: &VerificationCheck) -> bool {
 #[must_use]
 pub fn observed_by_this_build(check: &VerificationCheck) -> bool {
     match check {
+        // Observed since H-2. The probe's observer is the admitted run, H-3's.
         VerificationCheck::ProviderIntegrityCheck
         | VerificationCheck::ExecutablesOwnedByDestination { .. }
-        | VerificationCheck::LivenessProbe { .. }
-        | VerificationCheck::NoCrossProviderLinkage => false,
-        VerificationCheck::LivenessProbeSkipped { .. }
+        | VerificationCheck::NoCrossProviderLinkage
+        | VerificationCheck::LivenessProbeSkipped { .. }
         | VerificationCheck::ProviderReportsActive
         | VerificationCheck::PackageAbsent
         | VerificationCheck::PackageNewlyPresent
         | VerificationCheck::ResolvesTo { .. } => true,
-        VerificationCheck::Unknown => false,
+        VerificationCheck::LivenessProbe { .. } | VerificationCheck::Unknown => false,
     }
 }
 
 /// The curated argv of `executable` of `package` under `provider`, or `None`
-/// when the table holds no row. The table lands with its observers (part H-2),
-/// so in this build every answer is `None`, and the gate refuses every
-/// `LIVENESS_PROBE`: a plan cannot bring its own argv.
-#[cfg(not(any(test, feature = "test-support")))]
-fn curated_probe_argv(_provider: &str, _package: &str, _executable: &str) -> Option<Vec<String>> {
-    None
+/// when `data/policy/liveness-probes.toml` holds no row: a plan cannot bring its
+/// own argv. Compiled data, loaded once. A table that does not load answers
+/// `None`, and the gate then refuses every `LIVENESS_PROBE`.
+fn table_probe_argv(provider: &str, package: &str, executable: &str) -> Option<Vec<String>> {
+    static TABLE: std::sync::OnceLock<Option<macportsbrew_policy::PolicyData>> =
+        std::sync::OnceLock::new();
+    TABLE
+        .get_or_init(|| macportsbrew_policy::PolicyData::load_embedded().ok())
+        .as_ref()?
+        .liveness_probe(provider, package, executable)
+        .map(|row| row.argv.clone())
 }
 
-/// [`curated_probe_argv`] in a test build (and under the non-default
-/// `test-support` feature, which a release is built free of): one row, for a
-/// name no package has, so a test can reach a `VERIFY_DESTINATION` with nothing
-/// unchecked through the gate. It goes when the table arrives.
+/// [`table_probe_argv`], in a shipped build.
+#[cfg(not(any(test, feature = "test-support")))]
+fn curated_probe_argv(provider: &str, package: &str, executable: &str) -> Option<Vec<String>> {
+    table_probe_argv(provider, package, executable)
+}
+
+/// [`table_probe_argv`] in a test build (and under the non-default `test-support`
+/// feature, which a release is built free of), plus one row for a name no package
+/// has, so a test can reach a `VERIFY_DESTINATION` with nothing unchecked through
+/// the gate without naming a real program.
 #[cfg(any(test, feature = "test-support"))]
-fn curated_probe_argv(_provider: &str, _package: &str, executable: &str) -> Option<Vec<String>> {
-    (executable == TEST_PROBE_EXECUTABLE).then(|| vec!["--version".to_owned()])
+fn curated_probe_argv(provider: &str, package: &str, executable: &str) -> Option<Vec<String>> {
+    if executable == TEST_PROBE_EXECUTABLE {
+        return Some(vec!["--version".to_owned()]);
+    }
+    table_probe_argv(provider, package, executable)
 }
 
 /// The executable the test build's one curated row is about.

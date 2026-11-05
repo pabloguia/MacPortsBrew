@@ -67,6 +67,7 @@
 //! stated rather than hidden.
 
 pub mod availability;
+pub mod destination;
 pub mod names;
 pub mod parse;
 pub mod portfile;
@@ -143,7 +144,9 @@ pub(crate) const INFO_FIELDS: &[&[&str]] = &[
 ///
 /// The Homebrew adapter's [`crate::homebrew::ALLOWED_ARGV`] asked the same
 /// question, and it is asked here for the same reason: nothing outside this
-/// list, and nothing outside [`ALLOWED_ARGV_PREFIXES`], reaches the executor
+/// list, [`ALLOWED_ARGV_PREFIXES`], and the `-q installed <name>` form
+/// [`is_allowed_argv`] names (the verify step's read, also the owner's version
+/// on the destination check, R-26 finding 5) reaches the executor
 /// (`04-migration-and-safety.md`, "Process execution").
 pub const ALLOWED_ARGV: &[&[&str]] = &[
     ARGV_VERSION,
@@ -194,6 +197,9 @@ fn is_allowed_argv(argv: &[String]) -> bool {
             Some(_) => true,
             None => false,
         })
+        // The owner's version on the destination check, `-q installed <name>`:
+        // the read the verify step already makes (R-26 finding 5).
+        || is_head_and_one_name(argv, ARGV_INSTALLED, crate::process::is_port_name)
 }
 
 /// The adapter's own refusal of a vector outside the allowlist: a programming
@@ -1050,6 +1056,14 @@ impl<R: ProcessRunner> ProviderRead for MacPortsAdapter<R> {
             EXECUTABLE_RELATIVE,
             self.filesystem,
         )
+    }
+
+    fn destination_facts(
+        &self,
+        pkg: &PackageIdentity,
+        query: &macportsbrew_domain::DestinationQuery<'_>,
+    ) -> macportsbrew_domain::DestinationFacts {
+        self.observed(pkg, query)
     }
 
     /// `port -q contents <port>`, only for a port the inventory shows

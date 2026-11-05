@@ -1349,3 +1349,107 @@ fn each_rule_about_a_removal_answers_for_itself() {
     );
     assert_eq!(read_back(halted), Err(ErrorId::HistoryUnusable));
 }
+
+/// Closes `c4`.
+#[test]
+fn check_bases_read_back_on_a_destination_verified_with_unchecked() {
+    let with = record(
+        unchecked_steps(),
+        RunEnding::CompletedWithUnchecked { source_kept: true },
+        None,
+    )
+    .with_check_bases(vec![macportsbrew_domain::CheckBasis::NoLoadCommands]);
+    let back = read_back(stored_json(&with)).expect("reads back");
+    assert_eq!(back, with);
+}
+
+/// What a `VERIFY_DESTINATION` rested on is the run's own, and goes in the record.
+/// Absent from a run with no such answer, so an older record still reads.
+#[test]
+fn check_bases_round_trip_and_a_record_cannot_claim_them_out_of_shape() {
+    use macportsbrew_domain::CheckBasis;
+    let plain = record(completed_steps(), RunEnding::Completed, None);
+    assert!(
+        stored_json(&plain).get("checkBases").is_none(),
+        "absent when there are none"
+    );
+    let with = record(completed_steps(), RunEnding::Completed, None).with_check_bases(vec![
+        CheckBasis::NoLoadCommands,
+        CheckBasis::RecordedFileList,
+    ]);
+    let json = stored_json(&with);
+    assert_eq!(json["checkBases"].as_array().map(Vec::len), Some(2));
+    let back = read_back(json.clone()).expect("reads back");
+    assert_eq!(back, with);
+    assert_eq!(back.check_bases().len(), 2);
+
+    // Under a schema version that never held them.
+    let mut older = json.clone();
+    older["schemaVersion"] = serde_json::json!(3);
+    assert_eq!(read_back(older), Err(ErrorId::HistoryUnusable));
+    // Out of the order this build writes.
+    let mut swapped = json.clone();
+    swapped["checkBases"].as_array_mut().unwrap().reverse();
+    assert_eq!(read_back(swapped), Err(ErrorId::HistoryUnusable));
+    // A doubled one.
+    let mut doubled = json;
+    let first = doubled["checkBases"][0].clone();
+    doubled["checkBases"][1] = first;
+    assert_eq!(read_back(doubled), Err(ErrorId::HistoryUnusable));
+    // With no destination step reached to have rested on: none at all, and one
+    // that was never reached.
+    let none = record(Vec::new(), RunEnding::Completed, None);
+    let mut claimed = stored_json(&none);
+    assert!(read_back(claimed.clone()).is_ok(), "fine without the claim");
+    claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
+    assert_eq!(read_back(claimed), Err(ErrorId::HistoryUnusable));
+    for result in [
+        StepResult::NotReached,
+        StepResult::NotPerformedInThisBuild,
+        StepResult::NotDispatchedMutating,
+    ] {
+        let unanswered = record(
+            vec![step(3, StepKind::VerifyDestination, result.clone(), false)],
+            RunEnding::Completed,
+            None,
+        );
+        let mut claimed = stored_json(&unanswered);
+        assert!(read_back(claimed.clone()).is_ok(), "{result:?}");
+        claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
+        assert_eq!(
+            read_back(claimed),
+            Err(ErrorId::HistoryUnusable),
+            "{result:?}"
+        );
+    }
+    // A check that held before another failed still held, in the shape a run writes.
+    let halted = record(
+        vec![
+            step(
+                1,
+                StepKind::SnapshotBefore,
+                StepResult::SnapshotTaken,
+                false,
+            ),
+            step(
+                3,
+                StepKind::VerifyDestination,
+                StepResult::Halted {
+                    error: ErrorId::SafetyBlocked,
+                    evidence: Vec::new(),
+                    ends: Vec::new(),
+                },
+                false,
+            ),
+        ],
+        RunEnding::Halted {
+            step: 3,
+            error: ErrorId::SafetyBlocked,
+        },
+        None,
+    );
+    let mut claimed = stored_json(&halted);
+    assert!(read_back(claimed.clone()).is_ok(), "fine without the claim");
+    claimed["checkBases"] = serde_json::json!(["NO_LOAD_COMMANDS"]);
+    assert!(read_back(claimed).is_ok());
+}

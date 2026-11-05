@@ -24,8 +24,9 @@ Work order 16 part H-1. A check on `VERIFY_DESTINATION` now answers `HOLDS`, `FA
 - `ending` gains `{ "kind": "COMPLETED_WITH_UNCHECKED", "sourceKept": boolean }`, read only when the steps agree: something unchecked, no step left undone, and `sourceKept` true exactly when a `SOURCE_KEPT_UNCHECKED` step exists. The other way too: a record with something unchecked that ends `COMPLETED`, or that states a removal performed after it, or a `VERIFY_REMOVAL` or `CLEANUP_REVIEW` kept without a kept `REMOVE_SOURCE`, is refused (`HISTORY_UNUSABLE`).
 - `status` for that ending is `PARTIAL` when a mutation was dispatched and `NO_CHANGE` otherwise, **never `SUCCESS`** (`04-migration-and-safety.md`). So a re-run re-verifies an unchecked destination rather than recognising it as done (`recognise_retained_run` still refuses anything but `SUCCESS`, INV-16).
 - `UncheckedEntry` is as in [`migrate.v2.md`](migrate.v2.md).
+- `checkBases` (part H-2) is what a check that held rests on, as [`migrate.v2.md`](migrate.v2.md) says, on a record with a `VERIFY_DESTINATION` that was reached.
 
-A version 3 record reads as before, and one stating anything above is refused (`HISTORY_UNUSABLE`). Part H-2 adds its unchecked causes to this version before anything is released. A version 2 record still reads as [`history.v3.md`](history.v3.md) says.
+A version 3 record reads as before, and one stating anything above is refused (`HISTORY_UNUSABLE`). Part H-2's unchecked causes are in [`migrate.v2.md`](migrate.v2.md)'s list, and belong to this version: nothing has been released under it. A version 2 record still reads as [`history.v3.md`](history.v3.md) says.
 
 **What did not change** is everything else: the rest of this document is version 3's. Its own history of how version 3 differed from version 2 follows.
 
@@ -87,6 +88,7 @@ Restore has nothing to revert for the primary: this build sets none.
 | `schemaVersion` | integer | `4` |
 | `primaryAfter` | string | The provider observed to resolve the executables: the destination only after `RESOLVED`, or for `NO_EXECUTABLES` after its `SET_PRIMARY` was carried out |
 | `primaryExecutables` | array of string | Sorted, unique, each an executable name |
+| `checkBases` | array of string, optional | Work order 16 part H-2. What a destination check that held rests on, as `migrate.v2` defines the values, each at most once, in that document's order. Absent when neither integrity nor linkage held. It may accompany a halted step, since a check that held before another failed still held. A record with it under another `schemaVersion`, out of order, or with no `VERIFY_DESTINATION` step that is verified, verified with unchecked, or halted is unusable |
 
 ## `Step.result` (the values added to version 2's)
 

@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Where dyld looks after a name resolves to nothing, as dated data (INV-20). Not a
+# provider's fact: one of these is where a provider happens to install. The linkage
+# check looks here so that another provider's file of that name is reported and not
+# missed (docs/research/R-27-no-cross-provider-linkage.md, its last section).
+#
+# `man dyld` says these are the defaults "for older binaries", and that "for new
+# binaries (Fall 2023 or later)" there is no default. The reader cannot tell a
+# binary's age, so it asks of all of them. Earlier macOS man pages were not read; the
+# 10.12 floor was not observed. `crates/adapters/src/destination_reads.rs` names
+# `/usr/lib` and the frameworks root among the system's own as well, and the overlap
+# is recorded in R-27: that list says what is the system's, this one where dyld looks.
+
+source = "man dyld, DYLD_FALLBACK_LIBRARY_PATH and DYLD_FALLBACK_FRAMEWORK_PATH, macOS 26.7.2"
+read_on = "2026-11-04"
+libraries = ["/usr/local/lib", "/usr/lib"]
+frameworks = ["/Library/Frameworks", "/System/Library/Frameworks"]

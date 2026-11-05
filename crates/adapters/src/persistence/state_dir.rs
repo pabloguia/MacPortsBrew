@@ -100,6 +100,13 @@ impl StateDir {
         self.root.join("cache")
     }
 
+    /// Where a liveness probe's scratch directories live, one per probe
+    /// (`docs/passes/16-liveness-design.md`). Joining [`Self::directories`] gives
+    /// it the same ownership and mode checks, and a planted link refuses.
+    pub fn probes(&self) -> PathBuf {
+        self.root.join("probes")
+    }
+
     /// Every directory this owns, root first, in creation order.
     pub fn directories(&self) -> Vec<PathBuf> {
         vec![
@@ -107,6 +114,7 @@ impl StateDir {
             self.snapshots(),
             self.history(),
             self.cache(),
+            self.probes(),
         ]
     }
 
@@ -142,7 +150,7 @@ impl StateDir {
     /// is deliberate: refusing would break those users, and the alternative —
     /// silently rejecting a location the user chose — is worse than
     /// documenting the boundary. It does mean the guarantee is "this code
-    /// never *creates* or *follows* a symbolic reference at the four paths it
+    /// never *creates* or *follows* a symbolic reference at the paths it
     /// owns", not "no symbolic reference is anywhere in the path".
     pub fn ensure(&self) -> Result<(), DomainError> {
         let directories = self.directories();
@@ -282,7 +290,8 @@ mod tests {
         assert!(dir.snapshots().ends_with("macportsbrew/snapshots"));
         assert!(dir.history().ends_with("macportsbrew/history"));
         assert!(dir.cache().ends_with("macportsbrew/cache"));
-        assert_eq!(dir.directories().len(), 4);
+        assert!(dir.probes().ends_with("macportsbrew/probes"));
+        assert_eq!(dir.directories().len(), 5);
         assert_eq!(dir.directories()[0], dir.root());
     }
 
