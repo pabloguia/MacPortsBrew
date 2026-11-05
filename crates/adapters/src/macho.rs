@@ -161,6 +161,14 @@ pub struct LoadRef {
     pub name: Vec<u8>,
 }
 
+/// `cputype` of what this build runs as: dyld takes a dylib's slice for its process's
+/// architecture. Rosetta's other architecture is not modelled (R-27).
+pub const THIS_BUILD_CPUTYPE: u32 = if cfg!(target_arch = "aarch64") {
+    0x0100_000c
+} else {
+    0x0100_0007
+};
+
 /// What one slice's load commands say, in command order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SliceRefs {
@@ -174,6 +182,21 @@ pub struct SliceRefs {
     pub loads: Vec<LoadRef>,
     /// Every `LC_RPATH` entry.
     pub rpaths: Vec<Vec<u8>>,
+    /// A build-version or version-min command names a platform that is not macOS. No
+    /// such command at all is an older macOS file, and reads as macOS.
+    pub marked_for_another_platform: bool,
+}
+
+impl SliceRefs {
+    /// Whether dyld could take this slice for a dylib, by what the slice says of itself:
+    /// a dylib, for this build's architecture, for macOS. A bad signature and the like
+    /// are not read (R-27).
+    #[must_use]
+    pub fn is_dylib_for_this_build(&self) -> bool {
+        self.file_type == ExaminedType::Dylib
+            && self.cputype == THIS_BUILD_CPUTYPE
+            && !self.marked_for_another_platform
+    }
 }
 
 /// Which structure did not hold.
@@ -284,6 +307,12 @@ const LC_REEXPORT_DYLIB: u32 = 0x8000_001f;
 const LC_LAZY_LOAD_DYLIB: u32 = 0x20;
 const LC_LOAD_UPWARD_DYLIB: u32 = 0x8000_0023;
 const LC_DYLD_ENVIRONMENT: u32 = 0x27;
+const LC_VERSION_MIN_IPHONEOS: u32 = 0x25;
+const LC_VERSION_MIN_TVOS: u32 = 0x2f;
+const LC_VERSION_MIN_WATCHOS: u32 = 0x30;
+const LC_BUILD_VERSION: u32 = 0x32;
+const PLATFORM_MACOS: u32 = 1;
+const BUILD_VERSION_PLATFORM_AT: usize = 8;
 
 /// The `LC_REQ_DYLD` commands that carry no reference, from
 /// `include/mach-o/loader.h` (R-27 E-9). Any other with the bit set is unknown.
@@ -601,6 +630,7 @@ pub fn read_slice(window: &[u8]) -> Result<SliceRefs, MachoError> {
         file_type,
         loads: Vec::new(),
         rpaths: Vec::new(),
+        marked_for_another_platform: false,
     };
     let mut at = 0_usize;
     for _ in 0..header.ncmds {
@@ -655,6 +685,14 @@ fn read_command(
             .push(command_string(body, STRING_COMMAND_BYTES, order)?),
         // A file's own name, not a reference to anything.
         LC_ID_DYLIB => {}
+        LC_VERSION_MIN_IPHONEOS | LC_VERSION_MIN_TVOS | LC_VERSION_MIN_WATCHOS => {
+            refs.marked_for_another_platform = true;
+        }
+        LC_BUILD_VERSION => {
+            let platform = read_u32(body, BUILD_VERSION_PLATFORM_AT, order)
+                .ok_or(malformed(MalformedKind::CommandBodyTooShort))?;
+            refs.marked_for_another_platform |= platform != PLATFORM_MACOS;
+        }
         _ if cmd & LC_REQ_DYLD != 0 && !REQUIRED_WITHOUT_A_REFERENCE.contains(&cmd) => {
             return Err(MachoError::UnknownRequired(UnknownKind::RequiredCommand));
         }

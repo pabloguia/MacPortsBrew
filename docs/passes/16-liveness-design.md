@@ -67,6 +67,8 @@ pub trait DestinationProbe {
 }
 ```
 
+**Amended (2026-11-05, work order 16 H-2 round 6; `security-reviewer` has yet to read this).** The trait above goes when H-3 lands, because its one implementor could never name the lock. The probe becomes `answer_probe(&self, leaf, argv, lock: Option<&RunLock>)` on `DestinationSite` in `crates/cli/src/executor/`, defaulting to `NOT_OBSERVED`, and an inherent method on `DestinationSites` taking `&RunLock`. It stays off `ProviderRead`, for the reason above.
+
 It is obtained only from `registry::destination_sites(ctx, &StateDir, &RunLock)`, which
 is added to the banned list of `crates/cli/tests/executor.rs` (`.claude/rules/executor.md`
 rule 1: read sites are built after the gate passes). The read-only loop passes no such

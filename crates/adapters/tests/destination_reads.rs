@@ -9,7 +9,7 @@ use macportsbrew_adapters::destination_reads::{
     self, checked_list, examine_with, is_under_system_root, placed_entry, stat_counts, CheckedList,
     Fallbacks, Outside, StatCounts, WalkWork, MAX_WALK_FILES, MAX_WALK_REFERENCES,
 };
-use macportsbrew_adapters::macho::{HEAD_BYTES, SLICE_HEADER_BYTES};
+use macportsbrew_adapters::macho::{HEAD_BYTES, SLICE_HEADER_BYTES, THIS_BUILD_CPUTYPE};
 use macportsbrew_adapters::process::MAX_PATH_LEN;
 use macportsbrew_domain::{LinkageFacts, PrefixClass, PrefixTable, UncheckedCause};
 use std::os::unix::ffi::OsStrExt;
@@ -74,7 +74,7 @@ fn thin(file_type: u32, commands: &[(u32, &[u8])]) -> Vec<u8> {
     }
     let mut file = Vec::new();
     file.extend_from_slice(&0xfeed_facf_u32.to_le_bytes());
-    file.extend_from_slice(&0x0100_0007_u32.to_le_bytes());
+    file.extend_from_slice(&THIS_BUILD_CPUTYPE.to_le_bytes());
     file.extend_from_slice(&3_u32.to_le_bytes());
     file.extend_from_slice(&file_type.to_le_bytes());
     file.extend_from_slice(&(commands.len() as u32).to_le_bytes());
@@ -620,17 +620,15 @@ fn a_listed_or_reached_file_outside_every_prefix_is_not_examined_and_says_so() {
         &thin(EXECUTE, &[(LOAD, bytes_of(&nowhere))]),
     );
     assert!(examine(&[elsewhere], &[], &table).file_not_examined);
-    // As an `@rpath` candidate too, and the name is answered by it.
+    // As an `@rpath` candidate too. Nobody read it, so it answers no name either, and
+    // not being examined is what the judge reports first.
     let dir = bytes_of(&scratch.0.join("nowhere")).to_vec();
     let candidate = put(
         &own.join("bin/c"),
         &thin(EXECUTE, &[(RPATH, dir.as_slice()), (LOAD, b"@rpath/file")]),
     );
     let facts = examine(&[candidate], &[], &table);
-    assert!(
-        facts.file_not_examined && !facts.rpath_unresolved,
-        "{facts:?}"
-    );
+    assert!(facts.file_not_examined, "{facts:?}");
     // A link in the list that leads outside every prefix.
     let link = own.join("share/link");
     std::fs::create_dir_all(own.join("share")).unwrap();
@@ -1073,6 +1071,10 @@ fn a_bare_word_on_any_interpreter_is_found_by_path_and_indeterminate_on_the_list
         ("caffeinate", "#!/usr/bin/caffeinate -i python3\n"),
         ("arch", "#!/usr/bin/arch -x86_64 python3\n"),
         ("time", "#!/usr/bin/time -p python3\n"),
+        ("relative", "#!/usr/bin/nohup bin/x\n"),
+        ("dot", "#!/usr/bin/nohup ./x\n"),
+        ("sh", "#!/bin/sh lib/y\n"),
+        ("quoted", "#!/bin/sh \"/x\"\n"),
     ] {
         let on = put(&bin.join(name), line.as_bytes());
         let facts = examine(&[on], std::slice::from_ref(&bin), &table);
@@ -1095,6 +1097,17 @@ fn a_bare_word_on_any_interpreter_is_found_by_path_and_indeterminate_on_the_list
         format!("#!/usr/bin/nohup {}\n", tainted.display()).as_bytes(),
     );
     assert!(examine(&[word], &[], &table).links_detected_provider);
+    // The tail of a relative word is no path: `/x` is no file this script names.
+    put(&scratch.0.join("tail/x"), b"x");
+    for line in ["#!/bin/sh tail/x\n", "#!/bin/sh -Itail/x\n"] {
+        let file = put(&own.join("share/relative"), line.as_bytes());
+        let facts = examine(&[file], &[], &table);
+        assert!(!facts.file_not_examined, "{line}: {facts:?}");
+    }
+    let tail = format!("#!/bin/sh relative{}\n", scratch.0.join("tail/x").display());
+    let file = put(&own.join("share/tail"), tail.as_bytes());
+    let facts = examine(&[file], &[], &table);
+    assert!(!facts.file_not_examined, "{facts:?}");
 }
 
 /// The kernel keeps a CR in the interpreter's path, and ran the other provider's
@@ -1755,6 +1768,18 @@ fn a_fallback_location_is_measured_by_its_class() {
     assert!(facts.links_detected_provider, "{facts:?}");
     assert_eq!(facts.loadable_files, 2, "{facts:?}");
 
+    // Through an `@rpath` name with no rpath at all, the file there joins the walk too.
+    let rpath_file = put(
+        &own.join("bin/through-a-name"),
+        &thin(EXECUTE, &[(LOAD, b"@rpath/libF.dylib")]),
+    );
+    let places = Fallbacks {
+        libraries: vec![own.join("fb")],
+        frameworks: vec![own.join("nothing")],
+    };
+    let facts = examine_with(&listed(Path::new("/"), &[rpath_file]), &[], &table, &places).0;
+    assert!(facts.links_detected_provider, "{facts:?}");
+
     let nowhere = scratch.0.join("nowhere-placed");
     put(&nowhere.join("libF.dylib"), b"x");
     let facts = run(nowhere, "b");
@@ -1766,4 +1791,432 @@ fn a_fallback_location_is_measured_by_its_class() {
     let facts = run(candidate, "c");
     assert!(facts.fallback_under_other_prefix, "{facts:?}");
     assert!(!facts.file_not_examined, "{facts:?}");
+}
+
+// Round 6, and the fourth proof's survivors.
+
+/// `cputype` of a slice this build's process would not take.
+const OTHER_CPUTYPE: u32 = if THIS_BUILD_CPUTYPE == 0x0100_0007 {
+    0x0100_000c
+} else {
+    0x0100_0007
+};
+
+/// A slice like `thin`'s, with `cputype` rewritten.
+fn thin_for(cputype: u32, file_type: u32, commands: &[(u32, &[u8])]) -> Vec<u8> {
+    let mut file = thin(file_type, commands);
+    file[4..8].copy_from_slice(&cputype.to_le_bytes());
+    file
+}
+
+/// `LC_BUILD_VERSION` with its platform, as a raw load command in a dylib.
+fn dylib_marked(platform: u32) -> Vec<u8> {
+    let mut file = thin(DYLIB, &[]);
+    file[16..20].copy_from_slice(&1_u32.to_le_bytes());
+    file[20..24].copy_from_slice(&24_u32.to_le_bytes());
+    file.extend_from_slice(&0x32_u32.to_le_bytes());
+    file.extend_from_slice(&24_u32.to_le_bytes());
+    file.extend_from_slice(&platform.to_le_bytes());
+    file.extend_from_slice(&[0; 12]);
+    file
+}
+
+/// What dyld refuses is no answer to the name, so its fallback may load the other
+/// provider's file. Real binaries did, through each of these at the named path.
+#[test]
+fn invariant_07_a_file_dyld_would_refuse_does_not_answer_the_name() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    put(&other.join("fb/libF.dylib"), &thin(DYLIB, &[]));
+    let places = Fallbacks {
+        libraries: vec![other.join("fb")],
+        frameworks: vec![other.join("nothing")],
+    };
+    let named = own.join("lib/libF.dylib");
+    let run = |loads: &[(u32, &[u8])], leaf: &str| {
+        let loader = put(&own.join("bin").join(leaf), &thin(EXECUTE, loads));
+        examine_with(&listed(Path::new("/"), &[loader]), &[], &table, &places).0
+    };
+    for (case, bytes) in [
+        ("text", b"plain text\n".to_vec()),
+        ("empty", Vec::new()),
+        ("other architecture", thin_for(OTHER_CPUTYPE, DYLIB, &[])),
+        ("executable", thin(EXECUTE, &[])),
+        ("bundle", thin(8, &[])),
+        ("ios", dylib_marked(2)),
+    ] {
+        put(&named, &bytes);
+        let facts = run(&[(LOAD, bytes_of(&named))], "absolute");
+        assert!(facts.fallback_under_other_prefix, "{case}: {facts:?}");
+        // And through the file's own rpath, which answers neither the fallback nor the name.
+        let lib = own.join("lib");
+        let facts = run(
+            &[(RPATH, bytes_of(&lib)), (LOAD, b"@rpath/libF.dylib")],
+            "through-a-name",
+        );
+        assert!(facts.fallback_under_other_prefix, "{case}: {facts:?}");
+        assert!(facts.rpath_unresolved, "{case}: {facts:?}");
+    }
+    // What dyld would take stays clean, a macOS mark or none, or a fat file's slice.
+    for (case, bytes) in [("plain", thin(DYLIB, &[])), ("macOS", dylib_marked(1))] {
+        put(&named, &bytes);
+        let facts = run(&[(LOAD, bytes_of(&named))], "absolute");
+        assert!(!facts.fallback_under_other_prefix, "{case}: {facts:?}");
+        let lib = own.join("lib");
+        let facts = run(
+            &[(RPATH, bytes_of(&lib)), (LOAD, b"@rpath/libF.dylib")],
+            "through-a-name",
+        );
+        assert!(!facts.fallback_under_other_prefix, "{case}: {facts:?}");
+        assert!(!facts.rpath_unresolved, "{case}: {facts:?}");
+    }
+}
+
+/// The verdict on a candidate comes after every candidate was read, so one read later
+/// than the load that names it counts, and a hardlink of a file read under another name.
+#[test]
+fn a_candidate_is_judged_once_it_has_been_read_under_any_name() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    put(&other.join("fb/libF.dylib"), &thin(DYLIB, &[]));
+    let places = Fallbacks {
+        libraries: vec![other.join("fb")],
+        frameworks: vec![other.join("nothing")],
+    };
+    let first = put(&own.join("lib/first.dylib"), &thin(DYLIB, &[]));
+    let named = own.join("lib/libF.dylib");
+    std::fs::create_dir_all(named.parent().unwrap()).unwrap();
+    std::fs::hard_link(&first, &named).unwrap();
+    let loader = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, bytes_of(&named))]),
+    );
+    let facts = examine_with(
+        &listed(Path::new("/"), &[loader, first]),
+        &[],
+        &table,
+        &places,
+    )
+    .0;
+    assert!(!facts.fallback_under_other_prefix, "{facts:?}");
+}
+
+#[test]
+fn a_name_and_rpath_a_candidate_brings_get_their_own_round() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let (one, two) = (own.join("lib1"), own.join("lib2"));
+    put(
+        &two.join("libG.dylib"),
+        &thin(DYLIB, &[(LOAD, bytes_of(&other.join("lib/x")))]),
+    );
+    put(
+        &one.join("libF.dylib"),
+        &thin(
+            DYLIB,
+            &[(RPATH, bytes_of(&two)), (LOAD, b"@rpath/libG.dylib")],
+        ),
+    );
+    let a = put(
+        &own.join("bin/a"),
+        &thin(
+            EXECUTE,
+            &[(RPATH, bytes_of(&one)), (LOAD, b"@rpath/libF.dylib")],
+        ),
+    );
+    assert!(examine(&[a], &[], &table).links_detected_provider);
+}
+
+/// Rpaths times names, where every candidate is over the path limit.
+#[test]
+fn candidates_that_cannot_be_spelled_are_charged_to_the_bound() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let pad = "d".repeat(200);
+    let base = format!("{}/{pad}/{pad}/{pad}/{pad}", own.display());
+    let rpaths: Vec<Vec<u8>> = (0..300)
+        .map(|n| format!("{base}/r{n}").into_bytes())
+        .collect();
+    let names: Vec<Vec<u8>> = (0..300)
+        .map(|n| format!("@rpath/{}{n}", "n".repeat(200)).into_bytes())
+        .collect();
+    assert!(base.len() + 200 >= 1024, "{}", base.len());
+    let mut commands: Vec<(u32, &[u8])> = Vec::new();
+    commands.extend(rpaths.iter().map(|r| (RPATH, r.as_slice())));
+    commands.extend(names.iter().map(|n| (LOAD, n.as_slice())));
+    let file = put(&own.join("bin/a"), &thin(EXECUTE, &commands));
+    let (facts, _) = examine_counted(&[file], &[], &table);
+    assert!(!facts.malformed_file, "{facts:?}");
+    assert!(facts.walk_over_bound, "{facts:?}");
+}
+
+/// A name a real dylib answers does not fall back, though an absent system candidate is
+/// there too. Either order of the rpaths.
+#[test]
+fn a_taken_name_does_not_fall_back_though_a_system_candidate_is_absent() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let lib = own.join("lib");
+    put(&lib.join("libnone-such.dylib"), &thin(DYLIB, &[]));
+    put(&other.join("lib/libnone-such.dylib"), &thin(DYLIB, &[]));
+    let places = Fallbacks {
+        libraries: vec![other.join("lib")],
+        frameworks: vec![other.join("nothing")],
+    };
+    for rpaths in [
+        [&b"/usr/lib/swift"[..], bytes_of(&lib)],
+        [bytes_of(&lib), &b"/usr/lib/swift"[..]],
+    ] {
+        let a = put(
+            &own.join("bin/a"),
+            &thin(
+                EXECUTE,
+                &[
+                    (RPATH, rpaths[0]),
+                    (RPATH, rpaths[1]),
+                    (LOAD, b"@rpath/libnone-such.dylib"),
+                ],
+            ),
+        );
+        let facts = examine_with(&listed(Path::new("/"), &[a]), &[], &table, &places).0;
+        assert!(!facts.fallback_under_other_prefix, "{facts:?}");
+    }
+}
+
+fn loads_a_name_that_is_nowhere(own: &Path) -> PathBuf {
+    put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, b"/nowhere/at/all/libz.dylib")]),
+    )
+}
+
+fn only_libraries(dir: PathBuf, own: &Path) -> Fallbacks {
+    Fallbacks {
+        libraries: vec![dir],
+        frameworks: vec![own.join("nothing")],
+    }
+}
+
+/// The place is under the prefix and is a link leading out of it.
+#[test]
+fn a_fallback_link_under_another_prefix_counts_by_its_spelling() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    put(&scratch.0.join("nowhere/libz.dylib"), &thin(DYLIB, &[]));
+    std::fs::create_dir_all(other.join("lib")).unwrap();
+    symlink(
+        scratch.0.join("nowhere/libz.dylib"),
+        other.join("lib/libz.dylib"),
+    )
+    .unwrap();
+    let places = only_libraries(other.join("lib"), &own);
+    let a = loads_a_name_that_is_nowhere(&own);
+    let facts = examine_with(&listed(Path::new("/"), &[a]), &[], &table, &places).0;
+    assert!(facts.fallback_under_other_prefix, "{facts:?}");
+}
+
+/// The prefix is known by a link's spelling, and neither text says so.
+#[test]
+fn a_fallback_under_a_prefix_known_by_a_link_counts_by_its_identity() {
+    let scratch = Scratch::new();
+    let (own, _, _) = scratch.table();
+    let store = scratch.0.join("store");
+    put(&store.join("lib/libz.dylib"), &thin(DYLIB, &[]));
+    let spelled = scratch.0.join("pfx");
+    symlink(&store, &spelled).unwrap();
+    let mut table = PrefixTable::default();
+    table.add(bytes_of(&own), PrefixClass::Destination);
+    table.add(bytes_of(&spelled), PrefixClass::DetectedOther);
+    std::fs::create_dir_all(scratch.0.join("fb")).unwrap();
+    symlink(
+        store.join("lib/libz.dylib"),
+        scratch.0.join("fb/libz.dylib"),
+    )
+    .unwrap();
+    let places = only_libraries(scratch.0.join("fb"), &own);
+    let a = loads_a_name_that_is_nowhere(&own);
+    let facts = examine_with(&listed(Path::new("/"), &[a]), &[], &table, &places).0;
+    assert!(facts.fallback_under_other_prefix, "{facts:?}");
+}
+
+/// A documented prefix where nobody was detected is still a doubt.
+#[test]
+fn a_fallback_under_an_undetected_prefix_is_a_doubt() {
+    let scratch = Scratch::new();
+    let (own, _, _) = scratch.table();
+    let candidate = scratch.0.join("candidate");
+    put(&candidate.join("lib/libz.dylib"), &thin(DYLIB, &[]));
+    let mut table = PrefixTable::default();
+    table.add(bytes_of(&own), PrefixClass::Destination);
+    table.add(bytes_of(&candidate), PrefixClass::UndetectedCandidate);
+    let places = only_libraries(candidate.join("lib"), &own);
+    let a = loads_a_name_that_is_nowhere(&own);
+    let facts = examine_with(&listed(Path::new("/"), &[a]), &[], &table, &places).0;
+    assert!(facts.fallback_under_other_prefix, "{facts:?}");
+}
+
+/// Homebrew on Intel as the destination has `/usr/local/lib` as its own.
+#[test]
+fn the_destinations_own_file_at_a_fallback_location_is_no_doubt() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    put(&own.join("lib/libz.dylib"), &thin(DYLIB, &[]));
+    let places = only_libraries(own.join("lib"), &own);
+    let a = loads_a_name_that_is_nowhere(&own);
+    let facts = examine_with(&listed(Path::new("/"), &[a]), &[], &table, &places).0;
+    assert!(!facts.fallback_under_other_prefix, "{facts:?}");
+}
+
+/// Each location costs the walk its ancestors.
+#[test]
+fn a_fallback_location_is_charged_to_the_bound() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let a = loads_a_name_that_is_nowhere(&own);
+    let list = listed(Path::new("/"), &[a]);
+    let one = only_libraries(scratch.0.join("a"), &own);
+    let two = Fallbacks {
+        libraries: vec![scratch.0.join("a"), scratch.0.join("b")],
+        frameworks: vec![own.join("nothing")],
+    };
+    let without = examine_with(&list, &[], &table, &one).1;
+    let with = examine_with(&list, &[], &table, &two).1;
+    assert!(with.operations > without.operations, "{with:?} {without:?}");
+}
+
+fn tainted(own: &Path, other: &Path) -> PathBuf {
+    put(
+        &own.join("lib/tainted"),
+        &thin(DYLIB, &[(LOAD, bytes_of(&other.join("lib/x")))]),
+    )
+}
+
+/// A CRLF word is read as the path before the CR, as the stricter answer.
+#[test]
+fn a_word_ended_by_a_carriage_return_is_still_read() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let at = tainted(&own, &other);
+    let file = put(
+        &own.join("share/a"),
+        format!("#!/bin/sh {}\r\n", at.display()).as_bytes(),
+    );
+    assert!(examine(&[file], &[], &table).links_detected_provider);
+}
+
+/// `sh` is handed the whole word, CR and all, and the pieces around the CR name nothing.
+#[test]
+fn a_word_whose_path_holds_a_carriage_return_is_measured_whole() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    symlink(&other, scratch.0.join("x\r")).unwrap();
+    let mut line = b"#!/bin/sh ".to_vec();
+    line.extend_from_slice(bytes_of(&scratch.0.join("x\r/prog")));
+    line.push(b'\n');
+    let file = put(&own.join("share/a"), &line);
+    assert!(examine(&[file], &[], &table).links_detected_provider);
+}
+
+/// The same for `:` and `=` in a plain interpreter's word.
+#[test]
+fn a_word_whose_path_holds_a_separator_is_measured_whole() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    symlink(&other, scratch.0.join("a:b")).unwrap();
+    let file = put(
+        &own.join("share/a"),
+        format!("#!/bin/sh {}/a:b/prog\n", scratch.0.display()).as_bytes(),
+    );
+    assert!(examine(&[file], &[], &table).links_detected_provider);
+}
+
+/// The flags do not make what `env` finds any less found at run time.
+#[test]
+fn env_with_flags_on_the_list_is_indeterminate() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let bin = own.join("bin");
+    for (name, line) in [
+        ("i", "#!/usr/bin/env -i python3\n"),
+        ("assign", "#!/usr/bin/env FOO=1 python3\n"),
+        ("u", "#!/usr/bin/env -u X python3\n"),
+        ("S", "#!/usr/bin/env -Spython3\n"),
+    ] {
+        let file = put(&bin.join(name), line.as_bytes());
+        let facts = examine(&[file], std::slice::from_ref(&bin), &table);
+        assert!(facts.env_shebang_on_list, "{name}: {facts:?}");
+    }
+}
+
+/// What `env` runs is measured whole, and a directory there runs nothing.
+#[test]
+fn an_absolute_word_of_env_is_read_as_the_interpreter() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    symlink(&other, scratch.0.join("a:b")).unwrap();
+    let file = put(
+        &own.join("share/a"),
+        format!("#!/usr/bin/env {}/a:b/prog\n", scratch.0.display()).as_bytes(),
+    );
+    assert!(examine(&[file], &[], &table).links_detected_provider);
+    std::fs::create_dir_all(own.join("share/dir")).unwrap();
+    let file = put(
+        &own.join("share/b"),
+        format!("#!/usr/bin/env {}/share/dir\n", own.display()).as_bytes(),
+    );
+    assert!(examine(&[file], &[], &table).file_not_examined);
+}
+
+/// An interpreter of the destination that is no file was examined by nobody.
+#[test]
+fn an_absolute_interpreter_that_is_a_directory_is_not_examined() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    std::fs::create_dir_all(own.join("share/dir")).unwrap();
+    let file = put(
+        &own.join("share/a"),
+        format!("#!{}/share/dir\n", own.display()).as_bytes(),
+    );
+    assert!(examine(&[file], &[], &table).file_not_examined);
+}
+
+#[test]
+fn every_path_of_an_assignment_is_a_reference() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let file = put(
+        &own.join("share/a"),
+        format!("#!/bin/sh A=/nowhere={}/bin/x\n", other.display()).as_bytes(),
+    );
+    assert!(examine(&[file], &[], &table).links_detected_provider);
+}
+
+/// The quote is not part of the file, so the file is read.
+#[test]
+fn a_quoted_word_names_the_file_inside_the_quotes() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let at = tainted(&own, &other);
+    let file = put(
+        &own.join("share/a"),
+        format!("#!/usr/bin/env -S\"{}\"\n", at.display()).as_bytes(),
+    );
+    assert!(examine(&[file], &[], &table).links_detected_provider);
+}
+
+/// `work.bytes <= once` holds of zero.
+#[test]
+fn the_bytes_read_are_counted() {
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let file = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, b"/usr/lib/libSystem.B.dylib")]),
+    );
+    let length = std::fs::metadata(&file)
+        .unwrap()
+        .len()
+        .min(HEAD_BYTES as u64);
+    let (_, work) = examine_counted(&[file], &[], &table);
+    assert!(work.bytes >= length, "{work:?}");
 }

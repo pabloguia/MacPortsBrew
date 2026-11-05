@@ -97,11 +97,28 @@ impl Fallbacks {
         if file.source.trim().is_empty() {
             return Err("no source".to_owned());
         }
-        if file.read_on.len() != 10 || file.read_on.chars().filter(|c| *c == '-').count() != 2 {
+        let date = file.read_on.as_bytes();
+        let shaped = date.len() == 10
+            && date.iter().enumerate().all(|(at, byte)| {
+                if at == 4 || at == 7 {
+                    *byte == b'-'
+                } else {
+                    byte.is_ascii_digit()
+                }
+            });
+        if !shaped {
             return Err(format!("read_on is not YYYY-MM-DD: {:?}", file.read_on));
         }
         if file.libraries.is_empty() || file.frameworks.is_empty() {
             return Err("an empty list stops the look".to_owned());
+        }
+        if !file
+            .libraries
+            .iter()
+            .chain(&file.frameworks)
+            .all(|place| place.is_absolute())
+        {
+            return Err("a relative location means nothing to dyld's search".to_owned());
         }
         Ok(Self {
             libraries: file.libraries,
@@ -338,7 +355,9 @@ pub fn examine_with(
         rpaths: Vec::new(),
         rpath_keys: HashSet::new(),
         names: Vec::new(),
-        name_index: HashMap::new(),
+        name_keys: HashSet::new(),
+        loadable: HashSet::new(),
+        pending: Vec::new(),
     };
     for path in list.paths() {
         if walk.facts.walk_over_bound {
@@ -347,8 +366,9 @@ pub fn examine_with(
         walk.own_entry(path);
     }
     // A name is tried against every rpath the walk has seen, and a candidate that
-    // exists can join the walk and bring more, and so can a fallback location: round
-    // until nothing new is left.
+    // exists can join the walk and bring more. Only when every candidate has been read
+    // can it be said which dyld would take, and what that leaves for the fallback brings
+    // more again: round until nothing new is left.
     loop {
         while let Some(next) = walk.queue.pop() {
             if walk.facts.walk_over_bound {
@@ -359,7 +379,7 @@ pub fn examine_with(
         if walk.facts.walk_over_bound {
             break;
         }
-        if !walk.try_rpath_names() && !walk.fall_back_for_missed_names() {
+        if !walk.try_rpath_names() && !walk.decide_pending_loads() {
             break;
         }
     }
@@ -414,6 +434,8 @@ struct Seen {
     class: Option<PrefixClass>,
     /// `None` for something that does not exist.
     canonical: Option<PathBuf>,
+    /// Device and inode of what `canonical` names.
+    identity: Option<(u64, u64)>,
 }
 
 /// How a file came to be read.
@@ -441,13 +463,17 @@ struct RpathName {
     rest: Vec<u8>,
     /// How many of the walk's rpaths it was tried against.
     tried: usize,
-    /// A candidate exists.
-    found: bool,
     /// A candidate lies under the system's roots, with no file on disk.
     in_system: bool,
-    /// Some file loads this name and its own rpaths do not find it. Never cleared by
-    /// another file's: the run path list runs up one chain and not across siblings.
-    missed_by_its_own_file: bool,
+}
+
+/// One load, waiting to be judged once its candidates have been read: what dyld would
+/// try for this file alone. Another file's rpath does not help it, since the run path
+/// list runs up one chain and not across siblings.
+struct PendingLoad {
+    /// What dyld's fallback looks for, if none of the candidates can be taken.
+    name: Vec<u8>,
+    candidates: Vec<Spelled>,
 }
 
 struct Walk<'a> {
@@ -477,7 +503,10 @@ struct Walk<'a> {
     rpaths: Vec<Spelled>,
     rpath_keys: HashSet<Vec<u8>>,
     names: Vec<RpathName>,
-    name_index: HashMap<Vec<u8>, usize>,
+    name_keys: HashSet<Vec<u8>>,
+    /// Each file a read showed a slice dyld could take for a dylib in this build.
+    loadable: HashSet<(u64, u64)>,
+    pending: Vec<PendingLoad>,
 }
 
 impl Walk<'_> {
@@ -639,11 +668,7 @@ impl Walk<'_> {
             return None;
         }
         let parent = has_parent_component(&written.raw);
-        let key = if parent {
-            &written.raw
-        } else {
-            &written.normal
-        };
+        let key = seen_key(written);
         if let Some(seen) = self.seen.get(key) {
             return Some(seen.clone());
         }
@@ -683,11 +708,17 @@ impl Walk<'_> {
         let by_inode = self.class_by_identity(&measured);
         self.note(by_text);
         self.note(by_inode);
+        let identity = canonical
+            .as_ref()
+            .and_then(|path| std::fs::metadata(path).ok())
+            .map(|metadata| (metadata.dev(), metadata.ino()));
         let seen = Seen {
             class: by_inode.or(by_text),
             canonical,
+            identity,
         };
-        self.seen.insert(key.clone(), seen.clone());
+        let key = key.to_vec();
+        self.seen.insert(key, seen.clone());
         Some(seen)
     }
 
@@ -737,8 +768,8 @@ impl Walk<'_> {
                 self.visited.insert(identity, indeterminate);
                 self.facts.env_shebang_on_list |= indeterminate && how == Reached::OnExecutableList;
             }
-            Ok(Classified::Thin(range)) => self.slices(&file, path, &[range]),
-            Ok(Classified::Fat(ranges)) => self.slices(&file, path, &ranges),
+            Ok(Classified::Thin(range)) => self.slices(&file, path, identity, &[range]),
+            Ok(Classified::Fat(ranges)) => self.slices(&file, path, identity, &ranges),
         }
     }
 
@@ -760,7 +791,7 @@ impl Walk<'_> {
         Some(buffer)
     }
 
-    fn slices(&mut self, file: &File, path: &Path, ranges: &[SliceRange]) {
+    fn slices(&mut self, file: &File, path: &Path, identity: (u64, u64), ranges: &[SliceRange]) {
         let mut loadable = false;
         let mut read: Vec<SliceRange> = Vec::new();
         for range in ranges {
@@ -786,6 +817,9 @@ impl Walk<'_> {
                         Err(_) => self.facts.malformed_file = true,
                         Ok(refs) => {
                             loadable = true;
+                            if refs.is_dylib_for_this_build() {
+                                self.loadable.insert(identity);
+                            }
                             self.references(path, &refs);
                         }
                     }
@@ -798,36 +832,32 @@ impl Walk<'_> {
     }
 
     /// Answers whether what the script runs is found at run time. The interpreter,
-    /// and an absolute word of `env` or a wrapper, count as a load command does. Any
-    /// other `/...` inside a word (`-S/x`, `-P/x:/y`, `PATH=/x`, `sh /x`) counts by where
-    /// it is, and is read if it is a regular file of the destination; a directory on
-    /// a search path is not a program, and says nothing. What a script's body does is
-    /// not read.
+    /// and an absolute word of `env`, count as a load command does. Any other absolute
+    /// path in a word counts by where it is, and is read if it is a regular file of the
+    /// destination; a directory on a search path is not a program, and says nothing.
+    /// What a script's body does is not read.
     ///
-    /// A word that is no flag and holds no `/` is found by `PATH`, whatever the
-    /// interpreter: `nohup python3`, `caffeinate -i python3`. So there is no list of
-    /// programs that run others, only `env`, whose `-Spython3` has no such word.
+    /// A word that is no flag and does not start at the root is found by `PATH` or from
+    /// the directory the script runs in, whatever the interpreter: `nohup python3`,
+    /// `nohup bin/x`, `sh ./x`. So there is no list of programs that run others, only
+    /// `env`, whose `-Spython3` has no such word.
     fn shebang(&mut self, shebang: &Shebang, head: &[u8]) -> bool {
         let is_env = matches!(shebang, Shebang::Env(_));
         let words = macho::shebang_arguments(head);
-        let found_by_path = words
+        let found_at_run_time = words
             .iter()
-            .any(|word| word.first() != Some(&b'-') && !word.contains(&b'/'));
+            .any(|word| !matches!(word.first(), Some(b'-' | b'/')));
         for word in words {
             if is_env && word.first() == Some(&b'/') {
                 self.lexical(word, Read::Interpreter);
-                continue;
-            }
-            for piece in word.split(|b| matches!(b, b':' | b'=' | b'"' | b'\'' | b'\r')) {
-                if let Some(at) = piece.iter().position(|b| *b == b'/') {
-                    self.lexical(&piece[at..], Read::Word);
-                }
+            } else {
+                self.shebang_word(word);
             }
         }
         match shebang {
             Shebang::Absolute(path) => {
                 self.lexical(path, Read::Interpreter);
-                found_by_path
+                found_at_run_time
             }
             // `env`'s own path is still an answer; what it finds is not.
             Shebang::Env(path) => {
@@ -835,6 +865,34 @@ impl Walk<'_> {
                 true
             }
             Shebang::Relative(_) => true,
+        }
+    }
+
+    /// The program is handed the word whole, so a path holding a CR or a separator is
+    /// measured whole, from where the first absolute path in it starts. The pieces are
+    /// measured too, since a CRLF line's word ends in a CR the script's author did not
+    /// mean, and `PATH=/x:/y` names two. The tail of a relative `bin/x` is no path, and
+    /// a flag's value is only ever taken from `-X/...`.
+    fn shebang_word(&mut self, word: &[u8]) {
+        let mut at = 0;
+        let mut whole = None;
+        for piece in word.split(|b| matches!(b, b':' | b'=' | b'"' | b'\'' | b'\r')) {
+            let flag_value = at == 0 && piece.first() == Some(&b'-') && piece.get(2) == Some(&b'/');
+            let start = if piece.first() == Some(&b'/') {
+                Some(0)
+            } else if flag_value {
+                Some(2)
+            } else {
+                None
+            };
+            if let Some(start) = start {
+                whole.get_or_insert(at + start);
+                self.lexical(&piece[start..], Read::Word);
+            }
+            at += piece.len() + 1;
+        }
+        if let Some(start) = whole {
+            self.lexical(&word[start..], Read::Word);
         }
     }
 
@@ -905,9 +963,12 @@ impl Walk<'_> {
                 | LoadKind::Weak
                 | LoadKind::Reexport
                 | LoadKind::Lazy
-                | LoadKind::Upward
-                | LoadKind::Dylinker => {
-                    self.load(&reference.name, &directory, refs.file_type, &own);
+                | LoadKind::Upward => {
+                    self.load(&reference.name, &directory, refs.file_type, &own, true);
+                }
+                // What the kernel starts is no dylib, so no file there needs to be one.
+                LoadKind::Dylinker => {
+                    self.load(&reference.name, &directory, refs.file_type, &own, false);
                 }
             }
         }
@@ -933,41 +994,48 @@ impl Walk<'_> {
         }
     }
 
-    fn load(&mut self, name: &[u8], directory: &[u8], file_type: ExaminedType, own: &[Spelled]) {
+    fn load(
+        &mut self,
+        name: &[u8],
+        directory: &[u8],
+        file_type: ExaminedType,
+        own: &[Spelled],
+        dylib: bool,
+    ) {
         if let Some(rest) = name.strip_prefix(b"@rpath/") {
             // dyld joins it, however many slashes it starts with.
             let rest = without_leading_slashes(rest).to_vec();
-            let mut found_by_own = false;
+            let mut candidates = Vec::with_capacity(own.len());
             for rpath in own {
                 let Some(candidate) = spelled(Some(&rpath.raw), &rest) else {
                     continue;
                 };
-                let Some(seen) = self.resolve(&candidate) else {
+                if self.resolve(&candidate).is_none() {
                     return;
-                };
-                found_by_own |= seen.canonical.is_some();
+                }
+                candidates.push(candidate);
             }
-            let index = if let Some(index) = self.name_index.get(&rest) {
-                *index
-            } else {
-                self.name_index.insert(rest.clone(), self.names.len());
+            if self.name_keys.insert(rest.clone()) {
                 self.names.push(RpathName {
-                    rest,
+                    rest: rest.clone(),
                     tried: 0,
-                    found: false,
                     in_system: false,
-                    missed_by_its_own_file: false,
                 });
-                self.names.len() - 1
-            };
-            self.names[index].missed_by_its_own_file |= !found_by_own;
+            }
+            self.pending.push(PendingLoad {
+                name: rest,
+                candidates,
+            });
             return;
         }
         match expand(name, directory, file_type) {
             Some(written) => {
                 if let Some(seen) = self.reached(&written, false) {
-                    if seen.canonical.is_none() {
-                        self.fallback(&written.normal);
+                    if dylib || seen.canonical.is_none() {
+                        self.pending.push(PendingLoad {
+                            name: written.normal.clone(),
+                            candidates: vec![written],
+                        });
                     }
                 }
             }
@@ -996,9 +1064,7 @@ impl Walk<'_> {
                 let Some(seen) = self.reached(&candidate, true) else {
                     return false;
                 };
-                if seen.canonical.is_some() {
-                    self.names[index].found = true;
-                } else if self.is_system(path_of(&candidate)) {
+                if seen.canonical.is_none() && self.is_system(path_of(&candidate)) {
                     self.names[index].in_system = true;
                 }
             }
@@ -1006,32 +1072,57 @@ impl Walk<'_> {
         any
     }
 
-    /// Every name some file's own rpaths do not find may go on to dyld's fallback,
-    /// whatever another file's rpath found: `man dyld` builds the run path list from
-    /// the images "in the dependency chain that lead to the current dylib load". The
-    /// walk holds no load graph, so a name found only through a real ancestor's rpath
-    /// also looks here, an over-approximation that can only add `UNCHECKED`. `true` when
-    /// that gave the walk something new to read.
-    fn fall_back_for_missed_names(&mut self) -> bool {
-        let missed: Vec<Vec<u8>> = self
-            .names
-            .iter()
-            .filter(|name| name.missed_by_its_own_file)
-            .map(|name| name.rest.clone())
-            .collect();
-        for rest in missed {
-            self.fallback(&rest);
+    /// Whether dyld could take the file `candidate` names, as far as a read can say: a
+    /// read of it showed a dylib for this build, or it is a real file of the system's
+    /// own, which only root can place and this walk does not read. Asked once every
+    /// candidate has been read, and it charges nothing, since `resolve` already did.
+    fn can_be_taken(&mut self, candidate: &Spelled) -> bool {
+        let Some(seen) = self.seen.get(seen_key(candidate)).cloned() else {
+            return false;
+        };
+        let read_as_dylib = seen.identity.is_some_and(|id| self.loadable.contains(&id));
+        read_as_dylib || seen.canonical.is_some_and(|real| self.is_system(&real))
+    }
+
+    /// Every load none of whose own candidates dyld could take may go on to its
+    /// fallback, whatever another file's rpath found: `man dyld` builds the run path
+    /// list from the images "in the dependency chain that lead to the current dylib
+    /// load". The walk holds no load graph, so a name found only through a real
+    /// ancestor's rpath also looks here, an over-approximation that can only add
+    /// `UNCHECKED`. `true` when that gave the walk something new to read.
+    fn decide_pending_loads(&mut self) -> bool {
+        for load in std::mem::take(&mut self.pending) {
+            let mut taken = false;
+            for candidate in &load.candidates {
+                taken = taken || self.can_be_taken(candidate);
+            }
+            if !taken {
+                self.fallback(&load.name);
+            }
         }
         !self.queue.is_empty()
     }
 
     /// Zero candidates must not read as clean, and neither must candidates none of
-    /// which is there: the name loads from nothing this walk says, whatever a candidate
-    /// that is not there is spelled like. The exception is the system's own, whose
-    /// dylibs live in the shared cache with no file, and then only when no candidate
-    /// exists elsewhere, which `reached` has already measured.
+    /// which dyld could take: the name loads from nothing this walk says, whatever a
+    /// candidate that cannot be taken is spelled like. The exception is the system's own,
+    /// whose dylibs live in the shared cache with no file. A candidate that exists
+    /// elsewhere has already been measured, and answers more strongly.
     fn settle_rpath_names(&mut self) {
-        self.facts.rpath_unresolved |= self.names.iter().any(|name| !name.found && !name.in_system);
+        for index in 0..self.names.len() {
+            let mut found = self.names[index].in_system;
+            for at in 0..self.rpaths.len() {
+                if found {
+                    break;
+                }
+                if let Some(candidate) =
+                    spelled(Some(&self.rpaths[at].raw), &self.names[index].rest)
+                {
+                    found = self.can_be_taken(&candidate);
+                }
+            }
+            self.facts.rpath_unresolved |= !found;
+        }
     }
 
     /// A name resolved to nothing, so dyld may try its fallback locations. Whether it
@@ -1148,6 +1239,15 @@ fn without_leading_slashes(path: &[u8]) -> &[u8] {
     &path[from..]
 }
 
+/// What `Walk::seen` keeps `written` under.
+fn seen_key(written: &Spelled) -> &[u8] {
+    if has_parent_component(&written.raw) {
+        &written.raw
+    } else {
+        &written.normal
+    }
+}
+
 fn path_of(written: &Spelled) -> &Path {
     Path::new(OsStr::from_bytes(&written.normal))
 }
@@ -1179,6 +1279,10 @@ mod tests {
             GOOD.replace("read_on = \"2026-11-04\"\n", ""),
             GOOD.replace("man dyld", " "),
             GOOD.replace("2026-11-04", "soon"),
+            GOOD.replace("2026-11-04", "2026-1-104"),
+            GOOD.replace("2026-11-04", "2026-11-0x"),
+            GOOD.replace("/a", "a"),
+            GOOD.replace("/b", "b"),
             GOOD.replace("[\"/a\"]", "[]"),
             GOOD.replace("[\"/b\"]", "[]"),
             format!("{GOOD}unknown = 1\n"),

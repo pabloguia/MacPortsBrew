@@ -1848,8 +1848,18 @@ mod tests {
             assert!(!none.trim_end().ends_with(':'), "{locale}: {none}");
             assert!(!none.contains("{executables}"), "{locale}: {none}");
         }
-        let source = include_str!("human.rs");
-        assert!(source.contains("if executables.is_empty() =>"));
+    }
+
+    #[test]
+    fn an_empty_list_renders_its_own_line() {
+        let ctx = context();
+        let line = super::verification_line(
+            &ctx,
+            &VerificationCheck::ExecutablesOwnedByDestination {
+                executables: Vec::new(),
+            },
+        );
+        assert!(!line.trim_end().ends_with(':'), "{line}");
     }
 
     #[test]

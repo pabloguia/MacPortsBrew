@@ -474,6 +474,22 @@ mod tests {
     }
 
     #[test]
+    fn the_fallback_is_the_reason_given_over_an_unresolved_name() {
+        assert_eq!(
+            judge_linkage(
+                false,
+                &LinkageFacts {
+                    fallback_under_other_prefix: true,
+                    dyld_environment: true,
+                    rpath_unresolved: true,
+                    ..LinkageFacts::default()
+                }
+            ),
+            CheckAnswer::Unchecked(UncheckedCause::FallbackUnderOtherPrefix)
+        );
+    }
+
+    #[test]
     fn a_dyld_environment_is_a_doubt_and_never_a_failure() {
         assert_eq!(
             judge_linkage(
