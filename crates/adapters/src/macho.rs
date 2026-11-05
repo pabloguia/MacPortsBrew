@@ -182,9 +182,12 @@ pub struct SliceRefs {
     pub loads: Vec<LoadRef>,
     /// Every `LC_RPATH` entry.
     pub rpaths: Vec<Vec<u8>>,
-    /// A build-version or version-min command names a platform that is not macOS. No
-    /// such command at all is an older macOS file, and reads as macOS.
+    /// A build-version or version-min command names a platform that is not macOS.
     pub marked_for_another_platform: bool,
+    /// One names macOS. A zippered dylib carries both, `/usr/lib/libgmalloc.dylib` here
+    /// (macOS and Mac Catalyst, 2026-11-05), and no such command at all is an older
+    /// macOS file; either way dyld takes it for a macOS process.
+    pub marked_for_macos: bool,
 }
 
 impl SliceRefs {
@@ -195,7 +198,7 @@ impl SliceRefs {
     pub fn is_dylib_for_this_build(&self) -> bool {
         self.file_type == ExaminedType::Dylib
             && self.cputype == THIS_BUILD_CPUTYPE
-            && !self.marked_for_another_platform
+            && (self.marked_for_macos || !self.marked_for_another_platform)
     }
 }
 
@@ -307,6 +310,7 @@ const LC_REEXPORT_DYLIB: u32 = 0x8000_001f;
 const LC_LAZY_LOAD_DYLIB: u32 = 0x20;
 const LC_LOAD_UPWARD_DYLIB: u32 = 0x8000_0023;
 const LC_DYLD_ENVIRONMENT: u32 = 0x27;
+const LC_VERSION_MIN_MACOSX: u32 = 0x24;
 const LC_VERSION_MIN_IPHONEOS: u32 = 0x25;
 const LC_VERSION_MIN_TVOS: u32 = 0x2f;
 const LC_VERSION_MIN_WATCHOS: u32 = 0x30;
@@ -631,6 +635,7 @@ pub fn read_slice(window: &[u8]) -> Result<SliceRefs, MachoError> {
         loads: Vec::new(),
         rpaths: Vec::new(),
         marked_for_another_platform: false,
+        marked_for_macos: false,
     };
     let mut at = 0_usize;
     for _ in 0..header.ncmds {
@@ -685,12 +690,14 @@ fn read_command(
             .push(command_string(body, STRING_COMMAND_BYTES, order)?),
         // A file's own name, not a reference to anything.
         LC_ID_DYLIB => {}
+        LC_VERSION_MIN_MACOSX => refs.marked_for_macos = true,
         LC_VERSION_MIN_IPHONEOS | LC_VERSION_MIN_TVOS | LC_VERSION_MIN_WATCHOS => {
             refs.marked_for_another_platform = true;
         }
         LC_BUILD_VERSION => {
             let platform = read_u32(body, BUILD_VERSION_PLATFORM_AT, order)
                 .ok_or(malformed(MalformedKind::CommandBodyTooShort))?;
+            refs.marked_for_macos |= platform == PLATFORM_MACOS;
             refs.marked_for_another_platform |= platform != PLATFORM_MACOS;
         }
         _ if cmd & LC_REQ_DYLD != 0 && !REQUIRED_WITHOUT_A_REFERENCE.contains(&cmd) => {

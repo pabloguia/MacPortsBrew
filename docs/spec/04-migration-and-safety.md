@@ -59,9 +59,10 @@ The original brief said "verify" without defining it. It is defined here.
    part H-2), at the version that row
    observed. There is no default flag: `httpd --version` starts a server and exits 0 (Apache 2.4.68; R-28, 2026-11-04). An executable with no row is a recorded skip, which is `UNCHECKED`,
    never a pass.
-5. No reference to another provider's prefix is present at verification, in the
-   package's own files or the destination files they load (see contamination check
-   below). "New" is not claimed: the snapshot holds no baseline (R-27).
+5. No load command or `#!` line refers to another provider's prefix at verification,
+   in the package's own files or the destination files they load, as far as this
+   reader reads (see contamination check below, and "What check 5 may claim"). "New"
+   is not claimed: the snapshot holds no baseline (R-27).
 
 **MUST** (DP-051, work order 16 part H; the answer model is built, H-1. Past the gate, which this build does not reach, integrity, ownership and linkage would be observed since H-2, and no probe runs yet: SE-113). **Each of checks
 2 to 5 answers `HOLDS`, `FAILS` or `UNCHECKED`.** "Could not tell" is `UNCHECKED`, and
@@ -80,6 +81,8 @@ or that the package runs.
 with this flag, loaded and exited 0 once. Not that the program does its job, is the
 expected version, works under the user's configuration, or had no side effect: **a
 passing probe does not exclude a started server.**
+
+**What check 5 may claim** (R-27; read and judged since H-2, and no run reaches it until the gate opens: SE-113). A bounded static read of what this reader found on this macOS and architecture, which cannot prove what dyld loads. It does not see `dlopen`, static links, a binary outside the file list, a script body's own lookups, or a chain beyond the walk.
 
 **What check 1 reads, per provider** (work order 16 part S; SE-107; R-20). The
 provider's own record of activation, from a read of its **whole** inventory that
@@ -104,7 +107,7 @@ activation read alone, in both directions (S-2;
 `provider_reports_active_is_evaluable_on_verify_destination_only`, and over the
 recordings `invariant_15_a_recorded_json_inventory_is_judged_by_each_entrys_own_linked_keg`
 and `invariant_15_a_recorded_installed_list_is_judged_by_each_names_own_marker`).
-Checks 2 to 5 are DP-051's. Since H-1 they answer `HOLDS`, `FAILS` or `UNCHECKED`. Since H-2 integrity, ownership and linkage are observed, on this machine, under the run's lock (`NOT_OBSERVED` under a replay or a snapshot file, INV-15). This build runs no plan past the gate; past it, a probe would answer `NOT_OBSERVED` until its admission lands, or `NO_CURATED_PROBE` or `NO_EXECUTABLE_TO_PROBE` with no row, and no source would be removed on them.
+Checks 2 to 5 are DP-051's. Since H-1 they answer `HOLDS`, `FAILS` or `UNCHECKED`. Since H-2 the reads for integrity, ownership and linkage exist; past the gate, which this build does not reach, they would run on this machine under the run's lock (`NOT_OBSERVED` under a replay or a snapshot file, INV-15). Past it, a probe would answer `NOT_OBSERVED` until its admission lands, or the cause that stopped it, or `NO_CURATED_PROBE` or `NO_EXECUTABLE_TO_PROBE` with no row, and no source would be removed on them.
 
 **MUST** (part F, work order 16, built in F-3; SE-112). **Check 3's "expected
 executables" are the source package's executable list** — the executables the

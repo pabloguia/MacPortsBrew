@@ -315,7 +315,7 @@ comments:
    `UNCHECKED` (`04-migration-and-safety.md`). Past the gate, which this build does
    not reach, integrity, ownership and linkage would be observed on this machine
    under the run's lock, and the probe would answer `UNCHECKED` / `NOT_OBSERVED` until
-   its admission lands, as would all four under a replay or a snapshot file.
+   its admission lands, or the cause that stopped it, as would all four under a replay or a snapshot file.
    `FAILS` halts, `UNCHECKED` keeps
    the source and ends the run `COMPLETED_WITH_UNCHECKED`. **The gate refuses a
    `VERIFY_DESTINATION` missing `PROVIDER_REPORTS_ACTIVE` or any of the four, one

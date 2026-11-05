@@ -105,7 +105,7 @@ nothing outside the providers for it (DP-047 (b)). **Today** the planner decides
 the primary by the steps below and `SET_PRIMARY` carries that decision and no
 command; the execution gate still refuses every plan the planner builds before
 its first step (`MutationNotInThisBuild`: this build dispatches no mutation), and
-of the four checks of part H, the probe is not observed yet (SE-113).
+no check of part H is observed in any run, and the probe has no observer at all (SE-113).
 No real plan reaches `SET_PRIMARY` in a run.
 
 **MUST.** The executables a primary concerns are the source package's own,

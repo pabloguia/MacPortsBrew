@@ -3186,6 +3186,7 @@ fn every_linkage_answer_but_holds_stops_the_probe_and_is_the_reason_given() {
         UncheckedCause::ListOverCap,
         UncheckedCause::FileListNotKnown,
         UncheckedCause::FallbackUnderOtherPrefix,
+        UncheckedCause::DyldEnvironmentNotModelled,
     ] {
         let run = full_run();
         let plan = run.plan();

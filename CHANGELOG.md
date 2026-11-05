@@ -297,7 +297,7 @@ the provider could say what depends on it; MacPorts deprecation status, which
 matched to the other provider only if that provider already has an equivalent
 installed, or the curated table (26 rows; 19 of them for versioned runtimes, GNU
 tools and libraries whose names differ) names one. For anything else the plan
-stops at *Needs a human decision* with "no equivalent found" — nothing was
+stops at *Needs a human decision* with "No equivalent under <provider> reaches confidence level Strong" — nothing was
 found, which does not mean no equivalent exists. Searching the other provider's
 full catalogue is planned for a later release.
 
@@ -327,7 +327,7 @@ The detailed record of how 0.1.0 was built, kept for contributors. It uses the
 project's internal vocabulary (passes, slices, decision and specification
 identifiers); the summary above is the user-facing account.
 
-**Policy version: `2026.10.18-1`.** The provider facts it carries were read on
+**Policy version when this record was written: `2026.10.18-1`.** The provider facts it carries were read on
 2026-09-02, 2026-09-04, 2026-09-06, 2026-09-08, 2026-09-19, 2026-10-02,
 2026-10-03, 2026-10-12 and 2026-10-18 and are dated in `data/policy/*.toml`; the staleness threshold is
 180 days, after which the CLI says the data may be out of date without refusing

@@ -95,7 +95,7 @@ Plan: move htop from macports to homebrew
 Steps, in order
   1. Take a snapshot - Take a snapshot of both package managers before the first change. This version does not take it for you: run `macportsbrew snapshot --out before.json` first.
   2. Add under the destination - htop is already installed under homebrew; nothing to add.
-  3. Verify the destination - Check that the destination reports it installed and active, that what it records of itself is present on disk, that the expected executables belong to it when read, that no file refers to another package manager's directory, and run each executable's curated probe where one exists (this version runs none). What cannot be told is reported as unchecked, and the source is then kept.
+  3. Verify the destination - Check that the destination reports it installed and active, that what it records of itself is present on disk, that the expected executables belong to it when read, that no file's load commands or script line name another package manager's directory, and run each executable's curated probe where one exists (this version runs none). What cannot be told is reported as unchecked, and the source is then kept.
        $ /usr/local/bin/brew list --versions htop
        $ /usr/local/bin/brew info --json=v2 --installed  [passes when this whole list marks exactly one installation of the package as the active one; refused unless it exited cleanly, was not truncated and came back non-empty]
        ? the provider reports it installed and active
@@ -127,7 +127,8 @@ Read it the way you would read the other direction's: steps in order, each
 command with how to check it, the one step that needs administrator rights
 named, and nothing removed from MacPorts until step 3 has verified the Homebrew
 copy. Step 3's probe stays unchecked here, so the source is kept and step 5 is not
-reached in this plan. Step 4 sets nothing.
+reached in this plan. Step 4 sets nothing. This capture does not know htop's
+executables, so the plan has no Verify resolution step.
 Live, the last line says what one sample of the providers' own locks answered.
 Here it says a snapshot file cannot show that. `--json` carries the same answer as
 `concurrentProviderActivity`.
@@ -187,7 +188,9 @@ Identical to the other direction, because it is the same planner:
    asked rather than from a record (Homebrew `874c46a`, read 2026-11-04), so the check
    rests on the receipt, a keg with more than its metadata, no dangling link and the
    recorded dependencies. The owner has not ruled on this basis (DP-057, as of
-   2026-11-04).
+   2026-11-04). Linkage reads load commands and `#!` lines: it does not see `dlopen`,
+   static links, a binary outside the file list or a script body's own lookups, and it
+   cannot prove what dyld loads.
 4. **Set primary** — see [Primary Provider](Primary-Provider.md).
 5. **Verify resolution.**
 6. **Remove source** — optional, only reachable after step 3 passed;

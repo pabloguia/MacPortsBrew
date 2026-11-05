@@ -1294,6 +1294,25 @@ fn unchecked_key(value: UncheckedCause) -> &'static str {
         }
         UncheckedCause::FallbackUnderOtherPrefix => "migrate.unchecked.fallback_under_other_prefix",
         UncheckedCause::ProbeVersionNotQualified => "migrate.unchecked.probe_version_not_qualified",
+        UncheckedCause::ProbeAsRoot => "migrate.unchecked.probe_as_root",
+        UncheckedCause::ProbeLeafRefused => "migrate.unchecked.probe_leaf_refused",
+        UncheckedCause::ProbeArgvNotTheRows => "migrate.unchecked.probe_argv_not_the_rows",
+        UncheckedCause::ProbeArgvNotPermitted => "migrate.unchecked.probe_argv_not_permitted",
+        UncheckedCause::ProbeEntryNotThePackages => {
+            "migrate.unchecked.probe_entry_not_the_packages"
+        }
+        UncheckedCause::ProbeTargetNotThePackages => {
+            "migrate.unchecked.probe_target_not_the_packages"
+        }
+        UncheckedCause::ProbeTargetModeRefused => "migrate.unchecked.probe_target_mode_refused",
+        UncheckedCause::ProbeProgramExcluded => "migrate.unchecked.probe_program_excluded",
+        UncheckedCause::ProbeTargetIsEnvScript => "migrate.unchecked.probe_target_is_env_script",
+        UncheckedCause::ProbeTargetChanged => "migrate.unchecked.probe_target_changed",
+        UncheckedCause::ProbeNotStarted => "migrate.unchecked.probe_not_started",
+        UncheckedCause::ProbeTimedOut => "migrate.unchecked.probe_timed_out",
+        UncheckedCause::ProbeLeftAProcess => "migrate.unchecked.probe_left_a_process",
+        UncheckedCause::ProbeOutputOverCap => "migrate.unchecked.probe_output_over_cap",
+        UncheckedCause::ProbeEndNotRead => "migrate.unchecked.probe_end_not_read",
         UncheckedCause::HeldVersionNotTold => "migrate.unchecked.held_version_not_told",
         UncheckedCause::FileNotExamined => "migrate.unchecked.file_not_examined",
         UncheckedCause::SpellingsDisagree => "migrate.unchecked.spellings_disagree",

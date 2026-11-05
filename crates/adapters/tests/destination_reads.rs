@@ -1099,11 +1099,9 @@ fn a_bare_word_on_any_interpreter_is_found_by_path_and_indeterminate_on_the_list
     assert!(examine(&[word], &[], &table).links_detected_provider);
     // The tail of a relative word is no path: `/x` is no file this script names.
     put(&scratch.0.join("tail/x"), b"x");
-    for line in ["#!/bin/sh tail/x\n", "#!/bin/sh -Itail/x\n"] {
-        let file = put(&own.join("share/relative"), line.as_bytes());
-        let facts = examine(&[file], &[], &table);
-        assert!(!facts.file_not_examined, "{line}: {facts:?}");
-    }
+    let file = put(&own.join("share/relative"), b"#!/bin/sh tail/x\n");
+    let facts = examine(&[file], &[], &table);
+    assert!(!facts.file_not_examined, "{facts:?}");
     let tail = format!("#!/bin/sh relative{}\n", scratch.0.join("tail/x").display());
     let file = put(&own.join("share/tail"), tail.as_bytes());
     let facts = examine(&[file], &[], &table);
@@ -2219,4 +2217,216 @@ fn the_bytes_read_are_counted() {
         .min(HEAD_BYTES as u64);
     let (_, work) = examine_counted(&[file], &[], &table);
     assert!(work.bytes >= length, "{work:?}");
+}
+
+// Round 7.
+
+/// `env -iS/x` really ran `/x`, off the list: flags may come before the value.
+#[test]
+fn a_flags_attached_value_is_read_however_many_letters_come_first() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    for flags in ["-S", "-iS", "-iuS"] {
+        let line = format!("#!/usr/bin/env {flags}{}/bin/p\n", other.display());
+        let file = put(&own.join("share/a"), line.as_bytes());
+        let facts = examine(&[file], &[], &table);
+        assert!(facts.links_detected_provider, "{flags}: {facts:?}");
+    }
+}
+
+/// A real file under the roots answers a name only if its head shows a dylib: dyld
+/// refused what is no dylib and loaded the other provider's. Only what this machine
+/// holds can show it, so a path that is not here is skipped.
+#[test]
+fn a_real_file_under_the_systems_roots_answers_a_name_only_if_it_is_a_dylib() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let places = Fallbacks {
+        libraries: vec![other.join("fb")],
+        frameworks: vec![other.join("nothing")],
+    };
+    for (name, is_dylib) in [
+        ("/usr/lib/dyld", false),
+        ("/usr/lib/dsc_extractor.bundle", false),
+        ("/usr/lib/libgmalloc.dylib", true),
+    ] {
+        let path = Path::new(name);
+        if !path.is_file() {
+            eprintln!("{name} is not here");
+            continue;
+        }
+        put(
+            &other.join("fb").join(path.file_name().unwrap()),
+            &thin(DYLIB, &[]),
+        );
+        let loader = put(
+            &own.join("bin/a"),
+            &thin(EXECUTE, &[(LOAD, name.as_bytes())]),
+        );
+        let facts = examine_with(&listed(Path::new("/"), &[loader]), &[], &table, &places).0;
+        assert_eq!(
+            facts.fallback_under_other_prefix, !is_dylib,
+            "{name}: {facts:?}"
+        );
+        // Through an `@rpath` too, where a file that is no dylib leaves the name unanswered.
+        let through = put(
+            &own.join("bin/b"),
+            &thin(
+                EXECUTE,
+                &[
+                    (RPATH, b"/usr/lib"),
+                    (
+                        LOAD,
+                        format!("@rpath/{}", path.file_name().unwrap().to_str().unwrap())
+                            .as_bytes(),
+                    ),
+                ],
+            ),
+        );
+        let by_name = examine_with(&listed(Path::new("/"), &[through]), &[], &table, &places).0;
+        assert_eq!(
+            by_name.fallback_under_other_prefix, !is_dylib,
+            "{name}: {by_name:?}"
+        );
+        assert_eq!(by_name.rpath_unresolved, !is_dylib, "{name}: {by_name:?}");
+        assert!(
+            !facts.malformed_file && !facts.unreadable_file,
+            "{name}: {facts:?}"
+        );
+    }
+}
+
+/// What the kernel starts is no dylib, so a dynamic linker is not held to being one.
+#[test]
+fn a_dynamic_linker_is_not_held_to_the_dylib_rule() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    put(&other.join("fb/mylinker"), &thin(DYLIB, &[]));
+    let places = only_libraries(other.join("fb"), &own);
+    let linker = put(&own.join("lib/mylinker"), b"plain text\n");
+    let loader = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(0xe, bytes_of(&linker))]),
+    );
+    let facts = examine_with(&listed(Path::new("/"), &[loader]), &[], &table, &places).0;
+    assert!(!facts.fallback_under_other_prefix, "{facts:?}");
+    // Nor does an absent one go on to dyld's fallback, which is not what starts it.
+    let absent = scratch.0.join("nowhere/mylinker");
+    let loader = put(
+        &own.join("bin/b"),
+        &thin(EXECUTE, &[(0xe, bytes_of(&absent))]),
+    );
+    let facts = examine_with(&listed(Path::new("/"), &[loader]), &[], &table, &places).0;
+    assert!(!facts.fallback_under_other_prefix, "{facts:?}");
+}
+
+/// A dylib marked for macOS and for Mac Catalyst, as the system's own can be.
+fn dylib_zippered() -> Vec<u8> {
+    let mut file = thin(DYLIB, &[]);
+    file[16..20].copy_from_slice(&2_u32.to_le_bytes());
+    file[20..24].copy_from_slice(&48_u32.to_le_bytes());
+    for platform in [1_u32, 6] {
+        file.extend_from_slice(&0x32_u32.to_le_bytes());
+        file.extend_from_slice(&24_u32.to_le_bytes());
+        file.extend_from_slice(&platform.to_le_bytes());
+        file.extend_from_slice(&[0; 12]);
+    }
+    file
+}
+
+/// A dylib holding one 16-byte version-min command.
+fn dylib_version_min(command: u32) -> Vec<u8> {
+    let mut file = thin(DYLIB, &[]);
+    file[16..20].copy_from_slice(&1_u32.to_le_bytes());
+    file[20..24].copy_from_slice(&16_u32.to_le_bytes());
+    file.extend_from_slice(&command.to_le_bytes());
+    file.extend_from_slice(&16_u32.to_le_bytes());
+    file.extend_from_slice(&[0; 8]);
+    file
+}
+
+#[test]
+fn a_version_min_of_another_platform_answers_no_name_and_macos_does() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    put(&other.join("fb/libF.dylib"), &thin(DYLIB, &[]));
+    let places = only_libraries(other.join("fb"), &own);
+    let named = own.join("lib/libF.dylib");
+    for (command, taken) in [(0x24, true), (0x25, false), (0x2f, false), (0x30, false)] {
+        put(&named, &dylib_version_min(command));
+        let loader = put(
+            &own.join("bin/a"),
+            &thin(EXECUTE, &[(LOAD, bytes_of(&named))]),
+        );
+        let facts = examine_with(&listed(Path::new("/"), &[loader]), &[], &table, &places).0;
+        assert_eq!(
+            facts.fallback_under_other_prefix, !taken,
+            "{command:#x}: {facts:?}"
+        );
+    }
+    put(&named, &dylib_zippered());
+    let loader = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, bytes_of(&named))]),
+    );
+    let facts = examine_with(&listed(Path::new("/"), &[loader]), &[], &table, &places).0;
+    assert!(!facts.fallback_under_other_prefix, "zippered: {facts:?}");
+}
+
+// The fifth proof.
+
+/// The system's own file at a fallback location is examined by nobody and doubted by
+/// nobody: only root can place it.
+#[test]
+fn the_systems_own_file_at_a_fallback_location_is_no_file_unexamined() {
+    let real = Path::new("/usr/lib/dyld");
+    if !real.is_file() {
+        eprintln!("{} is not here", real.display());
+        return;
+    }
+    let scratch = Scratch::new();
+    let (own, _, table) = scratch.table();
+    let named = scratch.0.join("nowhere/dyld");
+    let loader = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, bytes_of(&named))]),
+    );
+    let places = only_libraries(PathBuf::from("/usr/lib"), &own);
+    let facts = examine_with(&listed(Path::new("/"), &[loader]), &[], &table, &places).0;
+    assert!(!facts.file_not_examined, "{facts:?}");
+}
+
+/// `sh` takes `x=-I/...` as a relative file name, so its tail names nothing, and on the
+/// executable list the word already answers as found at run time. A flag's value is
+/// taken only from the start of a word.
+#[test]
+fn a_flag_value_is_taken_only_from_the_start_of_a_word() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let target = put(&other.join("lib/f"), b"x");
+    let line = format!("#!/bin/sh x=-I{}\n", target.display());
+    let bin = own.join("bin");
+    let script = put(&bin.join("s"), line.as_bytes());
+    let facts = examine(std::slice::from_ref(&script), &[], &table);
+    assert!(!facts.links_detected_provider, "{facts:?}");
+    let facts = examine(&[script], std::slice::from_ref(&bin), &table);
+    assert!(facts.env_shebang_on_list, "{facts:?}");
+}
+
+#[test]
+fn a_fallback_location_that_cannot_be_looked_at_proves_nothing() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let hidden = other.join("fb");
+    put(&hidden.join("libE.dylib"), b"x");
+    std::fs::set_permissions(&hidden, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let named = scratch.0.join("nowhere/libE.dylib");
+    let loader = put(
+        &own.join("bin/a"),
+        &thin(EXECUTE, &[(LOAD, bytes_of(&named))]),
+    );
+    let places = only_libraries(hidden.clone(), &own);
+    let facts = examine_with(&listed(Path::new("/"), &[loader]), &[], &table, &places).0;
+    std::fs::set_permissions(&hidden, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(facts.unreadable_file, "{facts:?}");
 }

@@ -490,6 +490,39 @@ mod tests {
     }
 
     #[test]
+    fn the_environment_is_the_reason_given_over_an_unresolved_name() {
+        assert_eq!(
+            judge_linkage(
+                false,
+                &LinkageFacts {
+                    dyld_environment: true,
+                    rpath_unresolved: true,
+                    ..LinkageFacts::default()
+                }
+            ),
+            CheckAnswer::Unchecked(UncheckedCause::DyldEnvironmentNotModelled)
+        );
+    }
+
+    #[test]
+    fn a_found_link_is_a_failure_though_the_environment_is_set() {
+        for fallback_under_other_prefix in [false, true] {
+            assert_eq!(
+                judge_linkage(
+                    false,
+                    &LinkageFacts {
+                        links_detected_provider: true,
+                        dyld_environment: true,
+                        fallback_under_other_prefix,
+                        ..LinkageFacts::default()
+                    }
+                ),
+                CheckAnswer::Fails(CheckFailure::LinksAnotherProvider)
+            );
+        }
+    }
+
+    #[test]
     fn a_dyld_environment_is_a_doubt_and_never_a_failure() {
         assert_eq!(
             judge_linkage(

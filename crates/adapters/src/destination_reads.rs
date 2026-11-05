@@ -358,6 +358,7 @@ pub fn examine_with(
         name_keys: HashSet::new(),
         loadable: HashSet::new(),
         pending: Vec::new(),
+        system_files_read: HashSet::new(),
     };
     for path in list.paths() {
         if walk.facts.walk_over_bound {
@@ -507,6 +508,8 @@ struct Walk<'a> {
     /// Each file a read showed a slice dyld could take for a dylib in this build.
     loadable: HashSet<(u64, u64)>,
     pending: Vec<PendingLoad>,
+    /// Each file under the system's roots whose head `can_be_taken` read.
+    system_files_read: HashSet<(u64, u64)>,
 }
 
 impl Walk<'_> {
@@ -871,17 +874,18 @@ impl Walk<'_> {
     /// The program is handed the word whole, so a path holding a CR or a separator is
     /// measured whole, from where the first absolute path in it starts. The pieces are
     /// measured too, since a CRLF line's word ends in a CR the script's author did not
-    /// mean, and `PATH=/x:/y` names two. The tail of a relative `bin/x` is no path, and
-    /// a flag's value is only ever taken from `-X/...`.
+    /// mean, and `PATH=/x:/y` names two. The tail of a relative `bin/x` is no path. A
+    /// flag's attached value starts at its first `/`, since `-iS/x` ran `/x` and flags
+    /// cannot be told from a relative value in `-cbin/x`, whose tail is then measured
+    /// for nothing.
     fn shebang_word(&mut self, word: &[u8]) {
         let mut at = 0;
         let mut whole = None;
         for piece in word.split(|b| matches!(b, b':' | b'=' | b'"' | b'\'' | b'\r')) {
-            let flag_value = at == 0 && piece.first() == Some(&b'-') && piece.get(2) == Some(&b'/');
-            let start = if piece.first() == Some(&b'/') {
+            let start = if at == 0 && piece.first() == Some(&b'-') {
+                piece.iter().position(|b| *b == b'/')
+            } else if piece.first() == Some(&b'/') {
                 Some(0)
-            } else if flag_value {
-                Some(2)
             } else {
                 None
             };
@@ -1030,13 +1034,11 @@ impl Walk<'_> {
         }
         match expand(name, directory, file_type) {
             Some(written) => {
-                if let Some(seen) = self.reached(&written, false) {
-                    if dylib || seen.canonical.is_none() {
-                        self.pending.push(PendingLoad {
-                            name: written.normal.clone(),
-                            candidates: vec![written],
-                        });
-                    }
+                if self.reached(&written, false).is_some() && dylib {
+                    self.pending.push(PendingLoad {
+                        name: written.normal.clone(),
+                        candidates: vec![written],
+                    });
                 }
             }
             None => self.facts.rpath_unresolved = true,
@@ -1073,15 +1075,63 @@ impl Walk<'_> {
     }
 
     /// Whether dyld could take the file `candidate` names, as far as a read can say: a
-    /// read of it showed a dylib for this build, or it is a real file of the system's
-    /// own, which only root can place and this walk does not read. Asked once every
-    /// candidate has been read, and it charges nothing, since `resolve` already did.
+    /// read of it showed a dylib for this build. A real file under the system's own roots
+    /// was not read by the walk, so its head is read here; its dylibs in the shared cache
+    /// are no file at all, and never reach this. Asked once every candidate has been
+    /// read, and it charges bytes only, since `resolve` charged the rest.
     fn can_be_taken(&mut self, candidate: &Spelled) -> bool {
         let Some(seen) = self.seen.get(seen_key(candidate)).cloned() else {
             return false;
         };
-        let read_as_dylib = seen.identity.is_some_and(|id| self.loadable.contains(&id));
-        read_as_dylib || seen.canonical.is_some_and(|real| self.is_system(&real))
+        let Some(identity) = seen.identity else {
+            return false;
+        };
+        if !self.loadable.contains(&identity) {
+            if let Some(real) = seen.canonical.filter(|real| is_under_system_root(real)) {
+                self.read_system_file(&real, identity);
+            }
+        }
+        self.loadable.contains(&identity)
+    }
+
+    /// What a system file says of itself, once: never a fact about the package, so
+    /// nothing it holds is walked and nothing about it is flagged.
+    fn read_system_file(&mut self, path: &Path, identity: (u64, u64)) {
+        if !self.system_files_read.insert(identity) {
+            return;
+        }
+        let Ok(file) = File::open(path) else {
+            return;
+        };
+        let Ok(length) = file.metadata().map(|metadata| metadata.len()) else {
+            return;
+        };
+        let Some(head) = self.window(&file, 0, macho::HEAD_BYTES as u64, length) else {
+            return;
+        };
+        let ranges = match macho::classify(&head, length) {
+            Ok(Classified::Thin(range)) => vec![range],
+            Ok(Classified::Fat(ranges)) => ranges,
+            _ => return,
+        };
+        for range in ranges {
+            let end = range.offset.saturating_add(range.size);
+            let Some(header) =
+                self.window(&file, range.offset, macho::SLICE_HEADER_BYTES as u64, end)
+            else {
+                return;
+            };
+            let Ok(SlicePlan::Window { len }) = macho::plan_slice(&header, range.size) else {
+                continue;
+            };
+            let Some(commands) = self.window(&file, range.offset, len, end) else {
+                return;
+            };
+            if macho::read_slice(&commands).is_ok_and(|refs| refs.is_dylib_for_this_build()) {
+                self.loadable.insert(identity);
+                return;
+            }
+        }
     }
 
     /// Every load none of whose own candidates dyld could take may go on to its
@@ -1152,8 +1202,14 @@ impl Walk<'_> {
             if !self.count(place.ancestors().count()) {
                 return;
             }
-            let Ok(real) = std::fs::canonicalize(&place) else {
-                continue;
+            let real = match std::fs::canonicalize(&place) {
+                Ok(real) => real,
+                Err(error) if is_gone(&error) => continue,
+                // A location that cannot be looked at proves nothing.
+                Err(_) => {
+                    self.facts.unreadable_file = true;
+                    continue;
+                }
             };
             let by_identity = self.class_by_identity(&real);
             let by_text = self.prefixes.class_of(real.as_os_str().as_bytes());
@@ -1280,6 +1336,8 @@ mod tests {
             GOOD.replace("man dyld", " "),
             GOOD.replace("2026-11-04", "soon"),
             GOOD.replace("2026-11-04", "2026-1-104"),
+            GOOD.replace("2026-11-04", "2026-11-0"),
+            GOOD.replace("2026-11-04", "2026-11-041"),
             GOOD.replace("2026-11-04", "2026-11-0x"),
             GOOD.replace("/a", "a"),
             GOOD.replace("/b", "b"),

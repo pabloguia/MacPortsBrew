@@ -106,11 +106,16 @@ this order, and the order is enforced rather than conventional:
    take your own with `macportsbrew snapshot --out before.json`.
 2. **Add destination** — install under MacPorts.
 3. **Verify destination** — the package is installed and active, what it
-   records of itself is on disk, its executables belong to it when read, no file
-   refers to the other package manager's directory, and a curated probe exits 0
+   records of itself is on disk, its executables belong to it when read, no load
+   command or `#!` line refers to the other package manager's directory, and a curated probe exits 0
    where one exists. What cannot be told is reported as unchecked, the source is
    kept, and the run exits 3. This version has the reads for integrity, ownership and
-   linkage, but refuses every plan before any of them runs, and it runs no probe.
+   linkage, but refuses every plan before any of them runs, and it runs no probe. With MacPorts
+   as the destination, every file its registry records for the active image must
+   exist, and every recorded symlink must resolve (R-25); this says nothing of content.
+   Linkage reads load commands and `#!` lines: it does not see `dlopen`, static links, a
+   binary outside the file list or a script body's own lookups, and it cannot prove
+   what dyld loads.
 4. **Set primary** — decide which copy actually runs. See
    [Primary Provider](Primary-Provider.md).
 5. **Verify resolution** — confirm it does.

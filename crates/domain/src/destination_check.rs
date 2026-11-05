@@ -77,6 +77,39 @@ pub enum UncheckedCause {
     /// says nothing about it. **Nothing answers this yet:** H-3's probe will, and
     /// it is here so that `migrate.v2` holds it before its first release.
     ProbeVersionNotQualified,
+    // Reserved for the admission H/01 stages (`docs/passes/16-liveness-design.md`), so
+    // the owner's patch stays inside the frozen module. **Nothing answers these yet,**
+    // like the one above.
+    /// Condition 2: this process runs as root.
+    ProbeAsRoot,
+    /// Condition 3: the name is no executable name.
+    ProbeLeafRefused,
+    /// Condition 4: the arguments are not the row's.
+    ProbeArgvNotTheRows,
+    /// Condition 5: the arguments are not of the closed set.
+    ProbeArgvNotPermitted,
+    /// Condition 7: the placed entry is not the package's, by the owner rule run now.
+    ProbeEntryNotThePackages,
+    /// Condition 8: the file it resolves to is not the package's.
+    ProbeTargetNotThePackages,
+    /// Condition 9: its file type, mode or owner.
+    ProbeTargetModeRefused,
+    /// Condition 10: a provider's program, a system probe, a shell or an interpreter.
+    ProbeProgramExcluded,
+    /// Condition 11: an `env` shebang.
+    ProbeTargetIsEnvScript,
+    /// What the name resolves to differed before and after.
+    ProbeTargetChanged,
+    /// The spawn failed.
+    ProbeNotStarted,
+    /// It outlived the timeout.
+    ProbeTimedOut,
+    /// Exit 0, and something kept its pipe open.
+    ProbeLeftAProcess,
+    /// Exit 0, over the output cap.
+    ProbeOutputOverCap,
+    /// A failed wait or a read error on a pipe.
+    ProbeEndNotRead,
     /// Nothing observed this: a replayed run, a run from a snapshot file, or a
     /// build with no observer for the check.
     NotObserved,
@@ -118,26 +151,30 @@ pub enum UncheckedCause {
     /// A reference lies under a documented prefix where no provider was
     /// detected, so it is nobody's for certain.
     UnderUndetectedPrefix,
-    /// A name none of whose candidates in the walk exists, unless one lies under the
-    /// system's roots; an `@executable_path` outside an executable; a path over the
-    /// system's limit; or a relative install name: what was read cannot say.
+    /// An `@rpath` name none of whose candidates, across every rpath the walk saw, is a
+    /// file a read showed dyld could take, unless an absent one lies under the system's
+    /// roots; an `@executable_path` outside an executable; a path over the system's
+    /// limit; or a relative install name: what was read cannot say.
     RpathUnresolved,
     /// A file carries `LC_DYLD_ENVIRONMENT`, and the search rules it changes are not
     /// modelled, so what loads cannot be told.
     DyldEnvironmentNotModelled,
-    /// A name resolved to nothing, and a file of that name lies under another prefix
-    /// where dyld's default fallback looks. Which loads cannot be told from here.
+    /// A name resolved to nothing dyld could take, or some file's own rpaths do not find
+    /// such a file whatever a sibling's found, and a file of that name lies under another
+    /// prefix where dyld's default fallback looks. Which loads cannot be told from here.
     FallbackUnderOtherPrefix,
-    /// An `env` or relative shebang on the executable list: what runs is decided
-    /// at run time.
+    /// On the executable list: an `env` shebang, a relative one, or a word on the line
+    /// that is no flag and does not start with `/`. What runs is decided at run time.
     InterpreterResolvedAtRunTime,
     /// A file could not be opened and read.
     UnreadableFile,
     /// The walk passed its bound, or reached a file it did not examine.
     WalkOverBound,
-    /// Something the package lists, loads or searches lies outside every known prefix,
-    /// or a load command names what is not a regular file: a file, a real rpath
-    /// directory, or a word on a `#!` line.
+    /// Something the package lists, loads or searches: a listed or reached file that is
+    /// not a regular file; a real file or rpath directory in no known prefix and outside
+    /// the system's own roots; a real file at a fallback location that no known prefix
+    /// holds; or a real interpreter or path in a `#!` line in no known prefix and outside
+    /// those and the system `PATH`.
     FileNotExamined,
     /// A path with `..` means one file written and another collapsed.
     SpellingsDisagree,

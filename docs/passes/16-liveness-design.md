@@ -88,6 +88,8 @@ observation; it never produces the permission.
 **`AdmittedProbe::admit` refuses unless all of these hold.** Each refusal is a named
 `ProbeObservation::NotRun(cause)`, which answers `Unchecked`, never a spawn.
 
+**The causes (reserved in the enum, work order 16 H-2 round 7; answered by nothing yet).** By condition: 1 `NOT_OBSERVED`; 2 `PROBE_AS_ROOT`; 3 `PROBE_LEAF_REFUSED`; 4 `NO_CURATED_PROBE` with no row, `PROBE_ARGV_NOT_THE_ROWS` otherwise; 5 `PROBE_ARGV_NOT_PERMITTED`; 6 `PROBE_VERSION_NOT_QUALIFIED`; 7 `PROBE_ENTRY_NOT_THE_PACKAGES`; 8 `PROBE_TARGET_NOT_THE_PACKAGES`; 9 `PROBE_TARGET_MODE_REFUSED`; 10 `PROBE_PROGRAM_EXCLUDED`; 11 `PROBE_TARGET_IS_ENV_SCRIPT`. The spawn failing is `PROBE_NOT_STARTED`, and the table below's unnamed `Unchecked` rows, a failed wait and a read error on a pipe, are `PROBE_END_NOT_READ`.
+
 | # | Condition | Why |
 |---|---|---|
 | 1 | The filesystem scope is `ThisMachine` and the runner is the live one | INV-15 |
