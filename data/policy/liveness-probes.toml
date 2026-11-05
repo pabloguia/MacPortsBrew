@@ -35,7 +35,7 @@
 #     (R-28's last section records these).
 #
 # The Homebrew `gettext` row lands and is not reached today: its keg holds Java
-# classes, which stop the probe (R-27's closing ruling).
+# classes, which stop the probe (R-27, Ruling on Java classes).
 #
 # R-28's row 8 (macports, gettext, gettext) did not requalify and is absent: the
 # file placed as `gettext` belongs to the port `gettext-runtime`. Rows 14-15 (`rg`)

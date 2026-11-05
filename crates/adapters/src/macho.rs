@@ -442,14 +442,6 @@ fn checked_range(
     }
 }
 
-/// Programs whose job is to run another one named on their line, so what a script
-/// using them runs is found at run time. `env`, plus what their manual pages say of
-/// the others. Observed 2026-11-04: of about 1,160 `#!` lines in both prefixes' `bin`,
-/// `sbin`, `libexec` and `share`, 827 used `env` and none used these five, which are
-/// here because they would otherwise read as a plain interpreter.
-const RUNS_ANOTHER_PROGRAM: [&[u8]; 6] =
-    [b"env", b"arch", b"nice", b"time", b"sandbox-exec", b"xcrun"];
-
 fn shebang(head: &[u8], file_len: u64) -> Result<Shebang, MachoError> {
     let rest = head.get(SHEBANG.len()..).unwrap_or_default();
     // No line end in what was read, with more of the file past it: its words are not
@@ -477,16 +469,11 @@ fn shebang(head: &[u8], file_len: u64) -> Result<Shebang, MachoError> {
     };
     if name.starts_with(b"/") {
         let leaf = name.rsplit(|byte| *byte == b'/').next().unwrap_or_default();
-        return Ok(
-            if RUNS_ANOTHER_PROGRAM
-                .iter()
-                .any(|w| leaf.eq_ignore_ascii_case(w))
-            {
-                Shebang::Env(name.to_vec())
-            } else {
-                Shebang::Absolute(name.to_vec())
-            },
-        );
+        return Ok(if leaf.eq_ignore_ascii_case(b"env") {
+            Shebang::Env(name.to_vec())
+        } else {
+            Shebang::Absolute(name.to_vec())
+        });
     }
     Ok(Shebang::Relative(name.to_vec()))
 }

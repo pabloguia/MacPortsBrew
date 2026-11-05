@@ -311,7 +311,7 @@ See [`docs/support-matrix.md`](docs/support-matrix.md).
 by a model and reviewed by others, not by a native speaker; `--json`, error
 identifiers, flags and command names stay English.
 
-**Policy data:** version `2026.11.04-2`. Dated provider facts — Homebrew's
+**Policy data:** version `2026.11.04-3`. Dated provider facts — Homebrew's
 support tiers and Intel timeline among them — carry their source and the date
 they were read, and the tool says when the newest of them (a row read from a local index counts
 at that index's date) is more than 180 days old.

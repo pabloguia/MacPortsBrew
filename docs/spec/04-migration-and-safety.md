@@ -63,7 +63,7 @@ The original brief said "verify" without defining it. It is defined here.
    package's own files or the destination files they load (see contamination check
    below). "New" is not claimed: the snapshot holds no baseline (R-27).
 
-**MUST** (DP-051, work order 16 part H; the answer model is built, H-1; integrity, ownership and linkage are observed since H-2, and no probe runs yet: SE-113). **Each of checks
+**MUST** (DP-051, work order 16 part H; the answer model is built, H-1. Past the gate, which this build does not reach, integrity, ownership and linkage would be observed since H-2, and no probe runs yet: SE-113). **Each of checks
 2 to 5 answers `HOLDS`, `FAILS` or `UNCHECKED`.** "Could not tell" is `UNCHECKED`, and
 is never either of the others. `FAILS` stops the step, and the source is kept. An
 `UNCHECKED` does not stop it: it is reported per check and per executable, **the source

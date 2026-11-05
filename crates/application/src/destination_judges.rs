@@ -158,6 +158,9 @@ pub fn judge_linkage(held_before: bool, facts: &LinkageFacts) -> CheckAnswer {
     if facts.fallback_under_other_prefix {
         return CheckAnswer::Unchecked(UncheckedCause::FallbackUnderOtherPrefix);
     }
+    if facts.dyld_environment {
+        return CheckAnswer::Unchecked(UncheckedCause::DyldEnvironmentNotModelled);
+    }
     if facts.rpath_unresolved {
         return CheckAnswer::Unchecked(UncheckedCause::RpathUnresolved);
     }
@@ -467,6 +470,20 @@ mod tests {
         assert_eq!(
             judge_linkage(false, &also),
             CheckAnswer::Fails(CheckFailure::LinksAnotherProvider)
+        );
+    }
+
+    #[test]
+    fn a_dyld_environment_is_a_doubt_and_never_a_failure() {
+        assert_eq!(
+            judge_linkage(
+                false,
+                &LinkageFacts {
+                    dyld_environment: true,
+                    ..LinkageFacts::default()
+                }
+            ),
+            CheckAnswer::Unchecked(UncheckedCause::DyldEnvironmentNotModelled)
         );
     }
 

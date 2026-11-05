@@ -190,6 +190,8 @@ pub struct LinkageFacts {
     /// A name resolved to nothing, and a file of that name lies under another prefix
     /// at a location dyld's default fallback searches.
     pub fallback_under_other_prefix: bool,
+    /// A file carries `LC_DYLD_ENVIRONMENT`, whose changes to the search are not modelled.
+    pub dyld_environment: bool,
     /// A file this reader cannot answer for.
     pub malformed_file: bool,
     /// A file that could not be opened and read.

@@ -78,7 +78,7 @@ direction plans in full. Here is the plan from the committed live capture of an
 Intel Mac running both providers, where `htop` is installed under both — which
 matters: in 0.1.0 a package is matched only against what the destination already
 has installed, or the small curated table, so a port Homebrew has not installed
-stops at *Needs a human decision* with "no equivalent found" (see
+stops at *Needs a human decision* with "No equivalent under homebrew reaches confidence level Strong" (see
 [Package Mapping](Package-Mapping.md)). The command and its complete output, which
 exits 0, held to what the program prints by a test:
 
@@ -95,7 +95,7 @@ Plan: move htop from macports to homebrew
 Steps, in order
   1. Take a snapshot - Take a snapshot of both package managers before the first change. This version does not take it for you: run `macportsbrew snapshot --out before.json` first.
   2. Add under the destination - htop is already installed under homebrew; nothing to add.
-  3. Verify the destination - Check that the destination reports it installed and active, that what it records of itself is present on disk, that the expected executables belong to it when read, that no file refers to another package manager's directory, and run each executable's curated probe where one exists (none exists yet). What cannot be told is reported as unchecked, and the source is then kept.
+  3. Verify the destination - Check that the destination reports it installed and active, that what it records of itself is present on disk, that the expected executables belong to it when read, that no file refers to another package manager's directory, and run each executable's curated probe where one exists (this version runs none). What cannot be told is reported as unchecked, and the source is then kept.
        $ /usr/local/bin/brew list --versions htop
        $ /usr/local/bin/brew info --json=v2 --installed  [passes when this whole list marks exactly one installation of the package as the active one; refused unless it exited cleanly, was not truncated and came back non-empty]
        ? the provider reports it installed and active
@@ -116,7 +116,7 @@ Steps, in order
 
 Steps that need administrator rights: 5.
 
-Plan digest: sha256:37239943dd05b7f0d9c6067a6791c257e70f3190901d14276706c4222b77eed2
+Plan digest: sha256:e7c9f41f39933fcce1e89804233996192fff0a296810fab447004ff25bbfd054
 
 Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which refuses every plan this build produces.
 
@@ -126,22 +126,21 @@ Possibly inconsistent: this was read from a recording or a snapshot file, which 
 Read it the way you would read the other direction's: steps in order, each
 command with how to check it, the one step that needs administrator rights
 named, and nothing removed from MacPorts until step 3 has verified the Homebrew
-copy. Step 4 is not a command in this version; it tells you what to do by hand.
+copy. Step 3's probe stays unchecked here, so the source is kept and step 5 is not
+reached in this plan. Step 4 sets nothing.
 Live, the last line says what one sample of the providers' own locks answered.
 Here it says a snapshot file cannot show that. `--json` carries the same answer as
 `concurrentProviderActivity`.
 
-The [Homebrew to MacPorts](Homebrew-to-MacPorts-Migration.md) page's example
-is replayed from a recording, and a test holds that block to the program's
-output. The block above is copied from a real run but is not checked by that
-test, which accepts only replayed recordings. What the tests establish about
-symmetry is stated where it is checked:
+Both pages' examples are read from the committed live capture, and a test holds
+each block to the program's output. What the tests establish about symmetry is
+stated where it is checked:
 `invariant_17_swapping_the_providers_swaps_the_analysis` swaps the providers in
 the input and asserts the analysis swaps with them;
 `invariant_17_a_macports_to_homebrew_plan_is_built_from_a_live_capture` builds
 this plan from the live capture and checks it mirrors the other direction. The
 test that puts every plan from the replayed recordings to the execution gate
-reaches only Homebrew-to-MacPorts plans, for the reason above; the
+reaches only Homebrew-to-MacPorts plans; the
 MacPorts-to-Homebrew direction of the gate is covered by a synthesised snapshot
 in `crates/application/tests/execution_gate.rs`.
 
@@ -149,7 +148,7 @@ A package that owns data is never migrated automatically, in either direction.
 No committed input holds such a package under MacPorts with its service facts
 recorded, so this page cannot show one moving to Homebrew. The same rule in the
 other direction, from `plan postgresql17-server --to macports` replayed from
-`both-providers-arm64-macos15` (the plan's first three risk lines; `…` marks
+`both-providers-arm64-macos15` (the plan's first two risk lines; `…` marks
 what is left out):
 
 ```
@@ -183,11 +182,12 @@ Identical to the other direction, because it is the same planner:
    manager's directory, and a curated probe where one exists. What cannot be told is
    reported as unchecked, the source is kept, and the run exits 3. This version has
    the reads for integrity, ownership and linkage, but refuses every plan before any
-   of them runs, and it has no probe. **With Homebrew as the destination, a file
+   of them runs, and it runs no probe. **With Homebrew as the destination, a file
    missing from a keg is not detected:** `brew list --formula` lists the keg when
    asked rather than from a record (Homebrew `874c46a`, read 2026-11-04), so the check
    rests on the receipt, a keg with more than its metadata, no dangling link and the
-   recorded dependencies. The owner has not ruled on this basis (DP-057).
+   recorded dependencies. The owner has not ruled on this basis (DP-057, as of
+   2026-11-04).
 4. **Set primary** — see [Primary Provider](Primary-Provider.md).
 5. **Verify resolution.**
 6. **Remove source** — optional, only reachable after step 3 passed;

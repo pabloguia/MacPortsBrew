@@ -62,7 +62,7 @@ const SYSTEM_ROOTS: [&str; 3] = [
 
 /// Where dyld looks after a name resolves to nothing, from
 /// `data/policy/dyld-fallbacks.toml`, whose comment quotes `man dyld`.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct Fallbacks {
     /// Searched for a dylib's leaf.
     pub libraries: Vec<PathBuf>,
@@ -70,15 +70,43 @@ pub struct Fallbacks {
     pub frameworks: Vec<PathBuf>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FallbacksFile {
+    source: String,
+    read_on: String,
+    libraries: Vec<PathBuf>,
+    frameworks: Vec<PathBuf>,
+}
+
 impl Fallbacks {
     /// The defaults `man dyld` states.
     ///
     /// # Panics
-    /// If the embedded file does not parse, which a test holds.
+    /// If the embedded file is refused, which a test holds.
     #[must_use]
     pub fn dyld() -> Self {
-        toml::from_str(include_str!("../../../data/policy/dyld-fallbacks.toml"))
-            .expect("the embedded dyld-fallbacks.toml parses")
+        Self::parse(include_str!("../../../data/policy/dyld-fallbacks.toml"))
+            .unwrap_or_else(|why| panic!("data/policy/dyld-fallbacks.toml: {why}"))
+    }
+
+    /// An empty list would silently stop the look, so it is refused, and so is a file
+    /// with no provenance (INV-20).
+    fn parse(text: &str) -> Result<Self, String> {
+        let file: FallbacksFile = toml::from_str(text).map_err(|e| e.to_string())?;
+        if file.source.trim().is_empty() {
+            return Err("no source".to_owned());
+        }
+        if file.read_on.len() != 10 || file.read_on.chars().filter(|c| *c == '-').count() != 2 {
+            return Err(format!("read_on is not YYYY-MM-DD: {:?}", file.read_on));
+        }
+        if file.libraries.is_empty() || file.frameworks.is_empty() {
+            return Err("an empty list stops the look".to_owned());
+        }
+        Ok(Self {
+            libraries: file.libraries,
+            frameworks: file.frameworks,
+        })
     }
 }
 
@@ -310,7 +338,7 @@ pub fn examine_with(
         rpaths: Vec::new(),
         rpath_keys: HashSet::new(),
         names: Vec::new(),
-        name_keys: HashSet::new(),
+        name_index: HashMap::new(),
     };
     for path in list.paths() {
         if walk.facts.walk_over_bound {
@@ -319,7 +347,8 @@ pub fn examine_with(
         walk.own_entry(path);
     }
     // A name is tried against every rpath the walk has seen, and a candidate that
-    // exists can join the walk and bring more: round until nothing new is left.
+    // exists can join the walk and bring more, and so can a fallback location: round
+    // until nothing new is left.
     loop {
         while let Some(next) = walk.queue.pop() {
             if walk.facts.walk_over_bound {
@@ -327,7 +356,10 @@ pub fn examine_with(
             }
             walk.read_file(&next, Reached::ByLoadCommand);
         }
-        if walk.facts.walk_over_bound || !walk.try_rpath_names() {
+        if walk.facts.walk_over_bound {
+            break;
+        }
+        if !walk.try_rpath_names() && !walk.fall_back_for_missed_names() {
             break;
         }
     }
@@ -341,6 +373,7 @@ pub fn examine_with(
 /// A reference as written: `raw` is the text joined and untouched, `..` intact,
 /// and `normal` the same with dots collapsed. They name one file unless a
 /// directory link lies under a `..`, and that is why both are kept.
+#[derive(Clone)]
 struct Spelled {
     raw: Vec<u8>,
     normal: Vec<u8>,
@@ -412,6 +445,9 @@ struct RpathName {
     found: bool,
     /// A candidate lies under the system's roots, with no file on disk.
     in_system: bool,
+    /// Some file loads this name and its own rpaths do not find it. Never cleared by
+    /// another file's: the run path list runs up one chain and not across siblings.
+    missed_by_its_own_file: bool,
 }
 
 struct Walk<'a> {
@@ -441,7 +477,7 @@ struct Walk<'a> {
     rpaths: Vec<Spelled>,
     rpath_keys: HashSet<Vec<u8>>,
     names: Vec<RpathName>,
-    name_keys: HashSet<Vec<u8>>,
+    name_index: HashMap<Vec<u8>, usize>,
 }
 
 impl Walk<'_> {
@@ -767,10 +803,18 @@ impl Walk<'_> {
     /// it is, and is read if it is a regular file of the destination; a directory on
     /// a search path is not a program, and says nothing. What a script's body does is
     /// not read.
+    ///
+    /// A word that is no flag and holds no `/` is found by `PATH`, whatever the
+    /// interpreter: `nohup python3`, `caffeinate -i python3`. So there is no list of
+    /// programs that run others, only `env`, whose `-Spython3` has no such word.
     fn shebang(&mut self, shebang: &Shebang, head: &[u8]) -> bool {
-        let wrapper = matches!(shebang, Shebang::Env(_));
-        for word in macho::shebang_arguments(head) {
-            if wrapper && word.first() == Some(&b'/') {
+        let is_env = matches!(shebang, Shebang::Env(_));
+        let words = macho::shebang_arguments(head);
+        let found_by_path = words
+            .iter()
+            .any(|word| word.first() != Some(&b'-') && !word.contains(&b'/'));
+        for word in words {
+            if is_env && word.first() == Some(&b'/') {
                 self.lexical(word, Read::Interpreter);
                 continue;
             }
@@ -783,7 +827,7 @@ impl Walk<'_> {
         match shebang {
             Shebang::Absolute(path) => {
                 self.lexical(path, Read::Interpreter);
-                false
+                found_by_path
             }
             // `env`'s own path is still an answer; what it finds is not.
             Shebang::Env(path) => {
@@ -831,6 +875,7 @@ impl Walk<'_> {
             .parent()
             .map_or(&b"/"[..], |d| d.as_os_str().as_bytes())
             .to_vec();
+        let mut own = Vec::with_capacity(refs.rpaths.len());
         for rpath in &refs.rpaths {
             let Some(written) = expand(rpath, &directory, refs.file_type) else {
                 self.facts.rpath_unresolved = true;
@@ -846,8 +891,9 @@ impl Walk<'_> {
                 }
             }
             if self.rpath_keys.insert(written.raw.clone()) {
-                self.rpaths.push(written);
+                self.rpaths.push(written.clone());
             }
+            own.push(written);
         }
         for reference in &refs.loads {
             if self.facts.walk_over_bound {
@@ -861,14 +907,17 @@ impl Walk<'_> {
                 | LoadKind::Lazy
                 | LoadKind::Upward
                 | LoadKind::Dylinker => {
-                    self.load(&reference.name, &directory, refs.file_type);
+                    self.load(&reference.name, &directory, refs.file_type, &own);
                 }
             }
         }
     }
 
-    /// `NAME=value`, whose value is a `:`-separated list of paths.
+    /// `NAME=value`, whose value is a `:`-separated list of paths. What it names is
+    /// measured, and the search rules it changes are not modelled, so any such command
+    /// leaves the check unable to say what loads.
     fn dyld_environment(&mut self, text: &[u8], directory: &[u8]) {
+        self.facts.dyld_environment = true;
         let value = text
             .iter()
             .position(|b| *b == b'=')
@@ -884,18 +933,34 @@ impl Walk<'_> {
         }
     }
 
-    fn load(&mut self, name: &[u8], directory: &[u8], file_type: ExaminedType) {
+    fn load(&mut self, name: &[u8], directory: &[u8], file_type: ExaminedType, own: &[Spelled]) {
         if let Some(rest) = name.strip_prefix(b"@rpath/") {
             // dyld joins it, however many slashes it starts with.
             let rest = without_leading_slashes(rest).to_vec();
-            if self.name_keys.insert(rest.clone()) {
+            let mut found_by_own = false;
+            for rpath in own {
+                let Some(candidate) = spelled(Some(&rpath.raw), &rest) else {
+                    continue;
+                };
+                let Some(seen) = self.resolve(&candidate) else {
+                    return;
+                };
+                found_by_own |= seen.canonical.is_some();
+            }
+            let index = if let Some(index) = self.name_index.get(&rest) {
+                *index
+            } else {
+                self.name_index.insert(rest.clone(), self.names.len());
                 self.names.push(RpathName {
                     rest,
                     tried: 0,
                     found: false,
                     in_system: false,
+                    missed_by_its_own_file: false,
                 });
-            }
+                self.names.len() - 1
+            };
+            self.names[index].missed_by_its_own_file |= !found_by_own;
             return;
         }
         match expand(name, directory, file_type) {
@@ -941,29 +1006,39 @@ impl Walk<'_> {
         any
     }
 
+    /// Every name some file's own rpaths do not find may go on to dyld's fallback,
+    /// whatever another file's rpath found: `man dyld` builds the run path list from
+    /// the images "in the dependency chain that lead to the current dylib load". The
+    /// walk holds no load graph, so a name found only through a real ancestor's rpath
+    /// also looks here, an over-approximation that can only add `UNCHECKED`. `true` when
+    /// that gave the walk something new to read.
+    fn fall_back_for_missed_names(&mut self) -> bool {
+        let missed: Vec<Vec<u8>> = self
+            .names
+            .iter()
+            .filter(|name| name.missed_by_its_own_file)
+            .map(|name| name.rest.clone())
+            .collect();
+        for rest in missed {
+            self.fallback(&rest);
+        }
+        !self.queue.is_empty()
+    }
+
     /// Zero candidates must not read as clean, and neither must candidates none of
     /// which is there: the name loads from nothing this walk says, whatever a candidate
     /// that is not there is spelled like. The exception is the system's own, whose
     /// dylibs live in the shared cache with no file, and then only when no candidate
-    /// exists elsewhere, which `reached` has already measured. Either way nothing on
-    /// disk answered it, so dyld's fallback applies.
+    /// exists elsewhere, which `reached` has already measured.
     fn settle_rpath_names(&mut self) {
-        let settled: Vec<(Vec<u8>, bool)> = self
-            .names
-            .iter()
-            .filter(|name| !name.found)
-            .map(|name| (name.rest.clone(), name.in_system))
-            .collect();
-        for (rest, in_system) in settled {
-            self.facts.rpath_unresolved |= !in_system;
-            self.fallback(&rest);
-        }
+        self.facts.rpath_unresolved |= self.names.iter().any(|name| !name.found && !name.in_system);
     }
 
     /// A name resolved to nothing, so dyld may try its fallback locations. Whether it
     /// does depends on the binary's age, which the reader cannot tell, and which loads
     /// depends on what is in the shared cache, so another provider's file there is a
-    /// doubt and never a failure. Nothing here is read or noted as a reference.
+    /// doubt and never a failure. The destination's own file there joins the walk, and
+    /// a real file nobody can place was examined by nobody, as `reached` says.
     fn fallback(&mut self, name: &[u8]) {
         if !self.fallback_names.insert(name.to_vec()) {
             return;
@@ -989,10 +1064,12 @@ impl Walk<'_> {
             let Ok(real) = std::fs::canonicalize(&place) else {
                 continue;
             };
+            let by_identity = self.class_by_identity(&real);
+            let by_text = self.prefixes.class_of(real.as_os_str().as_bytes());
             let classes = [
                 self.prefixes.class_of(place.as_os_str().as_bytes()),
-                self.prefixes.class_of(real.as_os_str().as_bytes()),
-                self.class_by_identity(&real),
+                by_text,
+                by_identity,
             ];
             self.facts.fallback_under_other_prefix |= classes.iter().any(|class| {
                 matches!(
@@ -1000,6 +1077,19 @@ impl Walk<'_> {
                     Some(PrefixClass::DetectedOther | PrefixClass::UndetectedCandidate)
                 )
             });
+            match by_identity.or(by_text) {
+                Some(PrefixClass::Destination) => {
+                    if self.queued.insert(real.clone()) {
+                        self.queue.push(real);
+                    }
+                }
+                None => {
+                    if !self.is_system(&real) {
+                        self.facts.file_not_examined = true;
+                    }
+                }
+                Some(_) => {}
+            }
         }
     }
 
@@ -1068,4 +1158,32 @@ fn path_of(written: &Spelled) -> &Path {
 #[must_use]
 pub fn is_under_system_root(path: &Path) -> bool {
     SYSTEM_ROOTS.iter().any(|root| path.starts_with(root))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Fallbacks;
+
+    const GOOD: &str = "source = \"man dyld\"\nread_on = \"2026-11-04\"\n\
+                        libraries = [\"/a\"]\nframeworks = [\"/b\"]\n";
+
+    /// As `prefixes.rs` holds its own file: provenance, and nothing silently empty.
+    #[test]
+    fn the_fallback_file_carries_its_provenance_and_refuses_what_stops_the_look() {
+        assert!(Fallbacks::parse(GOOD).is_ok());
+        let text = include_str!("../../../data/policy/dyld-fallbacks.toml");
+        let embedded = Fallbacks::parse(text).expect("the embedded file loads");
+        assert!(!embedded.libraries.is_empty() && !embedded.frameworks.is_empty());
+        for broken in [
+            GOOD.replace("source = \"man dyld\"\n", ""),
+            GOOD.replace("read_on = \"2026-11-04\"\n", ""),
+            GOOD.replace("man dyld", " "),
+            GOOD.replace("2026-11-04", "soon"),
+            GOOD.replace("[\"/a\"]", "[]"),
+            GOOD.replace("[\"/b\"]", "[]"),
+            format!("{GOOD}unknown = 1\n"),
+        ] {
+            assert!(Fallbacks::parse(&broken).is_err(), "{broken}");
+        }
+    }
 }

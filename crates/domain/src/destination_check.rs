@@ -122,6 +122,9 @@ pub enum UncheckedCause {
     /// system's roots; an `@executable_path` outside an executable; a path over the
     /// system's limit; or a relative install name: what was read cannot say.
     RpathUnresolved,
+    /// A file carries `LC_DYLD_ENVIRONMENT`, and the search rules it changes are not
+    /// modelled, so what loads cannot be told.
+    DyldEnvironmentNotModelled,
     /// A name resolved to nothing, and a file of that name lies under another prefix
     /// where dyld's default fallback looks. Which loads cannot be told from here.
     FallbackUnderOtherPrefix,
@@ -132,8 +135,9 @@ pub enum UncheckedCause {
     UnreadableFile,
     /// The walk passed its bound, or reached a file it did not examine.
     WalkOverBound,
-    /// A listed file or a name under the destination leads outside every known
-    /// prefix, or a load command names something that is not a regular file.
+    /// Something the package lists, loads or searches lies outside every known prefix,
+    /// or a load command names what is not a regular file: a file, a real rpath
+    /// directory, or a word on a `#!` line.
     FileNotExamined,
     /// A path with `..` means one file written and another collapsed.
     SpellingsDisagree,

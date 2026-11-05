@@ -312,10 +312,10 @@ comments:
    snapshot cannot say (04, check 1). A planner
    `VERIFY_DESTINATION` also carries DP-051's four checks. Those are answered
    through a destination site rather than a read, with `HOLDS`, `FAILS` or
-   `UNCHECKED` (`04-migration-and-safety.md`). Integrity, ownership and linkage are
-   observed on this machine under the run's lock. Past the gate, which this build
-   does not reach, the probe would answer `UNCHECKED` / `NOT_OBSERVED` until its
-   admission lands, as would all four under a replay or a snapshot file.
+   `UNCHECKED` (`04-migration-and-safety.md`). Past the gate, which this build does
+   not reach, integrity, ownership and linkage would be observed on this machine
+   under the run's lock, and the probe would answer `UNCHECKED` / `NOT_OBSERVED` until
+   its admission lands, as would all four under a replay or a snapshot file.
    `FAILS` halts, `UNCHECKED` keeps
    the source and ends the run `COMPLETED_WITH_UNCHECKED`. **The gate refuses a
    `VERIFY_DESTINATION` missing `PROVIDER_REPORTS_ACTIVE` or any of the four, one
@@ -323,7 +323,8 @@ comments:
    probes and skips are not its executable list**
    (`DESTINATION_CONTRACT_INCOMPLETE`), and a
    `LIVENESS_PROBE` whose argv is not the curated table's
-   (`PROBE_IS_NOT_THE_TABLES`; this build holds no row, so it refuses every one).
+   (`PROBE_IS_NOT_THE_TABLES`: refused when the argv differs from the row, or no row
+   exists).
    In this build a plan with a mutating step is refused by
    `MUTATION_NOT_IN_THIS_BUILD`.
    **Evaluable means evaluable by this plan:** a check this build evaluates on
@@ -947,7 +948,7 @@ non-mutating and the command exits 4:
       "blocking": true
     }
   ],
-  "policyVersion": "2026.11.04-2",
+  "policyVersion": "2026.11.04-3",
   "dryRunOnly": true,
   "concurrentProviderActivity": {
     "activity": "UNKNOWABLE",

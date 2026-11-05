@@ -1289,6 +1289,9 @@ fn unchecked_key(value: UncheckedCause) -> &'static str {
         UncheckedCause::DependenciesNotTold => "migrate.unchecked.dependencies_not_told",
         UncheckedCause::EntryLeavesOwner => "migrate.unchecked.entry_leaves_owner",
         UncheckedCause::OwnerNotNamed => "migrate.unchecked.owner_not_named",
+        UncheckedCause::DyldEnvironmentNotModelled => {
+            "migrate.unchecked.dyld_environment_not_modelled"
+        }
         UncheckedCause::FallbackUnderOtherPrefix => "migrate.unchecked.fallback_under_other_prefix",
         UncheckedCause::ProbeVersionNotQualified => "migrate.unchecked.probe_version_not_qualified",
         UncheckedCause::HeldVersionNotTold => "migrate.unchecked.held_version_not_told",
