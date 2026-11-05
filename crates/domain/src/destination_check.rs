@@ -118,10 +118,13 @@ pub enum UncheckedCause {
     /// A reference lies under a documented prefix where no provider was
     /// detected, so it is nobody's for certain.
     UnderUndetectedPrefix,
-    /// An `@rpath` name with no candidate that exists or lies in the destination,
-    /// an `@executable_path` outside an executable, or a relative install name:
-    /// the file alone cannot say.
+    /// A name none of whose candidates in the walk exists, unless one lies under the
+    /// system's roots; an `@executable_path` outside an executable; a path over the
+    /// system's limit; or a relative install name: what was read cannot say.
     RpathUnresolved,
+    /// A name resolved to nothing, and a file of that name lies under another prefix
+    /// where dyld's default fallback looks. Which loads cannot be told from here.
+    FallbackUnderOtherPrefix,
     /// An `env` or relative shebang on the executable list: what runs is decided
     /// at run time.
     InterpreterResolvedAtRunTime,

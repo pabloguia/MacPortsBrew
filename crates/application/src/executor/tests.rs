@@ -3182,6 +3182,10 @@ fn every_linkage_answer_but_holds_stops_the_probe_and_is_the_reason_given() {
         UncheckedCause::RpathUnresolved,
         UncheckedCause::InterpreterResolvedAtRunTime,
         UncheckedCause::ReadFailed,
+        UncheckedCause::ListsOutsidePrefix,
+        UncheckedCause::ListOverCap,
+        UncheckedCause::FileListNotKnown,
+        UncheckedCause::FallbackUnderOtherPrefix,
     ] {
         let run = full_run();
         let plan = run.plan();

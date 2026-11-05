@@ -155,6 +155,9 @@ pub fn judge_linkage(held_before: bool, facts: &LinkageFacts) -> CheckAnswer {
     if facts.under_undetected_prefix {
         return CheckAnswer::Unchecked(UncheckedCause::UnderUndetectedPrefix);
     }
+    if facts.fallback_under_other_prefix {
+        return CheckAnswer::Unchecked(UncheckedCause::FallbackUnderOtherPrefix);
+    }
     if facts.rpath_unresolved {
         return CheckAnswer::Unchecked(UncheckedCause::RpathUnresolved);
     }
@@ -464,6 +467,20 @@ mod tests {
         assert_eq!(
             judge_linkage(false, &also),
             CheckAnswer::Fails(CheckFailure::LinksAnotherProvider)
+        );
+    }
+
+    #[test]
+    fn a_name_found_only_at_a_fallback_location_is_a_doubt_and_never_a_failure() {
+        assert_eq!(
+            judge_linkage(
+                false,
+                &LinkageFacts {
+                    fallback_under_other_prefix: true,
+                    ..LinkageFacts::default()
+                }
+            ),
+            CheckAnswer::Unchecked(UncheckedCause::FallbackUnderOtherPrefix)
         );
     }
 

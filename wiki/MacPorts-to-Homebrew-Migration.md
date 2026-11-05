@@ -79,14 +79,14 @@ Intel Mac running both providers, where `htop` is installed under both — which
 matters: in 0.1.0 a package is matched only against what the destination already
 has installed, or the small curated table, so a port Homebrew has not installed
 stops at *Needs a human decision* with "no equivalent found" (see
-[Package Mapping](Package-Mapping.md)). The command and its complete output,
-which exits 0 (the plan digest is shortened here: its 64 digits change with each
-version, and a digest is not something to publish):
+[Package Mapping](Package-Mapping.md)). The command and its complete output, which
+exits 0, held to what the program prints by a test:
 
 ```sh
 macportsbrew --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json migrate htop --to homebrew
 ```
 
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json migrate htop --to homebrew -->
 ```
 Plan: move htop from macports to homebrew
   This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source with --retain-source until you are sure. You run them at your own risk.
@@ -95,29 +95,28 @@ Plan: move htop from macports to homebrew
 Steps, in order
   1. Take a snapshot - Take a snapshot of both package managers before the first change. This version does not take it for you: run `macportsbrew snapshot --out before.json` first.
   2. Add under the destination - htop is already installed under homebrew; nothing to add.
-  3. Verify the destination - Check that the destination reports it installed and active, that what it records of itself is present on disk, that the expected executables belong to it when read, that no file refers to another package manager's directory, and run each executable's curated probe where one exists. What cannot be told is reported as unchecked, and the source is then kept.
+  3. Verify the destination - Check that the destination reports it installed and active, that what it records of itself is present on disk, that the expected executables belong to it when read, that no file refers to another package manager's directory, and run each executable's curated probe where one exists (none exists yet). What cannot be told is reported as unchecked, and the source is then kept.
        $ /usr/local/bin/brew list --versions htop
        $ /usr/local/bin/brew info --json=v2 --installed  [passes when this whole list marks exactly one installation of the package as the active one; refused unless it exited cleanly, was not truncated and came back non-empty]
        ? the provider reports it installed and active
        ? what the package records of itself is present on disk; this is no proof of its content or that it runs
-       ? the expected executables belong to the destination when read: htop
-       ? htop has no curated probe, so it stays unchecked and the source will be kept
+       ? the expected executables belong to the destination when read
+       ? no executable to probe, so this stays unchecked and the source will be kept
        ? no file refers to another package manager's directory when read
-  4. Set the primary - Make homebrew's copy the one that runs.
-       Not a command in this version. To make the copy under homebrew the one that runs, put its bin directory ahead of the other package manager's on PATH, or call it by its full path.
-       ? the provider reports it installed and active
-  5. Verify what resolves - Check which copy now runs: `command -v htop` should print a path under the destination's prefix.
-  6. Remove from the source - Remove htop from macports. This happens only after the destination is verified.
+  4. Set the primary - Decide, from this PATH, whether homebrew's copy already runs. This release changes no primary: this step sets nothing, and where the copy does not already run the plan is refused before any step.
+       ! which executables the package installs is not known
+       This decision used the PATH this run saw. Check `command -v <name>` in your shell; `hash -r` clears a stale entry.
+  5. Remove from the source - Remove htop from macports. This happens only after the destination is verified.
        $ /opt/local/bin/port uninstall htop  [elevation required: The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02).]
-  7. Verify the removal - Verify the removal.
+  6. Verify the removal - Verify the removal.
        $ /opt/local/bin/port -q installed  [passes when this list does NOT name the package; refused unless it exited cleanly, was not truncated and came back non-empty]
        ? the source no longer reports it installed
-  8. Review what is left behind - Show cleanup candidates from the provider's own mechanism for review; nothing is removed automatically.
-  9. Record the run - Record what was done. This version executes nothing, so it records no run; `history` and `restore --plan` read the runs a later version records. Take your own before-snapshot (`macportsbrew snapshot --out before.json`).
+  7. Review what is left behind - Show cleanup candidates from the provider's own mechanism for review; nothing is removed automatically.
+  8. Record the run - Record what was done. This version executes nothing, so it records no run; `history` and `restore --plan` read the runs a later version records. Take your own before-snapshot (`macportsbrew snapshot --out before.json`).
 
-Steps that need administrator rights: 6.
+Steps that need administrator rights: 5.
 
-Plan digest: sha256:…
+Plan digest: sha256:37239943dd05b7f0d9c6067a6791c257e70f3190901d14276706c4222b77eed2
 
 Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which refuses every plan this build produces.
 
@@ -182,9 +181,13 @@ Identical to the other direction, because it is the same planner:
 3. **Verify destination** — installed, active, what the package records of itself on disk,
    executables belonging to it when read, no file referring to the other package
    manager's directory, and a curated probe where one exists. What cannot be told is
-   reported as unchecked, the source is kept, and the run exits 3. This version
-   reads the integrity, ownership and linkage checks and runs no probe yet, so a probe
-   answers unchecked.
+   reported as unchecked, the source is kept, and the run exits 3. This version has
+   the reads for integrity, ownership and linkage, but refuses every plan before any
+   of them runs, and it has no probe. **With Homebrew as the destination, a file
+   missing from a keg is not detected:** `brew list --formula` lists the keg when
+   asked rather than from a record (Homebrew `874c46a`, read 2026-11-04), so the check
+   rests on the receipt, a keg with more than its metadata, no dangling link and the
+   recorded dependencies. The owner has not ruled on this basis (DP-057).
 4. **Set primary** — see [Primary Provider](Primary-Provider.md).
 5. **Verify resolution.**
 6. **Remove source** — optional, only reachable after step 3 passed;

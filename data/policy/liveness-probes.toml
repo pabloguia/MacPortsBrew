@@ -18,8 +18,8 @@
 #
 # How every row here was qualified on 2026-11-04 (x86_64, one machine; absence is
 # bounded by this sample):
-#   - run as the canonical path with arg0 = the placed leaf, from a scratch path
-#     of the state directory's shape, with a space in it, serving as HOME, TMPDIR
+#   - run as the canonical path with arg0 = the placed leaf (under the sandbox arg0
+#     is the path), from a scratch path with a space in it, serving as HOME, TMPDIR
 #     and the working directory, with the design note's exact environment;
 #   - exit 0 under the destination's bin plus the system PATH, and under the
 #     system PATH alone;
@@ -31,7 +31,11 @@
 #   - nothing written in scratch, no process left, no crash report, xcrun's cache
 #     unchanged, nothing new under ~/Library naming the program, a search by name
 #     and not exhaustive (R-28's last section says what it left out);
-#   - a compiled program, not an env script; a regular file, no setuid or setgid.
+#   - a compiled program, not an env script; a regular file, no setuid or setgid
+#     (R-28's last section records these).
+#
+# The Homebrew `gettext` row lands and is not reached today: its keg holds Java
+# classes, which stop the probe (R-27's closing ruling).
 #
 # R-28's row 8 (macports, gettext, gettext) did not requalify and is absent: the
 # file placed as `gettext` belongs to the port `gettext-runtime`. Rows 14-15 (`rg`)

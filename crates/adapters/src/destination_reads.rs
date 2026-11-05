@@ -20,6 +20,7 @@ use crate::process::{Invocation, MAX_PATH_LEN};
 use macportsbrew_domain::{
     normalise, DomainError, LinkageFacts, PrefixClass, PrefixTable, UncheckedCause, SYSTEM_PATH,
 };
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
@@ -48,28 +49,38 @@ const PATH_MAX: usize = 1024;
 #[cfg(not(target_os = "macos"))]
 const PATH_MAX: usize = 4096;
 
-/// Where the system's own libraries live, on the sealed read-only system volume.
-/// `man dyld` (read 2026-11-04) writes dylibs by these full paths, keeps `/usr/lib` and
-/// `/System/Library/Frameworks` on its default fallback paths, and says an image may
-/// come from the shared cache, so a name here may have no file on disk. A load from here is not another
-/// package's, so nobody needs to examine it. Short, and naming no provider. **Never
-/// `/System`:** `/System/Volumes/Data` is the whole writable volume, `canonicalize`
-/// keeps that spelling, and dyld honours it.
-const SYSTEM_ROOTS: [&str; 2] = ["/usr/lib", "/System/Library"];
-
-/// Under `/System/Library` and not sealed: each firmlink `/usr/share/firmlinks` lists
-/// there is the Data volume, with world-writable directories in `AssetsV2` as found on
-/// 2026-11-04, and `Templates` holds a world-writable tree by its modes (R-27).
-const NOT_SYSTEM_ROOTS: [&str; 8] = [
-    "/System/Library/Caches",
-    "/System/Library/Assets",
-    "/System/Library/PreinstalledAssets",
-    "/System/Library/AssetsV2",
-    "/System/Library/PreinstalledAssetsV2",
-    "/System/Library/CoreServices/CoreTypes.bundle/Contents/Library",
-    "/System/Library/Speech",
-    "/System/Library/Templates",
+/// What `man dyld` (read 2026-11-04) names for the system's own libraries: full paths
+/// under `/usr/lib`, and `/System/Library/Frameworks` on its fallback list; the
+/// private frameworks are their sibling. **An allow-list:** anything else answers
+/// `Unchecked`, so that a firmlink a later macOS adds opens nothing (`/System/Volumes/Data`
+/// is the whole writable volume, `canonicalize` keeps that spelling, and dyld honours it).
+const SYSTEM_ROOTS: [&str; 3] = [
+    "/usr/lib",
+    "/System/Library/Frameworks",
+    "/System/Library/PrivateFrameworks",
 ];
+
+/// Where dyld looks after a name resolves to nothing, from
+/// `data/policy/dyld-fallbacks.toml`, whose comment quotes `man dyld`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Fallbacks {
+    /// Searched for a dylib's leaf.
+    pub libraries: Vec<PathBuf>,
+    /// Searched for a framework, from its `.framework` component on.
+    pub frameworks: Vec<PathBuf>,
+}
+
+impl Fallbacks {
+    /// The defaults `man dyld` states.
+    ///
+    /// # Panics
+    /// If the embedded file does not parse, which a test holds.
+    #[must_use]
+    pub fn dyld() -> Self {
+        toml::from_str(include_str!("../../../data/policy/dyld-fallbacks.toml"))
+            .expect("the embedded dyld-fallbacks.toml parses")
+    }
+}
 
 const ENOENT: i32 = 2;
 const ENOTDIR: i32 = 20;
@@ -229,6 +240,8 @@ pub struct WalkWork {
     pub operations: usize,
     /// Those that reached the filesystem.
     pub resolutions: usize,
+    /// Bytes read of the files examined.
+    pub bytes: u64,
 }
 
 /// Examines a package: every file of `list` by magic, its links by `lstat` and
@@ -251,6 +264,18 @@ pub fn examine_counted(
     executable_dirs: &[PathBuf],
     prefixes: &PrefixTable,
 ) -> (LinkageFacts, WalkWork) {
+    examine_with(list, executable_dirs, prefixes, &Fallbacks::dyld())
+}
+
+/// [`examine_counted`] with the fallback locations given, so a test need not write
+/// into `/usr/local`.
+#[must_use]
+pub fn examine_with(
+    list: &CheckedList,
+    executable_dirs: &[PathBuf],
+    prefixes: &PrefixTable,
+    fallbacks: &Fallbacks,
+) -> (LinkageFacts, WalkWork) {
     let mut identities = HashMap::new();
     for (path, class) in prefixes.paths() {
         if let Ok(metadata) = std::fs::metadata(OsStr::from_bytes(path)) {
@@ -267,16 +292,11 @@ pub fn examine_counted(
             .iter()
             .filter_map(|dir| std::fs::canonicalize(dir).ok()),
     );
-    // By inode too: a case or Unicode fold spells these in text no comparison sees.
-    let not_system = NOT_SYSTEM_ROOTS
-        .iter()
-        .filter_map(|root| std::fs::metadata(root).ok())
-        .map(|metadata| (metadata.dev(), metadata.ino()))
-        .collect();
     let mut walk = Walk {
         prefixes,
         identities,
-        not_system,
+        fallbacks,
+        fallback_names: HashSet::new(),
         executable_dirs: on_list,
         parents: HashMap::new(),
         facts: LinkageFacts::default(),
@@ -287,6 +307,10 @@ pub fn examine_counted(
         bytes: 0,
         queue: Vec::new(),
         queued: HashSet::new(),
+        rpaths: Vec::new(),
+        rpath_keys: HashSet::new(),
+        names: Vec::new(),
+        name_keys: HashSet::new(),
     };
     for path in list.paths() {
         if walk.facts.walk_over_bound {
@@ -294,12 +318,23 @@ pub fn examine_counted(
         }
         walk.own_entry(path);
     }
-    while let Some(next) = walk.queue.pop() {
-        if walk.facts.walk_over_bound {
+    // A name is tried against every rpath the walk has seen, and a candidate that
+    // exists can join the walk and bring more: round until nothing new is left.
+    loop {
+        while let Some(next) = walk.queue.pop() {
+            if walk.facts.walk_over_bound {
+                break;
+            }
+            walk.read_file(&next, Reached::ByLoadCommand);
+        }
+        if walk.facts.walk_over_bound || !walk.try_rpath_names() {
             break;
         }
-        walk.read_file(&next, Reached::ByLoadCommand);
     }
+    if !walk.facts.walk_over_bound {
+        walk.settle_rpath_names();
+    }
+    walk.work.bytes = walk.bytes;
     (walk.facts, walk.work)
 }
 
@@ -368,13 +403,25 @@ enum Read {
     Word,
 }
 
+/// An `@rpath` name a file of the walk loads, and how far it was tried.
+struct RpathName {
+    rest: Vec<u8>,
+    /// How many of the walk's rpaths it was tried against.
+    tried: usize,
+    /// A candidate exists.
+    found: bool,
+    /// A candidate lies under the system's roots, with no file on disk.
+    in_system: bool,
+}
+
 struct Walk<'a> {
     prefixes: &'a PrefixTable,
     /// Each prefix by `(dev, ino)`: a firmlink or a Unicode fold spells a prefix
     /// no string comparison sees, and the inode is the same.
     identities: HashMap<(u64, u64), PrefixClass>,
-    /// Each of [`NOT_SYSTEM_ROOTS`] that exists, by `(dev, ino)`.
-    not_system: HashSet<(u64, u64)>,
+    fallbacks: &'a Fallbacks,
+    /// The names whose fallback locations were already looked at.
+    fallback_names: HashSet<Vec<u8>>,
     /// The executable directories, as given and canonically.
     executable_dirs: HashSet<PathBuf>,
     /// Each parent directory asked about, and whether it is one of them.
@@ -389,6 +436,12 @@ struct Walk<'a> {
     bytes: u64,
     queue: Vec<PathBuf>,
     queued: HashSet<PathBuf>,
+    /// Every rpath the walk has seen. dyld's run path list belongs to the chain of
+    /// loaders, not to one file, and this is as much of that chain as the walk holds.
+    rpaths: Vec<Spelled>,
+    rpath_keys: HashSet<Vec<u8>>,
+    names: Vec<RpathName>,
+    name_keys: HashSet<Vec<u8>>,
 }
 
 impl Walk<'_> {
@@ -503,14 +556,14 @@ impl Walk<'_> {
             })
     }
 
-    /// Whether `path` is the system's own, by its text and by no ancestor being one of
-    /// the unsealed directories under another spelling.
-    fn is_system(&self, path: &Path) -> bool {
-        is_under_system_root(path)
-            && !path.ancestors().any(|ancestor| {
-                std::fs::metadata(ancestor)
-                    .is_ok_and(|m| self.not_system.contains(&(m.dev(), m.ino())))
-            })
+    /// Whether `path` is the system's own, by where it really is: `/usr/lib/cron` is a
+    /// link out of the sealed volume, and an absent file's text says nothing of that.
+    fn is_system(&mut self, path: &Path) -> bool {
+        let real = match std::fs::canonicalize(path) {
+            Ok(real) => real,
+            Err(_) => self.through_existing_ancestor(path),
+        };
+        is_under_system_root(&real)
     }
 
     /// Counts these operations, and says whether the bound still holds.
@@ -709,13 +762,15 @@ impl Walk<'_> {
     }
 
     /// Answers whether what the script runs is found at run time. The interpreter,
-    /// and an absolute program `env` is told to run, count as a load command does
-    /// and are read. Any other `/...` inside a word (`-S/x`, `-P/x:/y`, `PATH=/x`) is
-    /// classified and never read: a directory on a search path is not a program. What
-    /// a script's body does is not read.
+    /// and an absolute word of `env` or a wrapper, count as a load command does. Any
+    /// other `/...` inside a word (`-S/x`, `-P/x:/y`, `PATH=/x`, `sh /x`) counts by where
+    /// it is, and is read if it is a regular file of the destination; a directory on
+    /// a search path is not a program, and says nothing. What a script's body does is
+    /// not read.
     fn shebang(&mut self, shebang: &Shebang, head: &[u8]) -> bool {
-        for (index, word) in macho::shebang_arguments(head).into_iter().enumerate() {
-            if index == 0 && matches!(shebang, Shebang::Env(_)) && word.first() == Some(&b'/') {
+        let wrapper = matches!(shebang, Shebang::Env(_));
+        for word in macho::shebang_arguments(head) {
+            if wrapper && word.first() == Some(&b'/') {
                 self.lexical(word, Read::Interpreter);
                 continue;
             }
@@ -739,10 +794,10 @@ impl Walk<'_> {
         }
     }
 
-    /// A path a script names. An interpreter in the destination is read as a load
-    /// command's target would be: that file runs too. Anywhere else it counts by where
-    /// it is and is never read, and a real file that nobody can place, outside the
-    /// system's own programs and libraries, was examined by nobody.
+    /// A path a script names. What runs is read as a load command's target would be.
+    /// Anywhere else it counts by where it is and is never read, and a real file that
+    /// nobody can place, outside the system's own programs and libraries, was examined
+    /// by nobody.
     fn lexical(&mut self, path: &[u8], read: Read) {
         let Some(written) = spelled(None, path) else {
             self.facts.rpath_unresolved = true;
@@ -752,8 +807,10 @@ impl Walk<'_> {
             return;
         };
         match (seen.canonical, seen.class) {
-            (Some(canonical), Some(PrefixClass::Destination)) if read == Read::Interpreter => {
-                if self.queued.insert(canonical.clone()) {
+            (Some(canonical), Some(PrefixClass::Destination)) => {
+                let runs = read == Read::Interpreter
+                    || std::fs::metadata(&canonical).is_ok_and(|m| m.is_file());
+                if runs && self.queued.insert(canonical.clone()) {
                     self.queue.push(canonical);
                 }
             }
@@ -774,19 +831,22 @@ impl Walk<'_> {
             .parent()
             .map_or(&b"/"[..], |d| d.as_os_str().as_bytes())
             .to_vec();
-        let rpaths: Vec<Option<Spelled>> = refs
-            .rpaths
-            .iter()
-            .map(|rpath| expand(rpath, &directory, refs.file_type))
-            .collect();
-        for rpath in &rpaths {
-            match rpath {
-                Some(written) => {
-                    if self.resolve(written).is_none() {
-                        return;
-                    }
+        for rpath in &refs.rpaths {
+            let Some(written) = expand(rpath, &directory, refs.file_type) else {
+                self.facts.rpath_unresolved = true;
+                continue;
+            };
+            let Some(seen) = self.resolve(&written) else {
+                return;
+            };
+            // A real directory nobody can place may serve any file of the chain.
+            if let (Some(canonical), None) = (&seen.canonical, seen.class) {
+                if !self.is_system(canonical) {
+                    self.facts.file_not_examined = true;
                 }
-                None => self.facts.rpath_unresolved = true,
+            }
+            if self.rpath_keys.insert(written.raw.clone()) {
+                self.rpaths.push(written);
             }
         }
         for reference in &refs.loads {
@@ -801,7 +861,7 @@ impl Walk<'_> {
                 | LoadKind::Lazy
                 | LoadKind::Upward
                 | LoadKind::Dylinker => {
-                    self.load(&reference.name, &directory, refs.file_type, &rpaths);
+                    self.load(&reference.name, &directory, refs.file_type);
                 }
             }
         }
@@ -824,43 +884,122 @@ impl Walk<'_> {
         }
     }
 
-    fn load(
-        &mut self,
-        name: &[u8],
-        directory: &[u8],
-        file_type: ExaminedType,
-        rpaths: &[Option<Spelled>],
-    ) {
+    fn load(&mut self, name: &[u8], directory: &[u8], file_type: ExaminedType) {
         if let Some(rest) = name.strip_prefix(b"@rpath/") {
             // dyld joins it, however many slashes it starts with.
-            let rest = without_leading_slashes(rest);
-            // Zero candidates must not read as clean, and neither must candidates
-            // none of which is there: the name loads from nothing this file says,
-            // whatever a candidate that is not there is spelled like. The exception is
-            // the system's own: its dylibs live in the shared cache, with no file.
-            let mut answered = false;
-            for rpath in rpaths.iter().flatten() {
-                let Some(candidate) = spelled(Some(&rpath.raw), rest) else {
+            let rest = without_leading_slashes(rest).to_vec();
+            if self.name_keys.insert(rest.clone()) {
+                self.names.push(RpathName {
+                    rest,
+                    tried: 0,
+                    found: false,
+                    in_system: false,
+                });
+            }
+            return;
+        }
+        match expand(name, directory, file_type) {
+            Some(written) => {
+                if let Some(seen) = self.reached(&written, false) {
+                    if seen.canonical.is_none() {
+                        self.fallback(&written.normal);
+                    }
+                }
+            }
+            None => self.facts.rpath_unresolved = true,
+        }
+    }
+
+    /// Tries each `@rpath` name against every rpath it has not met. `false` when there
+    /// was nothing new, or the bound was passed.
+    fn try_rpath_names(&mut self) -> bool {
+        let mut any = false;
+        for index in 0..self.names.len() {
+            while self.names[index].tried < self.rpaths.len() {
+                let at = self.names[index].tried;
+                self.names[index].tried += 1;
+                any = true;
+                let Some(candidate) = spelled(Some(&self.rpaths[at].raw), &self.names[index].rest)
+                else {
                     self.facts.rpath_unresolved = true;
                     if !self.count(1) {
-                        return;
+                        return false;
                     }
                     continue;
                 };
                 // One candidate among several need not exist.
                 let Some(seen) = self.reached(&candidate, true) else {
-                    return;
+                    return false;
                 };
-                answered |= seen.canonical.is_some() || self.is_system(path_of(&candidate));
+                if seen.canonical.is_some() {
+                    self.names[index].found = true;
+                } else if self.is_system(path_of(&candidate)) {
+                    self.names[index].in_system = true;
+                }
             }
-            self.facts.rpath_unresolved |= !answered;
+        }
+        any
+    }
+
+    /// Zero candidates must not read as clean, and neither must candidates none of
+    /// which is there: the name loads from nothing this walk says, whatever a candidate
+    /// that is not there is spelled like. The exception is the system's own, whose
+    /// dylibs live in the shared cache with no file, and then only when no candidate
+    /// exists elsewhere, which `reached` has already measured. Either way nothing on
+    /// disk answered it, so dyld's fallback applies.
+    fn settle_rpath_names(&mut self) {
+        let settled: Vec<(Vec<u8>, bool)> = self
+            .names
+            .iter()
+            .filter(|name| !name.found)
+            .map(|name| (name.rest.clone(), name.in_system))
+            .collect();
+        for (rest, in_system) in settled {
+            self.facts.rpath_unresolved |= !in_system;
+            self.fallback(&rest);
+        }
+    }
+
+    /// A name resolved to nothing, so dyld may try its fallback locations. Whether it
+    /// does depends on the binary's age, which the reader cannot tell, and which loads
+    /// depends on what is in the shared cache, so another provider's file there is a
+    /// doubt and never a failure. Nothing here is read or noted as a reference.
+    fn fallback(&mut self, name: &[u8]) {
+        if !self.fallback_names.insert(name.to_vec()) {
             return;
         }
-        match expand(name, directory, file_type) {
-            Some(written) => {
-                self.reached(&written, false);
+        let path = Path::new(OsStr::from_bytes(name));
+        let mut places: Vec<PathBuf> = Vec::new();
+        if let Some(leaf) = path.file_name() {
+            places.extend(self.fallbacks.libraries.iter().map(|d| d.join(leaf)));
+        }
+        let framework = path.iter().position(|part| {
+            Path::new(part)
+                .extension()
+                .is_some_and(|e| e == "framework")
+        });
+        if let Some(from) = framework {
+            let suffix: PathBuf = path.iter().skip(from).collect();
+            places.extend(self.fallbacks.frameworks.iter().map(|d| d.join(&suffix)));
+        }
+        for place in places {
+            if !self.count(place.ancestors().count()) {
+                return;
             }
-            None => self.facts.rpath_unresolved = true,
+            let Ok(real) = std::fs::canonicalize(&place) else {
+                continue;
+            };
+            let classes = [
+                self.prefixes.class_of(place.as_os_str().as_bytes()),
+                self.prefixes.class_of(real.as_os_str().as_bytes()),
+                self.class_by_identity(&real),
+            ];
+            self.facts.fallback_under_other_prefix |= classes.iter().any(|class| {
+                matches!(
+                    class,
+                    Some(PrefixClass::DetectedOther | PrefixClass::UndetectedCandidate)
+                )
+            });
         }
     }
 
@@ -923,13 +1062,10 @@ fn path_of(written: &Spelled) -> &Path {
     Path::new(OsStr::from_bytes(&written.normal))
 }
 
-/// By text: under a root and under none of the exceptions, the exceptions in either
-/// case because the volume folds it. Nothing under `/System/Volumes` qualifies.
+/// Whether a real path lies under the system's own roots. By text, on what
+/// `is_system` resolved: nothing else qualifies, including anything spelled in another
+/// case, which is the safe direction.
 #[must_use]
 pub fn is_under_system_root(path: &Path) -> bool {
-    let folded = path.as_os_str().to_ascii_lowercase();
     SYSTEM_ROOTS.iter().any(|root| path.starts_with(root))
-        && !NOT_SYSTEM_ROOTS
-            .iter()
-            .any(|root| Path::new(&folded).starts_with(root.to_ascii_lowercase()))
 }

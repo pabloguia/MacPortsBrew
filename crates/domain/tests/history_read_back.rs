@@ -1350,6 +1350,19 @@ fn each_rule_about_a_removal_answers_for_itself() {
     assert_eq!(read_back(halted), Err(ErrorId::HistoryUnusable));
 }
 
+/// Closes `c4`.
+#[test]
+fn check_bases_read_back_on_a_destination_verified_with_unchecked() {
+    let with = record(
+        unchecked_steps(),
+        RunEnding::CompletedWithUnchecked { source_kept: true },
+        None,
+    )
+    .with_check_bases(vec![macportsbrew_domain::CheckBasis::NoLoadCommands]);
+    let back = read_back(stored_json(&with)).expect("reads back");
+    assert_eq!(back, with);
+}
+
 /// What a `VERIFY_DESTINATION` rested on is the run's own, and goes in the record.
 /// Absent from a run with no such answer, so an older record still reads.
 #[test]

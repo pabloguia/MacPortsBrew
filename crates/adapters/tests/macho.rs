@@ -845,7 +845,7 @@ fn a_shebang_answers_its_interpreter_as_bytes() {
     let absolute = |name: &[u8]| Shebang::Absolute(name.to_vec());
     assert_eq!(script(b"#!/bin/sh\necho\n"), absolute(b"/bin/sh"));
     assert_eq!(script(b"#! /bin/sh -e\n"), absolute(b"/bin/sh"));
-    assert_eq!(script(b"#!\t/bin/sh\r\n"), absolute(b"/bin/sh"));
+    assert_eq!(script(b"#!\t/bin/sh\r\n"), absolute(b"/bin/sh\r"));
     assert_eq!(script(b"#!/bin/sh"), absolute(b"/bin/sh"));
     assert_eq!(
         script(b"#!/opt/local/bin/\xffperl\n"),
@@ -954,4 +954,32 @@ fn the_head_stage_reports_ranges_without_reading_the_slices() {
             size: u64::try_from(inner.len()).unwrap(),
         }))
     );
+}
+
+/// Closes `g2b`: a NUL ends the line for the refusal, as it does for the kernel.
+#[test]
+fn a_nul_ends_the_line_for_the_refusal() {
+    let mut file = b"#!/bin/sh\0".to_vec();
+    file.resize(HEAD_BYTES + 100, b'a');
+    assert!(matches!(script(&file), Shebang::Absolute(_)));
+}
+
+/// Closes `g3b`: a CR does not end it.
+#[test]
+fn a_cr_does_not_end_the_line_for_the_refusal() {
+    let mut file = b"#!/bin/sh -x\r".to_vec();
+    file.resize(HEAD_BYTES + 100, b'a');
+    assert_eq!(
+        read_file(&file),
+        Err(MachoError::TooLarge(LimitKind::ShebangLine))
+    );
+}
+
+/// A CRLF script names a missing interpreter: the kernel keeps the CR.
+#[test]
+fn a_carriage_return_stays_in_the_interpreters_name() {
+    match script(b"#!/bin/sh\r\n") {
+        Shebang::Absolute(name) => assert_eq!(name, b"/bin/sh\r"),
+        other => panic!("{other:?}"),
+    }
 }

@@ -271,7 +271,7 @@ Deviations from the text above:
 
 1. **The closure takes the lock and keeps nothing of it.** `run_with_mutations(cleared, sites, destination, io, home)`, `destination: FnOnce(&RunLock) -> D`, replaces `MutatingRun.destination`; `registry::destination_sites` takes `&RunLock` as proof and does not hold it, since a site that borrowed it could not be returned by a closure a test also implements. `run_mutating` is the only caller in the product, so the constructor stays in the shell, and the word scan bans it elsewhere.
 2. **R-28's row 8 did not land**, so the table is 12 rows: 6 and 6, not the 6 and 7 INV-17 above expects. See R-28's last section.
-3. **`MAX_WALK_FILES` counts every regular file of the list, as written**, so a package with over 4096 regular files answers `WALK_OVER_BOUND`. R-27's 340 was a closure of Mach-O files. Larger kegs stay unchecked until someone measures whether the number should move.
+3. **`MAX_WALK_FILES` counts every regular file of the list, as written**, so a package with over 4096 regular files answers `WALK_OVER_BOUND`. R-27's 340 was a closure of Mach-O files. Measured 2026-11-04 (R-27's last section): `WALK_OVER_BOUND` answers for 9 of 194 Homebrew packages and none of MacPorts' 18. The number stays.
 4. **`basis` is `checkBases` on the receipt and in history**, a sorted set for the run, not a field per check. `Holds` carries no payload, and a per-check field would have reached 54 matches for a statement one set makes. `history.v4` is unreleased, so no version moved. `from_stored` refuses bases under another version, out of order, or with no `VERIFY_DESTINATION` that was reached. **An allow-list, `Halted` included (rounds 2, 3):** the first rule asked for a verified step, so a run halting on `Fails` after another check held wrote a record its own reader refused, which left the marker behind. The bases are true of the checks that did hold. `Verified`, `VerifiedWithUnchecked` and `Halted` qualify; `NotReached`, `NotPerformedInThisBuild` and `NotDispatchedMutating` answered nothing and do not.
 5. **A relative shebang on the executable list counts as an `env` one**: `#! .` names nothing that can be tested, so it is `INTERPRETER_RESOLVED_AT_RUN_TIME` and not a `Holds`.
 6. **A relative install name is `RPATH_UNRESOLVED`**, the loader's search, not a reference to nothing. Any `MachoError` is `MALFORMED_FILE`, the over-a-cap ones and Java classes included, so each also stops the probe; the gloss says "could not be read as an object". **Any linkage answer but `Holds` stops the probe (round 2):** whatever linkage could not tell may be what the program loads. The probe's entry names linkage's cause when ownership held, and `OWNERSHIP_NOT_TOLD` when it did not. `MALFORMED_FILE` and `WALK_OVER_BOUND` stay first in the judge, so neither is hidden.
@@ -283,7 +283,7 @@ Deviations from the text above:
 12. **`~/Library` was searched by name, not whole:** a full walk did not finish in over an hour. R-28's last section says what was left out, which the design note's "`~/Library` searched" asks more of. **Rounds:** R-28's sweep had cold, warm, `syspath` and `ro`. The re-qualification dropped the cold/warm split and added the sandbox. Rows 11-13, added after the sweep, had never had an `ro` round; **round 3 ran it on all twelve landed rows** (scratch `chmod 555`, plain and under the sandbox), and all twelve passed. "What H-3 owes" below has what must close `~/Library` before any probe runs.
 13. **The filesystem tests are in `crates/adapters/tests/destination_reads.rs`,** so the module is `pub` and exposes what they need: the stop gate's token scan covers non-comment code under `src/`, and they plant links.
 14. **What this slice cannot show:** no run reaches the machine site in this build, since the gate refuses every plan, and no recording holds these reads. The judges, the walk, the parsers and each adapter's reads over a fake runner and a scratch prefix (`crates/adapters/tests/destination_adapters.rs`) are tested, on synthesised answers in the shapes R-25 and R-26 quote; the site's sequence on a live machine is not. `invariant_10_*` and the eleven `admit` refusals are H/01's.
-15. **Probe rows do not move the staleness date,** against this plan's INV-20 line: they stay in the version (`2026.11.04-1`) and are excluded from `policyReadOn`, since a qualification of 2026-11-04 says nothing about how fresh the provider facts are, and it had moved every golden's date to hide 2026-09-17. The rows' `source` and `read_on` are still validated.
+15. **Probe rows do not move the staleness date,** against this plan's INV-20 line: they stay in the version (`2026.11.04-2`, round 4 bumped the serial) and are excluded from `policyReadOn`, since a qualification of 2026-11-04 says nothing about how fresh the provider facts are, and it had moved every golden's date to hide 2026-09-17. The rows' `source` and `read_on` are still validated.
 16. **One allowlist grew:** `-q installed <name>` in `macports/mod.rs`'s `is_allowed_argv`, the owner's version, a read the verify step already makes. `process/` and `provider-commands.toml` have no hunk.
 17. **Reference spellings (review round 1).** A reference, rpath, interpreter, `LC_DYLD_ENVIRONMENT` path or link target is classified by its spelling, by its canonical path, and by `(dev, ino)` of each existing ancestor against each prefix, in the adapter; `PrefixTable` stays pure text. A firmlink (`/System/Volumes/Data/usr/local/...`), a Unicode fold (`/uſr/local/...`) and a plain link under `/private/tmp` no longer hide a prefix. The firmlink and fold tests skip on a volume without them.
 18. **`FILE_NOT_EXAMINED`:** a listed or reached file outside the destination and in no known prefix, or not a regular file, never gives `NO_LOAD_COMMANDS`. A relocated cellar therefore answers `Unchecked`, accepted in R-27. **Round 2 widens "reached":** any real file a load command names, however spelled, in no known prefix and outside the system's own roots, since another provider's relocated store looks exactly like this. **Round 3 corrects the roots** to `/usr/lib` and `/System/Library`: `/System` covered `/System/Volumes/Data`, the whole writable volume, and both reviewers proved a false `Holds` through that spelling. The firmlinks under `/System/Library` and `Templates` are excluded, by text in either case and by inode for any other fold; what was found is in R-27. **Round 3 extends the rule to shebangs:** a real interpreter or path-shaped word in no known prefix, outside `SYSTEM_PATH` and the roots, is `FILE_NOT_EXAMINED`, since `#!/outside/interp` was neither read nor flagged. The measured cost is in R-27's last section.
@@ -301,7 +301,12 @@ Deviations from the text above:
 30. **The liveness loader refuses an empty `provider` or `package`.** That is presence, not naming a provider; which ones exist stays the registry's.
 31. **The `MachineDestinationSite` test is in `crates/cli/tests/executor.rs`, not `crates/cli/src/executor/`,** because the source scans there refuse a provider's name, `map_plan` and another use of the constructor word; the site gained `MachineDestinationSite::new`, which needs `DestinationSites`, which needs the lock.
 32. **The `analysis_and_dry_run_never_reach_a_probe` scan already counts by `words`,** the same split the word scan at `executor.rs:900` uses, so a reflowed second caller is one more word (`15c`).
-33. **Accepted, no change (round 3):** the Unicode test's `eprintln!` skip on a case-sensitive volume, and that only the firmlink test pins `(dev, ino)` of a prefix.
+33. **Accepted, no change (round 3):** the Unicode test's `eprintln!` skip on a case-sensitive volume, and that only the firmlink test pins `(dev, ino)` of a prefix. `invariant_07_an_unsealed_directory_is_not_the_systems_under_any_spelling` and its skips are gone: the allow-list makes it moot.
+34. **Roots are an allow-list (round 4):** what `man dyld` names, `/usr/lib`, `/System/Library/Frameworks` and `/System/Library/PrivateFrameworks`. The exclusion list is gone, since a future firmlink would have reopened a false `Holds`. `is_system` tests where the path really is, through the deepest existing ancestor, so `/usr/lib/cron -> /private/var/at` does not qualify. `realpath` returns the stored name (observed 2026-11-04), so a fold of a root is the root and a fold of anything else is that thing.
+35. **`@rpath` by dyld's semantics (round 4):** a name is tried against every rpath the walk has seen, to a fixed point under the work bound, because security proved a real load through the executable's rpath while the library's only rpath was `/usr/lib/swift`, answering `Holds`. A rpath that is a real directory in no known prefix and outside the roots is `FILE_NOT_EXAMINED`. An absent candidate under the roots answers the name only when no candidate exists elsewhere. **The walk's rpaths only:** no whole-machine loader chain, said in R-27.
+36. **dyld's default fallback (round 4), `FALLBACK_UNDER_OTHER_PREFIX`:** when a name resolves to nothing, or an `@rpath` has only an absent system candidate, the reader looks where `man dyld` says older binaries look, and a file of that name under another prefix is `Unchecked`, never `Fails`, since which loads cannot be told. This is the project's founding direction, a MacPorts destination with Homebrew at `/usr/local`. Measured in R-27: none here, and three packages `FILE_NOT_EXAMINED` by item 35's rule. The locations are in the new `data/policy/dyld-fallbacks.toml`, since `invariant_20_no_provider_deadline_is_written_into_source` refuses the literal in source, rightly. `PINNED_DIGEST` moved with the policy serial.
+37. **A shebang's CR is part of the path (round 4):** the kernel ran the other provider's program through an `x\r` directory, and a CRLF script names a missing interpreter. **Any word naming a regular file in the destination is read,** and a directory says nothing. **`arch`, `nice`, `time`, `sandbox-exec` and `xcrun` read as `env`,** in `macho.rs`'s list, because each runs what it is told; none of them appears in this machine's `#!` lines.
+38. **`when read: ` with an empty list** is omitted, by its own catalogue key. **`WalkWork` reports bytes,** so `overlapping_fat_slices_cost_one_read_of_the_range` holds the range dedupe again.
 
 ## Slices
 
@@ -315,26 +320,29 @@ Deviations from the text above:
 
 ### What H-3 owes (not built now)
 
-- **How the lock reaches a probe (ruling, round 3):** the domain cannot name `RunLock`, and `DestinationSite::answer` carries none. So the run loop, for `Question::Probe`, calls an inherent method on `DestinationSites` that takes `&RunLock`, and that calls `verify_still_current` before it starts a program; `DestinationSite::answer` still answers the other three. A probe is a program this tool starts, and no earlier check speaks for the moment it starts.
+- **How the lock reaches a probe (round 4 corrects round 3, which did not type-check):** `D: DestinationSite` lives in `crates/cli/src/executor/`, which can name `RunLock`, so the probe is a method of that trait, `answer_probe(&self, leaf, argv, lock: &RunLock)`, defaulting to `NOT_OBSERVED`, with `MachineDestinationSite` calling an inherent method on `DestinationSites`. That calls `verify_still_current` and reads ownership afresh under the lock, because `CheckAnswer::Holds` carries no payload. A probe is a program this tool starts, and no earlier check speaks for the moment it starts.
+- **The first run on a machine asserts the linkage counts** of R-27's table, which would collapse if `linkage()` were handed an empty table (`h2`), and no hermetic test can show that today.
 - That method takes the provider and the owner's version, since the table is keyed `(provider, package, executable)`; today's `liveness_probe` takes `(package, leaf, argv)` and answers `NotRun`.
 - It enforces exactly `observed_version`, and a mismatch answers `PROBE_VERSION_NOT_QUALIFIED`, which exists unused since H-2. Nothing enforces it in this build, and `liveness-probes.toml`'s header says so.
 - **`~/Library` must be closed before any probe runs:** by a search by time over the whole of it, or by `security-reviewer` accepting the search by name explicitly. R-28's last section lists what the search by name left out, and the sandbox round shows only that a denied write did not stop the program.
 
-For the H/01 staged README, as it stands:
+For the H/01 staged README, as it stands. **The first block is what the patch carries, the second is not in the patch, and the README must not tell the owner otherwise:**
 
-> **What this admission must add before it can run anything.**
+> **What H/01 carries.** The admission through the frozen process module, `invariant_10_*`, and the eleven `admit` refusals of `docs/passes/16-liveness-design.md`. Applying it starts no program, because nothing unfrozen calls it yet.
+
+> **What H-3 owes, in unfrozen code, after H/01 is applied.**
 >
-> (1) `liveness_probe` gains the provider and the owner's version, and finds its row by `(provider, package, executable)`.
+> (1) The probe gains the provider and the owner's version, and finds its row by `(provider, package, executable)`.
 >
 > (2) It runs only at exactly `observed_version`. Any other version answers `Unchecked(PROBE_VERSION_NOT_QUALIFIED)`, which `migrate.v2` already holds and nothing yet answers.
 >
-> (3) **The lock, concretely.** The domain cannot name `RunLock` and `DestinationSite::answer` carries none, so the run loop answers `Question::Probe` itself, by an inherent method on `DestinationSites` taking `&RunLock`; `DestinationSite::answer` keeps the other three questions. The method calls `verify_still_current` before starting the program, per call.
+> (3) **The lock, concretely.** `run_with_mutations` is generic over `D: DestinationSite`, and that trait lives in `crates/cli/src/executor/`, which can name `RunLock`. So the probe is a method of that trait, `answer_probe(&self, leaf, argv, lock: &RunLock)`, defaulting to `Unchecked(NOT_OBSERVED)`, and the loop calls it for `Question::Probe`. `MachineDestinationSite` implements it by an inherent method on `DestinationSites` taking `&RunLock`, which calls `verify_still_current` before starting the program, per call. It reads ownership afresh under the lock: `CheckAnswer::Holds` carries no payload, and no earlier check speaks for the moment a program starts. `DestinationSite::answer` keeps the other three questions.
 >
-> (4) `~/Library` is closed before any probe runs, by one of two routes: a search by time over the whole of it, which the 2026-11-04 walk did not finish in over an hour, or `security-reviewer` accepting in writing the search by name in R-28's last section, which left out `Containers`, `Group Containers`, `Mobile Documents`, `CloudStorage`, `Developer` and most of `Caches`. The sandbox round shows only that a denied write did not stop the program.
+> **The fate of what is there.** Domain's `DestinationProbe` trait goes, since its one implementor becomes that inherent method and it could never name the lock. `ProbeObservation` moves with it or stays as that method's return type. `invariant_15_a_replay_never_runs_a_probe` moves to the inherent method, holding a real `RunLock`, and keeps asserting `NotRun(NOT_OBSERVED)` under a replay with a runner that panics if asked.
+>
+> (4) `~/Library` is closed before any probe runs, by one of two routes: a search by time over the whole of it, which the 2026-11-04 walk did not finish in over an hour, or `security-reviewer` accepting in writing the search by name in R-28's last section, which left out `Containers`, `Group Containers`, `Mobile Documents`, `CloudStorage`, `Developer` and most of `Caches`. The sandbox round would have denied such a write, and the program exited 0; whether one was attempted was not recorded.
 >
 > **What the version pin costs.** After any upgrade of a package with a row, its run answers `PROBE_VERSION_NOT_QUALIFIED` for that probe, so the check is unchecked and **its source is kept**, until the row is re-qualified. Staleness does not warn about old rows: they are excluded from `policyReadOn`. **The plan does not warn either:** the planner finds a row by `(provider, package, executable)` with no version, so the plan still shows `LIVENESS_PROBE` with its `argv`, and the mismatch appears only in the run's result.
->
-> **H/01 also carries** `invariant_10_*` and the eleven `admit` refusals of `docs/passes/16-liveness-design.md`.
 >
 > **Exit condition.** `observed_by_this_build` turns true for `LIVENESS_PROBE` only in the change that lands (1), (2) and (3) together, with (4) already closed. Until then `the_switch_needs_the_destination_contract_observed` names the probe, and the switch stays off.
 
@@ -352,7 +360,19 @@ Each `Fails` read as `Holds`; each `Unchecked` read as `Holds`; the new variant 
 
 **The second proof, at `b70f512`: 85 mutants, 78 killed, 7 survived.** `18a` and `18b` are equivalent: a defaulted field is refused by the loader's empty-key check, proved by the pair with `18p`. `b03b`, `b03c`, `b10b`, `b10c` and `b12c` are closed by the tests folded into `crates/adapters/tests/destination_reads.rs`: `the_path_limit_is_exact`, `invariant_07_a_reference_spelled_under_a_prefix_counts_though_it_leads_out`, `an_env_script_listed_through_a_link_to_an_executable_directory_is_on_the_list`, `a_prefix_that_is_a_link_to_another_still_counts_by_its_canonical_text`, and the control `a_link_outside_every_prefix_into_another_counts_by_where_it_leads`.
 
-**Round 3's mutants:** still to come.
+**The third proof, at `56742e2`: 60 mutants, 48 killed, 1 refused by the compiler, 11 survived.** What closed each:
+
+- `b4`: `a_real_directory_in_a_word_outside_every_prefix_is_not_examined`.
+- `c4`: `check_bases_read_back_on_a_destination_verified_with_unchecked`.
+- `e2`: `an_absent_paths_failed_ancestors_are_charged_too`.
+- `f4`: its proof asserted that an argument of `env`'s program is not read. Round 4 reads any word naming a regular destination file, since the reader cannot tell the argument from the program, so the stricter answer is held by the `argument` case of `a_shebang_word_naming_a_regular_file_of_the_destination_is_read_and_a_directory_is_not`, with `env -i`, `env FOO=1` and `env -u X`.
+- `g2b`, `g3b`: `a_nul_ends_the_line_for_the_refusal`, `a_cr_does_not_end_the_line_for_the_refusal`.
+- `k4`: the cause list of `every_linkage_answer_but_holds_stops_the_probe_and_is_the_reason_given`.
+- `a4`, `d3`: moot, the allow-list removed the exclusions they mutated.
+- `h2`: no hermetic test (`linkage()` passing an empty table degrades `LINKS_ANOTHER_PROVIDER` to `FILE_NOT_EXAMINED`, and is never a false `Holds`): "What H-3 owes" has the machine round assert the counts.
+- `i2`: equivalent, a compile-time guarantee.
+
+**Round 4's mutants:** still to come.
 
 ## Invariant tests, by name
 
@@ -379,4 +399,16 @@ One `CheckAnswer` model and one judge per check, in both directions. Declared as
 | `docs-auditor`, H-1 | `deb73d1` | 14: "all four answer `NOT_OBSERVED`" untrue of the probe and of any run; 04 contradicting itself on what is built; v4's stale origin; links to superseded documents; the wiki's miscount | Folded. Not done: a sample marker on the MacPorts page's transcript, whose input is not a fixture |
 | `spec-guardian`, H-1 round 2 | `deb73d1` | Small changes: a second `REMOVE_SOURCE`; the status guard and the re-read's guard untested; `invariant_15_*` naming a test that does not exercise it; leftovers | Folded; deviations 8 and 9. `crates/cli/tests/executor.rs:931` matching any ancestor named `src`, an older test, is left |
 | Mutation proof, H-1 round 3 | `0526230` | 5 of 9 killed. A, C, E and G survived: each hand-built case was refused by an earlier rule, and two wrote `unchecked` beside `result` rather than inside it, so `deny_unknown_fields` refused them | `each_rule_about_a_removal_answers_for_itself`, with a control; the field path corrected, and A, E and G re-run against the fix: killed |
+| `spec-guardian`, H-2 round 1 | `701f0fd` | Changes required | Folded into `ca9fa5c` |
+| `security-reviewer`, H-2 round 1 | `701f0fd` | Changes required | Folded into `ca9fa5c` |
+| `spec-guardian`, H-2 round 2 | `ca9fa5c` | Changes required | Folded into `b70f512` |
+| `security-reviewer`, H-2 round 2 | `ca9fa5c` | Changes required | Folded into `b70f512` |
+| `spec-guardian`, H-2 round 3 | `b70f512` | Changes required | Folded into `56742e2` |
+| `security-reviewer`, H-2 round 3 | `b70f512` | Changes required | Folded into `56742e2` |
+| `spec-guardian`, H-2 round 4 | `56742e2` | Changes required | Folded into the next commit |
+| `security-reviewer`, H-2 round 4 | `56742e2` | Changes required | Folded into the next commit |
+| Mutation proof, H-2 | `701f0fd` | 120 mutants, 74 killed, 46 survived | "Mutants" above |
+| Mutation proof, H-2 | `b70f512` | 85 mutants, 78 killed, 7 survived | "Mutants" above |
+| Mutation proof, H-2 | `56742e2` | Running | Yours to fill |
+| `docs-auditor`, H-2 | `56742e2` | Findings folded in round 4 | Folded into the next commit |
 

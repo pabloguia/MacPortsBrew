@@ -760,6 +760,11 @@ fn verification_line(ctx: &Context, value: &VerificationCheck) -> String {
         VerificationCheck::ProviderIntegrityCheck => {
             label(ctx, "verification.provider_integrity_check")
         }
+        VerificationCheck::ExecutablesOwnedByDestination { executables }
+            if executables.is_empty() =>
+        {
+            label(ctx, "verification.executables_owned_by_destination_none")
+        }
         VerificationCheck::ExecutablesOwnedByDestination { executables } => ctx.messages.render(
             "verification.executables_owned_by_destination",
             &params(&[("executables", executables.join(", "))]),
@@ -1284,6 +1289,7 @@ fn unchecked_key(value: UncheckedCause) -> &'static str {
         UncheckedCause::DependenciesNotTold => "migrate.unchecked.dependencies_not_told",
         UncheckedCause::EntryLeavesOwner => "migrate.unchecked.entry_leaves_owner",
         UncheckedCause::OwnerNotNamed => "migrate.unchecked.owner_not_named",
+        UncheckedCause::FallbackUnderOtherPrefix => "migrate.unchecked.fallback_under_other_prefix",
         UncheckedCause::ProbeVersionNotQualified => "migrate.unchecked.probe_version_not_qualified",
         UncheckedCause::HeldVersionNotTold => "migrate.unchecked.held_version_not_told",
         UncheckedCause::FileNotExamined => "migrate.unchecked.file_not_examined",
@@ -1824,6 +1830,23 @@ mod tests {
         for quiet in [A::NoneObserved, A::Unknowable, A::NotChecked] {
             assert!(!an_overview_shows(&quiet), "{quiet:?}");
         }
+    }
+
+    /// An empty list renders no dangling `when read: `, in either catalogue.
+    #[test]
+    fn an_empty_executable_list_leaves_no_dangling_clause() {
+        for locale in ["en", "pt-BR"] {
+            let messages =
+                crate::i18n::Messages::for_locale(&crate::i18n::resolve(Some(locale), None));
+            let none = messages.render(
+                "verification.executables_owned_by_destination_none",
+                &std::collections::BTreeMap::new(),
+            );
+            assert!(!none.trim_end().ends_with(':'), "{locale}: {none}");
+            assert!(!none.contains("{executables}"), "{locale}: {none}");
+        }
+        let source = include_str!("human.rs");
+        assert!(source.contains("if executables.is_empty() =>"));
     }
 
     #[test]

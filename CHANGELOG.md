@@ -30,7 +30,7 @@ describes the ones a user sees. (DP-045, ruled
 
 ### Changed after the release candidate
 
-- The checks on a destination now answer holds, fails or unchecked (work order 16 part H-1, DP-051). A check that fails stops the run; one that cannot be told keeps the source and the run ends `COMPLETED_WITH_UNCHECKED`, exit 3, recorded as `PARTIAL` or `NO_CHANGE` and never as success. Nothing observes the four new checks yet, and no plan is run. Breaking, so new versions: [`plan.v2`](docs/schemas/plan.v2.md) (`LIVENESS_PROBE`'s `flag` is now `argv`, and `LIVENESS_PROBE_SKIPPED` is new), [`migrate.v2`](docs/schemas/migrate.v2.md), [`restore.v2`](docs/schemas/restore.v2.md), [`history.v4`](docs/schemas/history.v4.md).
+- The checks on a destination now answer holds, fails or unchecked (work order 16 part H-1, DP-051). A check that fails stops the run; one that cannot be told keeps the source and the run ends `COMPLETED_WITH_UNCHECKED`, exit 3, recorded as `PARTIAL` or `NO_CHANGE` and never as success. The reads for integrity, ownership and linkage exist (part H-2), including a Mach-O reader in-process, and `checkBases`, on the receipt and in history, says what a check that held rests on; no plan is run yet, since the gate refuses every plan, and the probe is not built. New unchecked causes and failures are in `migrate.v2`; `data/policy/liveness-probes.toml` holds twelve observed probe rows, in the policy version and out of the staleness date, and `data/policy/dyld-fallbacks.toml` holds where dyld looks next. Breaking, so new versions: [`plan.v2`](docs/schemas/plan.v2.md) (`LIVENESS_PROBE`'s `flag` is now `argv`, and `LIVENESS_PROBE_SKIPPED` is new), [`migrate.v2`](docs/schemas/migrate.v2.md), [`restore.v2`](docs/schemas/restore.v2.md), [`history.v4`](docs/schemas/history.v4.md).
 
 - **Live commands now sample the package managers' own locks** (DP-030 (b)). `analyze`,
   `plan`, `migrate`, `explain`, `doctor` and `restore` say in text whether a provider's
@@ -311,7 +311,7 @@ See [`docs/support-matrix.md`](docs/support-matrix.md).
 by a model and reviewed by others, not by a native speaker; `--json`, error
 identifiers, flags and command names stay English.
 
-**Policy data:** version `2026.10.18-2`. Dated provider facts — Homebrew's
+**Policy data:** version `2026.11.04-2`. Dated provider facts — Homebrew's
 support tiers and Intel timeline among them — carry their source and the date
 they were read, and the tool says when the newest of them (a row read from a local index counts
 at that index's date) is more than 180 days old.
