@@ -1842,6 +1842,8 @@ fn invariant_07_a_file_dyld_would_refuse_does_not_answer_the_name() {
         ("executable", thin(EXECUTE, &[])),
         ("bundle", thin(8, &[])),
         ("ios", dylib_marked(2)),
+        ("ios and macOS", dylib_marked_for(&[1, 2])),
+        ("Mac Catalyst alone", dylib_marked(6)),
     ] {
         put(&named, &bytes);
         let facts = run(&[(LOAD, bytes_of(&named))], "absolute");
@@ -2322,10 +2324,16 @@ fn a_dynamic_linker_is_not_held_to_the_dylib_rule() {
 
 /// A dylib marked for macOS and for Mac Catalyst, as the system's own can be.
 fn dylib_zippered() -> Vec<u8> {
+    dylib_marked_for(&[1, 6])
+}
+
+/// A dylib holding one build-version command per platform.
+fn dylib_marked_for(platforms: &[u32]) -> Vec<u8> {
+    let count = u32::try_from(platforms.len()).unwrap();
     let mut file = thin(DYLIB, &[]);
-    file[16..20].copy_from_slice(&2_u32.to_le_bytes());
-    file[20..24].copy_from_slice(&48_u32.to_le_bytes());
-    for platform in [1_u32, 6] {
+    file[16..20].copy_from_slice(&count.to_le_bytes());
+    file[20..24].copy_from_slice(&(24 * count).to_le_bytes());
+    for &platform in platforms {
         file.extend_from_slice(&0x32_u32.to_le_bytes());
         file.extend_from_slice(&24_u32.to_le_bytes());
         file.extend_from_slice(&platform.to_le_bytes());
@@ -2429,4 +2437,25 @@ fn a_fallback_location_that_cannot_be_looked_at_proves_nothing() {
     let facts = examine_with(&listed(Path::new("/"), &[loader]), &[], &table, &places).0;
     std::fs::set_permissions(&hidden, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(facts.unreadable_file, "{facts:?}");
+}
+
+/// A fallback location that is simply absent says nothing: answering a doubt here would
+/// cost every removal, silently.
+#[test]
+fn an_absent_fallback_location_is_no_doubt() {
+    let scratch = Scratch::new();
+    let (own, other, table) = scratch.table();
+    let places = Fallbacks {
+        libraries: vec![other.join("nowhere")],
+        frameworks: vec![other.join("nothing")],
+    };
+    let loader = put(
+        &own.join("bin/absent"),
+        &thin(EXECUTE, &[(LOAD, b"/nowhere/libF.dylib")]),
+    );
+    let facts = examine_with(&listed(Path::new("/"), &[loader]), &[], &table, &places).0;
+    assert!(
+        !facts.unreadable_file && !facts.fallback_under_other_prefix && !facts.file_not_examined,
+        "{facts:?}"
+    );
 }

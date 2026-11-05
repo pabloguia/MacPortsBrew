@@ -182,11 +182,14 @@ pub struct SliceRefs {
     pub loads: Vec<LoadRef>,
     /// Every `LC_RPATH` entry.
     pub rpaths: Vec<Vec<u8>>,
-    /// A build-version or version-min command names a platform that is not macOS.
+    /// A build-version or version-min command names a platform that is neither macOS nor
+    /// Mac Catalyst. dyld refused a dylib marked for both iOS and macOS (2026-11-05).
     pub marked_for_another_platform: bool,
-    /// One names macOS. A zippered dylib carries both, `/usr/lib/libgmalloc.dylib` here
-    /// (macOS and Mac Catalyst, 2026-11-05), and no such command at all is an older
-    /// macOS file; either way dyld takes it for a macOS process.
+    /// One names Mac Catalyst.
+    pub marked_for_catalyst: bool,
+    /// One names macOS. A zippered dylib carries this and Mac Catalyst,
+    /// `/usr/lib/libgmalloc.dylib` here (2026-11-05), and no such command at all is an
+    /// older macOS file; either way dyld takes it for a macOS process.
     pub marked_for_macos: bool,
 }
 
@@ -198,7 +201,8 @@ impl SliceRefs {
     pub fn is_dylib_for_this_build(&self) -> bool {
         self.file_type == ExaminedType::Dylib
             && self.cputype == THIS_BUILD_CPUTYPE
-            && (self.marked_for_macos || !self.marked_for_another_platform)
+            && !self.marked_for_another_platform
+            && (self.marked_for_macos || !self.marked_for_catalyst)
     }
 }
 
@@ -316,6 +320,7 @@ const LC_VERSION_MIN_TVOS: u32 = 0x2f;
 const LC_VERSION_MIN_WATCHOS: u32 = 0x30;
 const LC_BUILD_VERSION: u32 = 0x32;
 const PLATFORM_MACOS: u32 = 1;
+const PLATFORM_MACCATALYST: u32 = 6;
 const BUILD_VERSION_PLATFORM_AT: usize = 8;
 
 /// The `LC_REQ_DYLD` commands that carry no reference, from
@@ -635,6 +640,7 @@ pub fn read_slice(window: &[u8]) -> Result<SliceRefs, MachoError> {
         loads: Vec::new(),
         rpaths: Vec::new(),
         marked_for_another_platform: false,
+        marked_for_catalyst: false,
         marked_for_macos: false,
     };
     let mut at = 0_usize;
@@ -697,8 +703,11 @@ fn read_command(
         LC_BUILD_VERSION => {
             let platform = read_u32(body, BUILD_VERSION_PLATFORM_AT, order)
                 .ok_or(malformed(MalformedKind::CommandBodyTooShort))?;
-            refs.marked_for_macos |= platform == PLATFORM_MACOS;
-            refs.marked_for_another_platform |= platform != PLATFORM_MACOS;
+            match platform {
+                PLATFORM_MACOS => refs.marked_for_macos = true,
+                PLATFORM_MACCATALYST => refs.marked_for_catalyst = true,
+                _ => refs.marked_for_another_platform = true,
+            }
         }
         _ if cmd & LC_REQ_DYLD != 0 && !REQUIRED_WITHOUT_A_REFERENCE.contains(&cmd) => {
             return Err(MachoError::UnknownRequired(UnknownKind::RequiredCommand));

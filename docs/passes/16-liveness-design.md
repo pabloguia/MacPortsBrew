@@ -125,7 +125,7 @@ and re-read immediately before spawn (in `system.rs`) and after exit (in `probe.
 | Environment | `env_clear`, then exactly `PATH`, `LANG=C`, `LC_ALL=C`, `TERM=dumb`, `NO_COLOR=1`, `HOME`, `TMPDIR`, `PYTHONDONTWRITEBYTECODE=1`, and `CFFIXED_USER_HOME` if qualification confirms it | R-28 findings 8, 13 |
 | `PATH` | The destination's `bin`, then `SYSTEM_PATH`; never the other provider's | INV-10, observed: MacPorts' `spit` passes only with Homebrew's `bin` leaked |
 | `HOME`, `TMPDIR`, working directory | One fresh directory per probe | R-28 findings 9-11 |
-| The directory | `<state root>/probes/<random>`. `probes` joins `StateDir::directories()`, so it has the existing ownership and mode checks and a planted link refuses. `mkdir` `0700`, failing if it exists. Admission refuses a state root under a provider's prefix (`STATE_DIR_VARIABLE` can point there). An RAII guard removes it with `std`'s `remove_dir_all`; a removal failure does not change the answer; the next run sweeps leftovers | A crash or surviving daemon must not leave hostile content for ever |
+| The directory | `<state root>/probes/<random>`. `probes` joins `StateDir::directories()`, so it has the existing ownership and mode checks and a planted link refuses. `mkdir` `0700`, failing if it exists. Admission refuses a state root under a provider's prefix (`STATE_DIR_VARIABLE` can point there). An RAII guard removes it with `std`'s `remove_dir_all`; a removal failure does not change the answer; the next run sweeps leftovers | A crash or surviving daemon must not leave hostile content for ever Both refusals, the state root and the `mkdir`, answer `PROBE_NOT_STARTED`. |
 | stdin | `Stdio::null()` | Already the runner's |
 | Timeout | 30 s, a constant the site enforces. ADR-0006's one-process kill: a wrapper's child survives it, accepted, and stated in the ADR's amendment | R-28 finding 19, a HYPOTHESIS from one machine, and why a timeout is not `Fails` |
 | Output | Read and bound at 64 KiB, then dropped: never parsed, stored, recorded or shown | "Only the exit status counts". **Departs from R-28 finding 22**, which keeps the dyld line: a later part may show it, redacted, once it has a reason |
@@ -147,7 +147,7 @@ An exhaustive match on `ExitStatus`, with no wildcard and not `success()` plus a
 | Exit 0, pipes closed, target unchanged | `Holds` |
 | Exit non-zero, or a real signal | `Fails`: the step halts, the source is kept |
 | The timeout | `Unchecked (PROBE_TIMED_OUT)`: 30 s is a hypothesis, and "could not tell" is never `Fails` |
-| `Cancelled` (kept for exhaustiveness; no token is wired, so unreachable today); `Signalled { signal: None }` (the wait failed) | `Unchecked` with its cause |
+| `Cancelled` (kept for exhaustiveness; no token is wired, so unreachable today, and `PROBE_END_NOT_READ` if it were reached); `Signalled { signal: None }` (the wait failed) | `Unchecked` with its cause |
 | Exit 0, drain gave up (a pipe held) | `Unchecked (PROBE_LEFT_A_PROCESS)`. **Tightens "only the exit status counts"**, recorded in the SE entry: something outlived the probe, so the row is wrong |
 | Exit 0, over the output cap only | `Unchecked (PROBE_OUTPUT_OVER_CAP)`. **`system.rs` does not tell these apart today:** the readers report one `truncated`, so they gain a three-way ending (complete, over cap, gave up), with allowlist behaviour unchanged |
 | A read error on a pipe | `Unchecked` |

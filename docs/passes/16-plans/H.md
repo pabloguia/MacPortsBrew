@@ -320,6 +320,7 @@ Deviations from the text above:
 49. **The loader, tighter (round 6):** `read_on` must be shaped `YYYY-MM-DD`, not just ten characters with two dashes, and every location must be absolute.
 50. **A flag's attached value starts at its first `/` (round 7):** `#!/usr/bin/env -iS<other>/bin/p`, off the list, really ran and read `Holds`, a regression from item 47. Flags cannot be told from a relative value, so `-cbin/x`'s tail is measured for nothing: part L's open list.
 51. **A real file under the roots answers a name only if its head shows a dylib (round 7, closes item 46's exception):** a load naming a non-dylib under `/usr/lib` read `Holds` while dyld loaded the other provider's. `can_be_taken` reads the head once, charging bytes and flagging nothing. The cheap read was not awkward: a system dylib in the shared cache has no file, so it never reaches this. `is_system` there became a test of the canonical path's text, so a repeated deep name costs no `canonicalize` (about 9 minutes at the bound, as reviewed). **A zippered dylib is taken:** the first run of this read refused `/usr/lib/libgmalloc.dylib`, which carries `LC_BUILD_VERSION` for macOS and for Mac Catalyst, so a macOS mark beside another platform's counts as macOS (`otool`, 2026-11-05).
+52. **The platform rule is macOS plus Mac Catalyst only (final delta):** a dylib marked both iOS and macOS counted as taken while dyld refused it. A Catalyst mark alone answers no name. `window` can still set `unreadable_file` or `walk_over_bound` on the head read of item 51, which can only add `Unchecked`.
 52. **Pinned (round 7):** `LC_LOAD_DYLINKER` is not held to the dylib rule, and `LC_VERSION_MIN_IPHONEOS`, `TVOS` and `WATCHOS` answer no name where `MACOSX` does. Each loader slice's own `cputype` was not small, and stays on the open list.
 53. **The causes the admission adds are reserved (round 7),** as item 28 did for `PROBE_VERSION_NOT_QUALIFIED`: 15, in the enum, `unchecked_key`, both catalogues and `migrate.v2`, each answered by nothing yet, so the owner's patch stays in the frozen module. The design note names no refusal, so the names are this round's, and it now maps them to its conditions. 39 causes in all.
 54. **A fallback location that cannot be looked at proves nothing (fifth proof, a defect unmutated):** `fallback()` read any `canonicalize` error as nothing there; only `is_gone` does now, and anything else is `UNREADABLE_FILE`.
@@ -335,6 +336,7 @@ This check is a bounded static read and cannot prove what dyld loads. It answers
 **Open for part L:**
 
 - A bare `MH_DYLIB` with no commands counts as a dylib.
+- `read_system_file` opens with a plain `File::open`, with no `O_NOFOLLOW` or `O_NONBLOCK`: the path is canonical and under roots only root can write, and no non-regular file was found under them to depth 5 (2026-11-05).
 - The tool's architecture against the loader's, and Rosetta in both directions: an arm64 tool on x86_64-only packages answers `RPATH_UNRESOLVED`.
 - Memory at the byte bound, about 1.6 GB extrapolated.
 - `#!/bin/sh -cbin/x`, a flag with an attached relative value.
@@ -476,9 +478,11 @@ One `CheckAnswer` model and one judge per check, in both directions. Declared as
 | `docs-auditor`, H-2 | `56742e2` | Findings folded in round 4 | Folded into `dd1d62a` |
 | `security-reviewer`, H-2 round 5 | `dd1d62a` | Changes required, all proved: R5-1 to R5-4 | Folded into `355fcfd` |
 | `security-reviewer`, H-2 round 6 | `355fcfd` | Changes required: R6-1, A to D | Folded into `c6e95b3` |
-| `security-reviewer`, H-2 round 7 | `c6e95b3` | No (a); nothing reachable by accident on a real package; small code, and the open list | Accepted to land with the open list; folded in the commit this becomes |
+| `security-reviewer`, H-2 round 7 | `c6e95b3` | No (a); nothing reachable by accident on a real package; small code, and the open list | Accepted to land with the open list; folded in `3fce170` |
 | `spec-guardian`, H-2 round 5 | `dd1d62a` | Changes required: SE-113's count; this table's placeholder; `FILE_NOT_EXAMINED` narrower than it covers; `destination_answers` from the read-only loop. Its advice on the row lookup was retracted in round 6 | Folded into `355fcfd` and `c6e95b3` |
-| `spec-guardian`, H-2 round 7 | `c6e95b3` | No invariant violation; must-fix text | Accepted to land with the open list; folded in the commit this becomes |
+| `spec-guardian`, H-2 round 7 | `c6e95b3` | No invariant violation; must-fix text | Accepted to land with the open list; folded in `3fce170` |
 | `docs-auditor`, H-2 | `dd1d62a` | A stale "not checked" sentence; `plan.v2` and `04` stating observation past a gate not reached; "none exists yet"; the peer page's list; `AT_LEAST`; R-27's duplicate and an unobserved "would answer" | Folded into `355fcfd` |
-| `docs-auditor`, H-2 | `c6e95b3` | `04`, `05`, `plan.v2` on what is observed; R-27 and R-28 dates and rows that did not land; the quoted "no equivalent" text; `migrate.v2` and the domain's comments; a wiki sentence per provider | Folded in the commit this becomes |
+| `docs-auditor`, H-2 | `c6e95b3` | `04`, `05`, `plan.v2` on what is observed; R-27 and R-28 dates and rows that did not land; the quoted "no equivalent" text; `migrate.v2` and the domain's comments; a wiki sentence per provider | Folded in `3fce170` |
+| `spec-guardian`, H-2 final delta | `3fce170` | Must-fixes done; no invariant violation, nothing untrue; merge from its side | Non-blocking items folded in the next commit |
+| `security-reviewer`, H-2 final delta | `3fce170` | No (a). (b): a dylib marked both iOS and macOS counted as taken; `read_system_file` has no `O_NONBLOCK`; two refusals in the design note unnamed; the mapping of the 15 causes holds what it passed | The platform rule is macOS plus Catalyst only, tested; the file open is on the open list; the two refusals are named in the note. The amendment is read and accepted (round 7); the `~/Library` search is not |
 
