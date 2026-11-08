@@ -581,9 +581,16 @@ starts in `/`, which is root-owned and holds no Portfile, because a provider can
 resolve a read against the directory it was started in (`port`'s `current`
 pseudo-port; SE-050). A command spec carries no directory, so nothing can name
 another one.
+*Staged, not applied (`docs/passes/16-staged/H/01`, SE-113):* once the owner
+applies it, the curated probe's admission is the one exception: it alone sets a
+working directory, the probe's fresh `0700` scratch directory under the state
+root. No *allowlist* spec carries one.
 
 **MUST.** Every invocation records argv, sanitised environment, exit status,
 stdout, stderr and duration, and supports timeout and cancellation.
+*Staged, not applied (`16-staged/H/01`):* the curated probe is the deliberate
+exception. It records nothing, its output is thrown away, and only its ending
+reaches the check's answer (`docs/passes/16-liveness-design.md`, "How it runs").
 
 **MUST.** Provider invocations set the environment *and flags* that keep them
 quiet and side-effect-free during analysis — no auto-update, no interactive
@@ -746,6 +753,12 @@ do not gold-plate beyond them.
   module-level `OnceLock` manufactures the `&'static str` the constructors ask
   for with no `Box::leak` and nothing to grep, and a *denylist* of interpreters
   had never heard of `tclsh`, which is what `port` is written in.
+
+  *Staged, not applied (`16-staged/H/01`):* the same spawn site would start a
+  second class, a package's own curated program, through `run_probe` and an
+  admission only `process/probe.rs` can build. The six are still all that
+  `SystemRunner::run` starts; what the list does not cover is that admission,
+  whose eleven conditions are in `docs/passes/16-liveness-design.md`.
 
   A program name is half the question, because every mutation this tool must
   never perform is `brew` or `port` with different arguments. So for the two

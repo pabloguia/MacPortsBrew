@@ -1,0 +1,3398 @@
+diff --git a/crates/adapters/src/process/mod.rs b/crates/adapters/src/process/mod.rs
+index 509db3a..3381293 100644
+--- a/crates/adapters/src/process/mod.rs
++++ b/crates/adapters/src/process/mod.rs
+@@ -10,10 +10,19 @@
+ //! tested against real provider output without a real provider.
+ 
+ mod environment;
++mod probe;
+ mod recording;
+ mod system;
+ 
+ pub use environment::{sanitised_environment, EnvironmentSpec};
++pub use probe::{curated_probe_rows, CuratedProbeRow, ProbeRun};
++// What H-3's unfrozen wiring calls, so it needs no second hunk in this file.
++// Unused until then, in a test build too (the tests call them in place).
++#[allow(
++    unused_imports,
++    reason = "staged (H/01): H-3's unfrozen wiring is the first caller"
++)]
++pub(crate) use probe::{run_curated_probe, ProbeOwner};
+ pub use recording::{RecordedInvocation, Recording, RecordingProvenance, ReplayRunner};
+ pub use system::{CancelToken, SystemRunner};
+ 
+@@ -571,14 +580,34 @@ pub(crate) const PERMITTED_IN_TESTS: &[&str] = &[
+     "mpb-test-program",
+ ];
+ 
+-/// What the runner asks before it spawns: the shipped rule, plus - in a test
+-/// build only - the handful of programs the executor's own tests name.
++/// What the runner asks before it spawns. **One rule at one site**, with two
++/// questions behind it, chosen by the spec's [`Admission`], which only this
++/// module can set:
++///
++/// - [`Admission::Allowlist`]: the shipped rule, plus - in a test build only -
++///   the handful of programs the executor's own tests name. Every package
++///   executable is still refused here: `PERMITTED_PROGRAMS`,
++///   `PERMITTED_SUBCOMMANDS`, `SYSTEM_PROBES` and [`is_permitted_invocation`]
++///   are untouched by the curated probe.
++/// - [`Admission::CuratedProbe`]: shape only, and **never** the test widening.
++///   The site cannot prove prefix membership, which `probe::AdmittedProbe::admit`
++///   established; it holds what can be read off the spec, so a probe cannot be
++///   widened after admission (`docs/passes/16-liveness-design.md`, "The
++///   admission").
+ ///
+ /// Kept separate from [`is_permitted_program`] so that
+ /// `an_interpreter_is_refused_however_it_was_named` asserts the *shipped* rule
+ /// rather than the widened one. A test that can only see the wider list cannot
+ /// tell you anything about what ships.
+-pub(in crate::process) fn may_spawn(program: &std::path::Path, argv: &[String]) -> bool {
++pub(in crate::process) fn may_spawn(spec: &CommandSpec) -> bool {
++    match &spec.admission {
++        Admission::Allowlist => may_spawn_listed(&spec.program, &spec.argv),
++        Admission::CuratedProbe { .. } => probe::is_admitted_probe_shape(spec),
++    }
++}
++
++/// The allowlist half of [`may_spawn`].
++fn may_spawn_listed(program: &std::path::Path, argv: &[String]) -> bool {
+     if is_permitted_invocation(program, argv) {
+         return true;
+     }
+@@ -653,6 +682,37 @@ pub struct CommandSpec {
+     /// it (SE-050, "Not closed" item 7). Only [`CommandSpec::plan_read`] sets
+     /// it; an adapter's own spec is built from the prefix its runner detected.
+     pub(in crate::process) replay_only: bool,
++    /// Which question [`may_spawn`] asks of this spec. Private to this module,
++    /// so an allowlist spec can carry no scratch directory, no `arg0` and no
++    /// recorded identity, and the `port current` protection (`current_dir("/")`)
++    /// stays structural for every spec that is not a curated probe. Only
++    /// `probe.rs`'s `CommandSpec::curated_probe` sets anything but
++    /// [`Admission::Allowlist`].
++    pub(in crate::process) admission: Admission,
++}
++
++/// What admits a spec to the spawn site (`docs/passes/16-liveness-design.md`).
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(in crate::process) enum Admission {
++    /// The allowlist: six programs, a provider only for a read on its list.
++    Allowlist,
++    /// A curated liveness probe that `probe::AdmittedProbe::admit` passed.
++    #[cfg_attr(
++        not(test),
++        allow(
++            dead_code,
++            reason = "staged (H/01): nothing outside this module constructs a probe until H-3"
++        )
++    )]
++    CuratedProbe {
++        /// The fresh directory serving as `HOME`, `TMPDIR` and the working
++        /// directory.
++        scratch: PathBuf,
++        /// The placed leaf, passed as `argv[0]` while the canonical path runs.
++        arg0: String,
++        /// The canonical target's identity at admission, re-read before spawn.
++        target: probe::TargetIdentity,
++    },
+ }
+ 
+ impl CommandSpec {
+@@ -708,6 +768,7 @@ impl CommandSpec {
+             timeout: DEFAULT_TIMEOUT,
+             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+             replay_only: false,
++            admission: Admission::Allowlist,
+         }
+     }
+ 
+@@ -961,6 +1022,29 @@ pub trait ProcessRunner {
+     /// whether a plan read is marked replay-only both follow from this answer,
+     /// so a new runner must state it rather than inherit "live" (SE-050).
+     fn is_replay(&self) -> bool;
++
++    /// Runs a curated liveness probe, and returns only how it ended: never an
++    /// [`Invocation`], so nothing it printed and none of its paths can reach a
++    /// record, a recording or a renderer (`docs/passes/16-liveness-design.md`,
++    /// "No record, either way").
++    ///
++    /// The default answers "not observed" and starts nothing, so a replay, a
++    /// test double and any runner written later run no package's program unless
++    /// they say so. Only [`SystemRunner`] overrides it, and it refuses while
++    /// recording. A [`ProbeRun`] cannot be built outside this module, so no
++    /// runner elsewhere can claim a probe ran.
++    fn run_probe(&self, spec: &CommandSpec) -> ProbeRun {
++        let _ = spec;
++        ProbeRun::not_observed()
++    }
++
++    /// Whether this runner may start a curated probe at all: asked at the
++    /// admission's condition 1, before anything is read or written, so a
++    /// capture never touches the state directory. Defaults to no; only a
++    /// [`SystemRunner`] that is not recording says yes.
++    fn may_run_probes(&self) -> bool {
++        false
++    }
+ }
+ 
+ impl<T: ProcessRunner + ?Sized> ProcessRunner for &T {
+@@ -971,6 +1055,14 @@ impl<T: ProcessRunner + ?Sized> ProcessRunner for &T {
+     fn is_replay(&self) -> bool {
+         (**self).is_replay()
+     }
++
++    fn run_probe(&self, spec: &CommandSpec) -> ProbeRun {
++        (**self).run_probe(spec)
++    }
++
++    fn may_run_probes(&self) -> bool {
++        (**self).may_run_probes()
++    }
+ }
+ 
+ impl<T: ProcessRunner + ?Sized> ProcessRunner for std::rc::Rc<T> {
+@@ -981,6 +1073,14 @@ impl<T: ProcessRunner + ?Sized> ProcessRunner for std::rc::Rc<T> {
+     fn is_replay(&self) -> bool {
+         (**self).is_replay()
+     }
++
++    fn run_probe(&self, spec: &CommandSpec) -> ProbeRun {
++        (**self).run_probe(spec)
++    }
++
++    fn may_run_probes(&self) -> bool {
++        (**self).may_run_probes()
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -992,6 +1092,12 @@ mod tests {
+         // Not a tautology: it is the assertion that makes PERMITTED_IN_TESTS
+         // safe to have. If a test name ever migrates into the production list,
+         // this is what says so.
++        //
++        // What it does not cover: a curated liveness probe, which starts an
++        // installed package's own program. That is not on this list and never
++        // will be; it reaches the site only as `Admission::CuratedProbe`, admitted
++        // by `probe::AdmittedProbe::admit` against the observed rows of
++        // `data/policy/liveness-probes.toml` (`docs/passes/16-liveness-design.md`).
+         assert_eq!(
+             PERMITTED_PROGRAMS,
+             ["brew", "port", "sw_vers", "uname", "sysctl", "xcode-select"]
+diff --git a/crates/adapters/src/process/probe.rs b/crates/adapters/src/process/probe.rs
+new file mode 100644
+index 0000000..6c4ec95
+--- /dev/null
++++ b/crates/adapters/src/process/probe.rs
+@@ -0,0 +1,2610 @@
++// SPDX-License-Identifier: Apache-2.0
++
++//! The curated liveness probe: the one way an installed package's own program
++//! may be started (DP-051 (a); `docs/passes/16-liveness-design.md`; R-28).
++//!
++//! **Staged (work order 16 part H, H/01).** This module is the admission, the
++//! table reader, the scratch directory and the answer. Nothing outside the
++//! process module calls it yet, so applying it starts no program; H-3 wires it,
++//! in unfrozen code, after it lands ("What H-3 owes", `docs/passes/16-plans/H.md`).
++//!
++//! The allowlist is untouched. `PERMITTED_PROGRAMS`, `PERMITTED_SUBCOMMANDS`,
++//! `SYSTEM_PROBES` and `is_permitted_invocation` still refuse every package
++//! executable; a probe reaches the spawn site only as
++//! [`super::Admission::CuratedProbe`], which only [`AdmittedProbe::admit`]'s
++//! product can carry, and the site asks it a separate question of shape
++//! ([`is_admitted_probe_shape`]).
++//!
++//! **Three layers hold the closed flag set**, the table reader, `admit` and the
++//! site, so a probe can be widened at none of them. **A passing probe does not
++//! exclude a started server** (R-28): the controls are the observed-only rows,
++//! the exact version, the closed flag set and the stateful exclusion in the
++//! policy loader.
++
++#![cfg_attr(
++    not(test),
++    allow(
++        dead_code,
++        reason = "staged (H/01): nothing unfrozen calls the admission until H-3's wiring lands"
++    )
++)]
++
++use super::{Admission, CommandSpec, ExitStatus, ProcessRunner, PERMITTED_PROGRAMS, SYSTEM_PROBES};
++use crate::persistence::run_lock::RunLock;
++use crate::persistence::StateDir;
++use macportsbrew_domain::{
++    CheckAnswer, CheckFailure, ExecutableName, OwnershipFacts, UncheckedCause, PINNED_ENVIRONMENT,
++    SYSTEM_PATH,
++};
++use serde::Deserialize;
++use std::collections::{BTreeMap, BTreeSet};
++use std::fs::{DirBuilder, Metadata};
++use std::os::unix::fs::{DirBuilderExt, MetadataExt};
++use std::path::{Component, Path, PathBuf};
++use std::time::Duration;
++
++/// The whole set of flags a curated probe may pass (condition 5). `argv = []`
++/// is the server-start case, and `--init`, `--daemon` and `-D` would all pass a
++/// character class, so growing this is a reviewed code change. The policy
++/// loader holds the same four (`PROBE_FLAGS` in `crates/policy/src/data.rs`).
++pub(crate) const PROBE_FLAGS: [&str; 4] = ["--version", "-version", "-V", "-v"];
++
++/// The timeout of a probe, which the site enforces as a ceiling. A HYPOTHESIS
++/// from one machine (R-28 finding 19), which is why a timeout is never `Fails`.
++pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
++
++/// The cap per output stream, which the site enforces as a ceiling. What is
++/// read is dropped: only the exit status counts.
++pub(crate) const PROBE_MAX_OUTPUT_BYTES: usize = 64 * 1024;
++
++/// Every key a probe's environment holds, and no other (R-28 findings 8, 13).
++/// `CFFIXED_USER_HOME` is not here: the design note admits it only "if
++/// qualification confirms it", and the re-qualification of 2026-11-04 did not.
++const PROBE_ENVIRONMENT_KEYS: [&str; 8] = [
++    "HOME",
++    "LANG",
++    "LC_ALL",
++    "NO_COLOR",
++    "PATH",
++    "PYTHONDONTWRITEBYTECODE",
++    "TERM",
++    "TMPDIR",
++];
++
++/// The scratch directory's mode: the owner, and nobody else.
++const SCRATCH_MODE: u32 = 0o700;
++
++/// The mode bit that runs a file as its owner. Named by value: the elevation
++/// mechanisms' names are refused in non-comment source
++/// (`invariant_06_reading_the_machine_needs_no_elevation`).
++const RUNS_AS_OWNER_BIT: u32 = 0o4000;
++
++/// The mode bit that runs a file as its group.
++const RUNS_AS_GROUP_BIT: u32 = 0o2000;
++
++/// Group and world write.
++const SHARED_WRITE_BITS: u32 = 0o022;
++
++/// Shells and interpreters, by leaf (condition 10), with or without a version
++/// suffix (`python3.12`, `perl5.34`, `tclsh8.6`). Defence in depth: the table
++/// holds observed compiled programs only, and `bin/foo -> libexec/python3` is
++/// the case this catches. Not a complete list of interpreters, which cannot be
++/// written; the rows are the control.
++const EXCLUDED_LEAVES: &[&str] = &[
++    "sh",
++    "bash",
++    "zsh",
++    "dash",
++    "ksh",
++    "mksh",
++    "csh",
++    "tcsh",
++    "fish",
++    "env",
++    "python",
++    "pypy",
++    "perl",
++    "ruby",
++    "irb",
++    "tclsh",
++    "wish",
++    "expect",
++    "node",
++    "nodejs",
++    "deno",
++    "bun",
++    "php",
++    "lua",
++    "luajit",
++    "osascript",
++    "awk",
++    "gawk",
++    "nawk",
++    "mawk",
++    "xcrun",
++    "arch",
++    "guile",
++    "julia",
++    "pwsh",
++    "java",
++    "jshell",
++    "rscript",
++];
++
++// ---------------------------------------------------------------------------
++// The table
++// ---------------------------------------------------------------------------
++
++/// The curated table, read by this layer itself: no caller hands it a table,
++/// as no caller hands `prefixes.rs` a prefix. `crates/adapters` cannot reach
++/// `crates/policy`, so this is a second, strict reader of the same file; an
++/// agreement test against the policy loader belongs in `crates/cli/tests` (H-3),
++/// through [`curated_probe_rows`].
++const TABLE_SOURCE: &str = include_str!("../../../../data/policy/liveness-probes.toml");
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct TableFile {
++    #[serde(default)]
++    probe: Vec<Row>,
++}
++
++/// One row: an observation, keyed `(provider, package, executable)`.
++#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub(in crate::process) struct Row {
++    provider: String,
++    package: String,
++    executable: String,
++    argv: Vec<String>,
++    observed_version: String,
++    source: String,
++    read_on: String,
++}
++
++/// Parses the table strictly, failing closed on anything the policy loader
++/// would refuse that can be read from this file alone: a key twice, an empty
++/// provider or package, an executable outside its name class, `argv` other than
++/// one flag of [`PROBE_FLAGS`], no version, no source, a date not `YYYY-MM-DD`.
++/// The stateful exclusion needs `stateful-packages.toml` and stays the policy
++/// loader's, which refuses to load at all on a stateful row.
++fn parse_table(text: &str) -> Result<Vec<Row>, String> {
++    let file: TableFile = toml::from_str(text).map_err(|e| format!("malformed: {e}"))?;
++    let mut keys = BTreeSet::new();
++    for row in &file.probe {
++        let key = format!("({}, {}, {})", row.provider, row.package, row.executable);
++        if !keys.insert((&row.provider, &row.package, &row.executable)) {
++            return Err(format!("{key} appears twice"));
++        }
++        if row.provider.is_empty() || row.package.is_empty() {
++            return Err(format!("{key} names no provider or no package"));
++        }
++        if ExecutableName::parse(&row.executable).is_err() {
++            return Err(format!("{key} names no executable"));
++        }
++        if !is_one_permitted_flag(&row.argv) {
++            return Err(format!(
++                "{key} passes other than one flag of the closed set"
++            ));
++        }
++        if row.observed_version.is_empty() {
++            return Err(format!("{key} says no version it was observed at"));
++        }
++        if row.source.trim().is_empty() || !is_iso_date(&row.read_on) {
++            return Err(format!("{key} carries no source or no date"));
++        }
++    }
++    Ok(file.probe)
++}
++
++/// `YYYY-MM-DD`, by shape.
++fn is_iso_date(text: &str) -> bool {
++    let bytes = text.as_bytes();
++    bytes.len() == 10
++        && bytes.iter().enumerate().all(|(i, b)| match i {
++            4 | 7 => *b == b'-',
++            _ => b.is_ascii_digit(),
++        })
++}
++
++/// The embedded table, parsed once. A malformed table answers every probe
++/// `NO_CURATED_PROBE`, never a guess; `the_shipped_table_parses` holds it.
++fn table() -> Result<&'static [Row], &'static str> {
++    use std::sync::OnceLock;
++    static PARSED: OnceLock<Result<Vec<Row>, String>> = OnceLock::new();
++    PARSED
++        .get_or_init(|| parse_table(TABLE_SOURCE))
++        .as_deref()
++        .map_err(String::as_str)
++}
++
++/// Whether `argv` is exactly one element of [`PROBE_FLAGS`].
++fn is_one_permitted_flag(argv: &[String]) -> bool {
++    matches!(argv, [flag] if PROBE_FLAGS.contains(&flag.as_str()))
++}
++
++/// A copy of one row of the table this module admits against, for reading only.
++/// Building one admits nothing: [`AdmittedProbe::admit`] reads its own parsed
++/// table, never one of these.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct CuratedProbeRow {
++    /// The destination provider.
++    pub provider: String,
++    /// The destination package.
++    pub package: String,
++    /// The executable's leaf.
++    pub executable: String,
++    /// The one flag.
++    pub argv: Vec<String>,
++    /// The version it was observed at, revision included.
++    pub observed_version: String,
++    /// What was seen.
++    pub source: String,
++    /// When, `YYYY-MM-DD`.
++    pub read_on: String,
++}
++
++/// The rows of the embedded table as this module parsed them, or why it did
++/// not parse. **Parameterless and read-only**, so it is not the seam the design
++/// note forbids (one that accepts a table or a prefix): it exists for the
++/// agreement test against the policy loader in `crates/cli/tests`, which is why
++/// it is `pub`.
++pub fn curated_probe_rows() -> Result<Vec<CuratedProbeRow>, String> {
++    table().map_err(str::to_owned).map(|rows| {
++        rows.iter()
++            .map(|row| CuratedProbeRow {
++                provider: row.provider.clone(),
++                package: row.package.clone(),
++                executable: row.executable.clone(),
++                argv: row.argv.clone(),
++                observed_version: row.observed_version.clone(),
++                source: row.source.clone(),
++                read_on: row.read_on.clone(),
++            })
++            .collect()
++    })
++}
++
++// ---------------------------------------------------------------------------
++// What the adapter supplies
++// ---------------------------------------------------------------------------
++
++/// What a provider adapter answers about itself for its probe, **from itself**:
++/// its own id, its own scope and runner, its own detected prefix, and its own
++/// owner rule run now. No caller hands any of these in, so no route lets a plan
++/// or a test name a prefix or a table (`docs/passes/16-liveness-design.md`). H-3
++/// implements it for each adapter, in unfrozen code.
++///
++/// `pub(crate)`, and deliberately not reachable from `crates/*/tests`: a `pub`
++/// seam accepting a prefix would ship.
++pub(crate) trait ProbeOwner {
++    /// The adapter's own provider id: condition 4's row key.
++    fn provider(&self) -> &str;
++    /// Whether the filesystem describes this machine (condition 1).
++    fn is_this_machine(&self) -> bool;
++    /// The adapter's own runner (condition 1 asks it `is_replay` and
++    /// `may_run_probes`).
++    fn runner(&self) -> &dyn ProcessRunner;
++    /// The prefix this adapter detected.
++    fn prefix(&self) -> &Path;
++    /// The owner rule, run now, on `placed`, the entry `admit` built from typed
++    /// parts and is about to canonicalise (conditions 6 and 7): the same answer
++    /// `EXECUTABLES_OWNED_BY_DESTINATION` reads, judged of that very file.
++    fn entry_owner(&self, package: &str, leaf: &ExecutableName, placed: &Path) -> OwnershipFacts;
++    /// Whether `canonical`, what `placed` finally resolves to, is the package's
++    /// by the owner rule (condition 8): inside its keg where the rule is a
++    /// path, and where the rule is a query, asked of `placed` **and**
++    /// `canonical`, both answering the package. Not merely under the prefix,
++    /// which `admit` requires as a floor of its own.
++    fn target_is_packages(
++        &self,
++        package: &str,
++        placed: &Path,
++        canonical: &Path,
++    ) -> Result<bool, UncheckedCause>;
++}
++
++// ---------------------------------------------------------------------------
++// Who this process is
++// ---------------------------------------------------------------------------
++
++/// This process's effective uid, read as the owner of a file it just made
++/// (`crate::system::machine::effective_uid`): never a caller's word for it.
++fn current_euid() -> Option<u32> {
++    crate::system::machine::effective_uid()
++}
++
++#[cfg(test)]
++thread_local! {
++    /// Makes condition 2 see root, in a test only, so dropping that condition can
++    /// be shown to reach a spawn: nothing else here can make this process root.
++    static TREAT_AS_ROOT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
++}
++
++/// Condition 2's question.
++fn is_root(euid: u32) -> bool {
++    #[cfg(test)]
++    if TREAT_AS_ROOT.with(std::cell::Cell::get) {
++        return true;
++    }
++    euid == 0
++}
++
++// ---------------------------------------------------------------------------
++// Identity of the target
++// ---------------------------------------------------------------------------
++
++/// What `lstat` says of the canonical target: recorded at `admit`, re-read
++/// immediately before spawn (in `system.rs`) and after exit (here). Any
++/// difference is `Unchecked (PROBE_TARGET_CHANGED)`, never `Holds`.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(in crate::process) struct TargetIdentity {
++    dev: u64,
++    ino: u64,
++    size: u64,
++    mtime: i64,
++    mtime_nsec: i64,
++    ctime: i64,
++    ctime_nsec: i64,
++    mode: u32,
++}
++
++impl TargetIdentity {
++    fn of(meta: &Metadata) -> Self {
++        Self {
++            dev: meta.dev(),
++            ino: meta.ino(),
++            size: meta.size(),
++            mtime: meta.mtime(),
++            mtime_nsec: meta.mtime_nsec(),
++            ctime: meta.ctime(),
++            ctime_nsec: meta.ctime_nsec(),
++            mode: meta.mode(),
++        }
++    }
++
++    /// One `lstat` of `path`, never following a link.
++    pub(in crate::process) fn read(path: &Path) -> Option<Self> {
++        std::fs::symlink_metadata(path).ok().map(|m| Self::of(&m))
++    }
++}
++
++// ---------------------------------------------------------------------------
++// The admission
++// ---------------------------------------------------------------------------
++
++/// A probe that passed all eleven conditions. Private fields, no `Clone`, no
++/// `Default`, no serde: the only way to one is [`AdmittedProbe::admit`], and
++/// the only thing it becomes is a spec built and run inside this module.
++pub(crate) struct AdmittedProbe {
++    /// The canonical target, which is what runs.
++    program: PathBuf,
++    /// The placed leaf, passed as `argv[0]`: `lzcat` is a link to `xz`.
++    arg0: String,
++    /// The row's one flag.
++    argv: Vec<String>,
++    /// `<prefix>/bin`, the first entry of the probe's `PATH`.
++    destination_bin: PathBuf,
++    /// The canonical target's identity at admission.
++    target: TargetIdentity,
++    /// This process's effective uid, as read at admission.
++    euid: u32,
++}
++
++impl AdmittedProbe {
++    /// Refuses unless every condition of `docs/passes/16-liveness-design.md`
++    /// holds; each refusal is a named cause, and a refusal starts nothing.
++    ///
++    /// The owner rule's answer is read once and tested for condition 7 before
++    /// condition 6: a version is only the package's to compare once the entry
++    /// is the package's. Everything else is in the note's order.
++    pub(in crate::process) fn admit(
++        table: &[Row],
++        owner: &dyn ProbeOwner,
++        package: &str,
++        leaf: &str,
++        argv: &[String],
++    ) -> Result<Self, UncheckedCause> {
++        // 1. This machine, and a live runner that may start a probe (INV-15): a
++        // replay, a test double and a recording runner all refuse here, before
++        // anything is read or written.
++        let runner = owner.runner();
++        if !owner.is_this_machine() || runner.is_replay() || !runner.may_run_probes() {
++            return Err(UncheckedCause::NotObserved);
++        }
++        // 2. Never as root (INV-06). The uid is this process's own.
++        let Some(euid) = current_euid() else {
++            return Err(UncheckedCause::ProbeNotStarted);
++        };
++        if is_root(euid) {
++            return Err(UncheckedCause::ProbeAsRoot);
++        }
++        // 3. The name class (§3 item 10).
++        let Ok(leaf) = ExecutableName::parse(leaf) else {
++            return Err(UncheckedCause::ProbeLeafRefused);
++        };
++        // 4. A row for exactly this key, and the plan's argv is the row's.
++        let Some(row) = table.iter().find(|row| {
++            row.provider == owner.provider()
++                && row.package == package
++                && row.executable == leaf.as_str()
++        }) else {
++            return Err(UncheckedCause::NoCuratedProbe);
++        };
++        if row.argv != argv {
++            return Err(UncheckedCause::ProbeArgvNotTheRows);
++        }
++        // 5. One flag of the closed set, here as in the reader and at the site.
++        if !is_one_permitted_flag(argv) {
++            return Err(UncheckedCause::ProbeArgvNotPermitted);
++        }
++        // 7. The placed entry, from typed parts, is the package's by the owner
++        // rule run now, on that entry.
++        let Ok(Some(placed)) =
++            crate::destination_reads::placed_entry(owner.prefix(), leaf.as_str())
++        else {
++            return Err(UncheckedCause::ProbeEntryNotThePackages);
++        };
++        let version = match owner.entry_owner(package, &leaf, &placed) {
++            OwnershipFacts::Owner { name, version, .. } if name == package => version,
++            OwnershipFacts::Owner { .. }
++            | OwnershipFacts::NoEntry
++            | OwnershipFacts::NotOwned
++            | OwnershipFacts::OwnerLeavesItsDirectory { .. }
++            | OwnershipFacts::CouldNotTell(_) => {
++                return Err(UncheckedCause::ProbeEntryNotThePackages)
++            }
++        };
++        // 6. Exactly the observed version, revision included.
++        if version != row.observed_version {
++            return Err(UncheckedCause::ProbeVersionNotQualified);
++        }
++        // 8. What it resolves to lies under the destination's prefix, by
++        // component (a floor of this module's own), and is the package's by the
++        // owner rule.
++        let Ok(canonical) = std::fs::canonicalize(&placed) else {
++            return Err(UncheckedCause::ProbeTargetNotThePackages);
++        };
++        if !super::is_safe_path(&canonical)
++            || !lies_under(&canonical, owner.prefix())
++            || owner.target_is_packages(package, &placed, &canonical) != Ok(true)
++        {
++            return Err(UncheckedCause::ProbeTargetNotThePackages);
++        }
++        // 9. On one `lstat` of the canonical target: a regular file, neither
++        // mode bit that runs it as someone else, owned by this uid or root, no
++        // group or world write (INV-06).
++        let Ok(meta) = std::fs::symlink_metadata(&canonical) else {
++            return Err(UncheckedCause::ProbeTargetModeRefused);
++        };
++        if target_mode_refused(meta.file_type().is_file(), meta.uid(), meta.mode(), euid) {
++            return Err(UncheckedCause::ProbeTargetModeRefused);
++        }
++        let target = TargetIdentity::of(&meta);
++        // 10. Neither leaf is a provider program, a system probe, a shell or an
++        // interpreter.
++        let canonical_leaf = canonical.file_name().and_then(|n| n.to_str());
++        if is_excluded_leaf(leaf.as_str()) || canonical_leaf.is_none_or(is_excluded_leaf) {
++            return Err(UncheckedCause::ProbeProgramExcluded);
++        }
++        // 11. Only a Mach-O executable for this build's architecture, read on a
++        // handle that is the file `lstat` described.
++        target_head_admits(&canonical, &target)?;
++        Ok(Self {
++            program: canonical,
++            arg0: leaf.as_str().to_owned(),
++            argv: argv.to_vec(),
++            destination_bin: owner.prefix().join("bin"),
++            target,
++            euid,
++        })
++    }
++}
++
++/// Whether `path` is, or lies under, `prefix` by component, as `prefix` is
++/// written or canonically.
++fn lies_under(path: &Path, prefix: &Path) -> bool {
++    let within = |p: &Path| path == p || crate::listing::is_under(path, p);
++    within(prefix) || std::fs::canonicalize(prefix).is_ok_and(|real| within(&real))
++}
++
++/// Condition 9, pure, so the owner case is tested without a second user.
++fn target_mode_refused(is_file: bool, uid: u32, mode: u32, euid: u32) -> bool {
++    !is_file
++        || mode & (RUNS_AS_OWNER_BIT | RUNS_AS_GROUP_BIT) != 0
++        || (uid != euid && uid != 0)
++        || mode & SHARED_WRITE_BITS != 0
++}
++
++/// Condition 10, on one leaf: a provider program, a system probe, or a shell or
++/// interpreter with or without a version suffix, compared without case (the
++/// default macOS volume does not tell `Bash` from `bash`).
++fn is_excluded_leaf(leaf: &str) -> bool {
++    let lower = leaf.to_ascii_lowercase();
++    if PERMITTED_PROGRAMS.contains(&lower.as_str()) || SYSTEM_PROBES.contains(&lower.as_str()) {
++        return true;
++    }
++    EXCLUDED_LEAVES.iter().any(|base| {
++        lower.strip_prefix(base).is_some_and(|rest| {
++            rest.chars()
++                .all(|c| c.is_ascii_digit() || c == '.' || c == '-')
++        })
++    })
++}
++
++/// Condition 11, and the handle half of condition 9: **an allowlist of what a
++/// read shows**. Opens the target, checks the handle is the file `lstat`
++/// described (`PROBE_TARGET_CHANGED` if not), and admits it only if its bytes,
++/// read through that handle and bounded by `crate::macho`'s own limits, are
++/// either **a thin native 64-bit Mach-O executable for this build's
++/// architecture**, or **a big-endian fat file every slice of which is a Mach-O
++/// executable and one of which is for this build's architecture**
++/// ([`is_executable_for_this_build`]).
++///
++/// Anything else is refused with the reserved `PROBE_TARGET_IS_ENV_SCRIPT`,
++/// because what the kernel cannot exec it hands to `/bin/sh` (`ENOEXEC`, review
++/// round 3): a script of any kind, text with no `#!`, an empty or one-byte file,
++/// a dylib, a bundle, an object, an archive, another architecture, a
++/// little-endian fat file, a fat file with any slice that is not an executable,
++/// a malformed or over-limit header, and a read error. Condition 9 already
++/// passed on the `lstat`, so its cause would say something false of a read
++/// failure. (The cause's name now under-describes the refusal: a naming item for
++/// H-3, no cause is added here.)
++fn target_head_admits(canonical: &Path, target: &TargetIdentity) -> Result<(), UncheckedCause> {
++    let refused = UncheckedCause::ProbeTargetIsEnvScript;
++    let file = std::fs::File::open(canonical).map_err(|_| refused)?;
++    let meta = file.metadata().map_err(|_| refused)?;
++    if meta.dev() != target.dev || meta.ino() != target.ino {
++        return Err(UncheckedCause::ProbeTargetChanged);
++    }
++    if is_executable_for_this_build(&file, meta.size()) {
++        Ok(())
++    } else {
++        Err(refused)
++    }
++}
++
++/// `MH_MAGIC_64` as it lies on disk for this build's byte order (both macOS
++/// architectures are little-endian): the only thin magic admitted.
++const NATIVE_THIN_MAGIC: [u8; 4] = 0xfeed_facf_u32.to_le_bytes();
++
++/// `FAT_MAGIC` and `FAT_MAGIC_64`, big-endian on disk: the only fat magics the
++/// kernel execs. `crate::macho::classify` also reads the byte-swapped
++/// `FAT_CIGAM` forms for the linkage reader; the kernel does not, and a file it
++/// cannot exec runs as a shell script (review round 4).
++const KERNEL_FAT_MAGICS: [[u8; 4]; 2] =
++    [0xcafe_babe_u32.to_be_bytes(), 0xcafe_babf_u32.to_be_bytes()];
++
++/// Whether `file`, of `len` bytes, is what condition 11 admits, by
++/// `crate::macho`'s three stages with every read positioned (`pread`) on the one
++/// handle and bounded: the head by `macho::HEAD_BYTES`, each slice header by
++/// `SLICE_HEADER_BYTES`, each window by what `plan_slice` answers (at most
++/// `MAX_SIZEOFCMDS` and a header), and at most `MAX_SLICES` slices.
++///
++/// - A thin file: its raw magic is native `MH_MAGIC_64`, and its one slice is
++///   an `MH_EXECUTE` for `THIS_BUILD_CPUTYPE`.
++/// - A fat file: its raw magic is big-endian `FAT_MAGIC` or `FAT_MAGIC_64`;
++///   **every** slice is a thin native `MH_MAGIC_64` `MH_EXECUTE` (no nested fat,
++///   no dylib, no text), because the kernel, not this reader, picks the slice
++///   (`x86_64h` before `x86_64` on this CPU, the native slice for a child under
++///   Rosetta); and at least one slice is for `THIS_BUILD_CPUTYPE`.
++///
++/// Any error, short read or other shape is a no.
++fn is_executable_for_this_build(file: &std::fs::File, len: u64) -> bool {
++    use crate::macho::{
++        classify, plan_slice, read_slice, Classified, ExaminedType, SlicePlan, HEAD_BYTES,
++        SLICE_HEADER_BYTES, THIS_BUILD_CPUTYPE,
++    };
++    let read = |offset: u64, want: u64| -> Option<Vec<u8>> {
++        let want = usize::try_from(want).ok()?;
++        let mut bytes = vec![0u8; want];
++        let mut done = 0;
++        while done < want {
++            let at = offset.checked_add(u64::try_from(done).ok()?)?;
++            match std::os::unix::fs::FileExt::read_at(file, &mut bytes[done..], at) {
++                Ok(0) => return None,
++                Ok(n) => done += n,
++                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
++                Err(_) => return None,
++            }
++        }
++        Some(bytes)
++    };
++    let head_len = len.min(u64::try_from(HEAD_BYTES).unwrap_or(u64::MAX));
++    let Some(head) = read(0, head_len) else {
++        return false;
++    };
++    let magic = head.get(..4);
++    let ranges = match classify(&head, len) {
++        Ok(Classified::Thin(range)) if magic == Some(&NATIVE_THIN_MAGIC[..]) => vec![range],
++        Ok(Classified::Fat(ranges)) if KERNEL_FAT_MAGICS.iter().any(|m| magic == Some(&m[..])) => {
++            ranges
++        }
++        Ok(
++            Classified::Thin(_)
++            | Classified::Fat(_)
++            | Classified::NotObject
++            | Classified::Skipped(_)
++            | Classified::Script(_),
++        )
++        | Err(_) => return false,
++    };
++    let header_bytes = u64::try_from(SLICE_HEADER_BYTES).unwrap_or(u64::MAX);
++    // The `cputype` of each slice, when it is a thin native `MH_EXECUTE`.
++    let executable_cputype = |range: &crate::macho::SliceRange| -> Option<u32> {
++        let slice_head = read(range.offset, range.size.min(header_bytes))?;
++        if slice_head.get(..4) != Some(&NATIVE_THIN_MAGIC[..]) {
++            return None;
++        }
++        let Ok(SlicePlan::Window { len: window_len }) = plan_slice(&slice_head, range.size) else {
++            return None;
++        };
++        let refs = read_slice(&read(range.offset, window_len)?).ok()?;
++        (refs.file_type == ExaminedType::Execute).then_some(refs.cputype)
++    };
++    let cputypes: Option<Vec<u32>> = ranges.iter().map(executable_cputype).collect();
++    cputypes.is_some_and(|cputypes| cputypes.contains(&THIS_BUILD_CPUTYPE))
++}
++
++// ---------------------------------------------------------------------------
++// The spec, and the site's question
++// ---------------------------------------------------------------------------
++
++impl CommandSpec {
++    /// The only producer of [`Admission::CuratedProbe`]. Consumes the admitted
++    /// probe, so a spec is built once per admission, inside this module.
++    fn curated_probe(probe: AdmittedProbe, scratch: &Path) -> Self {
++        let scratch_text = scratch.to_string_lossy().into_owned();
++        let mut path = vec![probe.destination_bin.to_string_lossy().into_owned()];
++        path.extend(SYSTEM_PATH.iter().map(|p| (*p).to_owned()));
++        let mut environment = BTreeMap::new();
++        environment.insert("PATH".to_owned(), path.join(":"));
++        for (key, value) in PINNED_ENVIRONMENT {
++            environment.insert((*key).to_owned(), (*value).to_owned());
++        }
++        environment.insert("HOME".to_owned(), scratch_text.clone());
++        environment.insert("TMPDIR".to_owned(), scratch_text);
++        environment.insert("PYTHONDONTWRITEBYTECODE".to_owned(), "1".to_owned());
++        Self {
++            program: probe.program,
++            argv: probe.argv,
++            environment,
++            timeout: PROBE_TIMEOUT,
++            max_output_bytes: PROBE_MAX_OUTPUT_BYTES,
++            replay_only: false,
++            admission: Admission::CuratedProbe {
++                scratch: scratch.to_path_buf(),
++                arg0: probe.arg0,
++                target: probe.target,
++            },
++        }
++    }
++}
++
++/// The site's question for a curated probe: **shape only**, and never the
++/// test-build widening. It cannot prove prefix membership, which `admit`
++/// established; it refuses anything a spec could have been widened to after
++/// admission (`with_timeout` is `pub`): a timeout or cap over the constants, an
++/// environment whose keys are not exactly [`PROBE_ENVIRONMENT_KEYS`] or whose
++/// values are not the probe's, a flag outside the set, a program or `arg0` that
++/// is a provider program, a system probe, a shell or an interpreter.
++pub(in crate::process) fn is_admitted_probe_shape(spec: &CommandSpec) -> bool {
++    let Admission::CuratedProbe { scratch, arg0, .. } = &spec.admission else {
++        return false;
++    };
++    let program_leaf = spec.program.file_name().and_then(|n| n.to_str());
++    let plain = |path: &Path| {
++        super::is_safe_path(path) && !path.components().any(|c| c == Component::ParentDir)
++    };
++    plain(&spec.program)
++        && plain(scratch)
++        && program_leaf.is_some_and(|leaf| !is_excluded_leaf(leaf))
++        && ExecutableName::parse(arg0).is_ok()
++        && !is_excluded_leaf(arg0)
++        && is_one_permitted_flag(&spec.argv)
++        && spec.timeout <= PROBE_TIMEOUT
++        && spec.max_output_bytes <= PROBE_MAX_OUTPUT_BYTES
++        && is_probe_environment(&spec.environment, scratch)
++}
++
++/// Exactly the probe's environment: those keys and no other; the pinned
++/// values; `HOME` and `TMPDIR` the scratch; `PATH` one absolute directory named
++/// `bin` and then the system path, so no other provider's prefix is on it.
++fn is_probe_environment(environment: &BTreeMap<String, String>, scratch: &Path) -> bool {
++    if !environment
++        .keys()
++        .map(String::as_str)
++        .eq(PROBE_ENVIRONMENT_KEYS)
++    {
++        return false;
++    }
++    let scratch_text = scratch.to_string_lossy();
++    let pinned = PINNED_ENVIRONMENT
++        .iter()
++        .all(|(key, value)| environment.get(*key).map(String::as_str) == Some(*value));
++    let path_holds = environment.get("PATH").is_some_and(|path| {
++        let mut entries = path.split(':');
++        let first = entries.next().map(Path::new);
++        first.is_some_and(|bin| {
++            super::is_safe_path(bin) && bin.file_name().is_some_and(|n| n == "bin")
++        }) && entries.eq(SYSTEM_PATH.iter().copied())
++    });
++    pinned
++        && path_holds
++        && environment.get("HOME").map(String::as_str) == Some(&*scratch_text)
++        && environment.get("TMPDIR").map(String::as_str) == Some(&*scratch_text)
++        && environment
++            .get("PYTHONDONTWRITEBYTECODE")
++            .map(String::as_str)
++            == Some("1")
++}
++
++// ---------------------------------------------------------------------------
++// How it ended
++// ---------------------------------------------------------------------------
++
++/// How a curated probe ended, as the runner saw it, and nothing it printed.
++///
++/// Opaque outside the process module: no runner elsewhere can build one, so
++/// none can claim a probe ran (`ProcessRunner::run_probe`).
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct ProbeRun {
++    pub(in crate::process) kind: ProbeRunKind,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(in crate::process) enum ProbeRunKind {
++    /// Nothing was observed: a replay, a test double, or a recording runner.
++    NotObserved,
++    /// The site refused the spec.
++    Refused,
++    /// The target's identity differed immediately before spawn.
++    TargetChanged,
++    /// The spawn failed.
++    NotStarted,
++    /// It started and ended, by `status`, with its streams ending `ending`.
++    Ended {
++        status: ExitStatus,
++        ending: super::system::StreamEnd,
++    },
++}
++
++impl ProbeRun {
++    pub(in crate::process) fn not_observed() -> Self {
++        Self {
++            kind: ProbeRunKind::NotObserved,
++        }
++    }
++
++    pub(in crate::process) fn refused() -> Self {
++        Self {
++            kind: ProbeRunKind::Refused,
++        }
++    }
++
++    pub(in crate::process) fn target_changed() -> Self {
++        Self {
++            kind: ProbeRunKind::TargetChanged,
++        }
++    }
++
++    pub(in crate::process) fn not_started() -> Self {
++        Self {
++            kind: ProbeRunKind::NotStarted,
++        }
++    }
++
++    pub(in crate::process) fn ended(status: ExitStatus, ending: super::system::StreamEnd) -> Self {
++        Self {
++            kind: ProbeRunKind::Ended { status, ending },
++        }
++    }
++}
++
++/// The answer (`docs/passes/16-liveness-design.md`, "What the answer is"): an
++/// exhaustive match on how it ended, with no wildcard and not `success()` plus a
++/// flag. `unchanged` is the post-exit identity re-read; a target that changed
++/// is `Unchecked (PROBE_TARGET_CHANGED)` whatever ended, since what ran cannot
++/// be told.
++fn answer(run: &ProbeRun, unchanged: bool) -> CheckAnswer {
++    use super::system::StreamEnd;
++    let observed = match &run.kind {
++        ProbeRunKind::NotObserved => CheckAnswer::Unchecked(UncheckedCause::NotObserved),
++        ProbeRunKind::Refused | ProbeRunKind::NotStarted => {
++            CheckAnswer::Unchecked(UncheckedCause::ProbeNotStarted)
++        }
++        ProbeRunKind::TargetChanged => CheckAnswer::Unchecked(UncheckedCause::ProbeTargetChanged),
++        ProbeRunKind::Ended { status, ending } => match status {
++            ExitStatus::Exited { code: 0 } => match ending {
++                StreamEnd::Complete => CheckAnswer::Holds,
++                StreamEnd::OverCap => CheckAnswer::Unchecked(UncheckedCause::ProbeOutputOverCap),
++                StreamEnd::ReadError => CheckAnswer::Unchecked(UncheckedCause::ProbeEndNotRead),
++                StreamEnd::GaveUp => CheckAnswer::Unchecked(UncheckedCause::ProbeLeftAProcess),
++            },
++            ExitStatus::Exited { .. } | ExitStatus::Signalled { signal: Some(_) } => {
++                CheckAnswer::Fails(CheckFailure::ProbeFailed)
++            }
++            ExitStatus::Signalled { signal: None } | ExitStatus::Cancelled => {
++                CheckAnswer::Unchecked(UncheckedCause::ProbeEndNotRead)
++            }
++            ExitStatus::TimedOut => CheckAnswer::Unchecked(UncheckedCause::ProbeTimedOut),
++            ExitStatus::NotStarted { .. } => {
++                CheckAnswer::Unchecked(UncheckedCause::ProbeNotStarted)
++            }
++        },
++    };
++    match observed {
++        CheckAnswer::Holds | CheckAnswer::Fails(_) if !unchanged => {
++            CheckAnswer::Unchecked(UncheckedCause::ProbeTargetChanged)
++        }
++        other => other,
++    }
++}
++
++// ---------------------------------------------------------------------------
++// The scratch directory
++// ---------------------------------------------------------------------------
++
++/// One probe's scratch directory, removed when dropped. A removal failure does
++/// not change the answer; the next run sweeps leftovers under its lock.
++struct Scratch {
++    path: PathBuf,
++}
++
++impl Drop for Scratch {
++    fn drop(&mut self) {
++        let _ = std::fs::remove_dir_all(&self.path);
++    }
++}
++
++/// Whether `probes` is the private directory `StateDir::ensure` keeps: a real
++/// directory, not a link, owned by `euid`, open to nobody else. A planted link
++/// or file there refuses.
++fn probes_directory_holds(probes: &Path, euid: u32) -> bool {
++    std::fs::symlink_metadata(probes).is_ok_and(|meta| {
++        let open_to_others = meta.mode() & 0o077 != 0;
++        meta.file_type().is_dir() && meta.uid() == euid && !open_to_others
++    })
++}
++
++/// Whether `name` has exactly the shape [`scratch_name`] gives:
++/// `probe-<decimal pid>-<six lowercase hex>`.
++fn is_scratch_name(name: &str) -> bool {
++    let Some(rest) = name.strip_prefix("probe-") else {
++        return false;
++    };
++    let Some((pid, bytes)) = rest.split_once('-') else {
++        return false;
++    };
++    !pid.is_empty()
++        && pid.bytes().all(|b| b.is_ascii_digit())
++        && bytes.len() == 6
++        && bytes
++            .bytes()
++            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
++}
++
++/// Removes what a crashed run or a surviving daemon left under `probes`, and
++/// **only** that: an entry whose name is exactly a scratch name and that `lstat`
++/// shows as a directory owned by `euid` at mode `0700`. If anything else is
++/// there, nothing is removed and the probe is refused, because the state root
++/// can be an override such as `$HOME` and its `probes` the user's own. Safe only
++/// under the run's lock, which is why [`run_curated_probe`] takes it.
++fn sweep_leftovers(probes: &Path, euid: u32) -> Result<(), ()> {
++    // Assumes probes run one at a time in this process; running them in parallel
++    // would need this to skip this pid's own scratch names.
++    let entries = std::fs::read_dir(probes).map_err(|_| ())?;
++    let mut leftovers = Vec::new();
++    for entry in entries {
++        let entry = entry.map_err(|_| ())?;
++        let path = entry.path();
++        let name_holds = entry.file_name().to_str().is_some_and(is_scratch_name);
++        let meta = std::fs::symlink_metadata(&path).map_err(|_| ())?;
++        let ours =
++            meta.file_type().is_dir() && meta.uid() == euid && meta.mode() & 0o777 == SCRATCH_MODE;
++        if !(name_holds && ours) {
++            return Err(());
++        }
++        leftovers.push(path);
++    }
++    for path in leftovers {
++        // `remove_dir_all` removes a link inside as a link; it follows none.
++        let _ = std::fs::remove_dir_all(path);
++    }
++    Ok(())
++}
++
++/// Makes `probes/<name>` at [`SCRATCH_MODE`], failing if anything is there, and
++/// checks what was made: a directory, owned by `euid`, which is not root.
++fn make_scratch(probes: &Path, name: &str, euid: u32) -> Option<Scratch> {
++    let path = probes.join(name);
++    DirBuilder::new().mode(SCRATCH_MODE).create(&path).ok()?;
++    let scratch = Scratch { path };
++    let meta = std::fs::symlink_metadata(&scratch.path).ok()?;
++    let holds = meta.file_type().is_dir()
++        && meta.uid() == euid
++        && meta.uid() != 0
++        && meta.mode() & 0o777 == SCRATCH_MODE;
++    holds.then_some(scratch)
++}
++
++/// A fresh name: this process and three bytes of the system's random device.
++fn scratch_name() -> Option<String> {
++    let bytes = crate::entropy::fresh_bytes()?;
++    Some(format!(
++        "probe-{}-{:02x}{:02x}{:02x}",
++        std::process::id(),
++        bytes[0],
++        bytes[1],
++        bytes[2]
++    ))
++}
++
++/// Every provider prefix this layer knows: the detected one and every known
++/// provider's documented candidates.
++fn known_prefixes(detected: &Path) -> Vec<PathBuf> {
++    let mut prefixes = vec![detected.to_path_buf()];
++    for id in crate::registry::known_provider_ids() {
++        prefixes.extend(crate::registry::candidate_prefixes(&id));
++    }
++    prefixes
++}
++
++/// Whether `root` is, or lies under, any provider's documented or detected
++/// prefix, as written or canonically. The state directory's override can point
++/// anywhere, and scratch under a prefix would let a probe write into it.
++fn state_root_under_a_prefix(root: &Path, detected: &Path) -> bool {
++    let real = std::fs::canonicalize(root).ok();
++    let roots = std::iter::once(root).chain(real.as_deref());
++    known_prefixes(detected)
++        .iter()
++        .any(|prefix| roots.clone().any(|r| lies_under(r, prefix)))
++}
++
++/// Whether `lock` is this state root's run lock.
++fn lock_is_this_roots(lock: &RunLock, state: &StateDir) -> bool {
++    lock.path() == state.root().join(crate::persistence::run_lock::LOCK_FILE)
++}
++
++// ---------------------------------------------------------------------------
++// The whole probe
++// ---------------------------------------------------------------------------
++
++/// Runs the curated probe of `leaf` of `package` with `argv`, on `owner`'s
++/// adapter, under the run's lock, and answers. The table is the embedded one;
++/// nothing here accepts a table or a prefix from a caller, and the uid is this
++/// process's own.
++pub(crate) fn run_curated_probe(
++    owner: &dyn ProbeOwner,
++    state: &StateDir,
++    lock: &RunLock,
++    package: &str,
++    leaf: &str,
++    argv: &[String],
++) -> CheckAnswer {
++    match table() {
++        Ok(rows) => probe_with(rows, owner, state, lock, package, leaf, argv),
++        Err(_) => CheckAnswer::Unchecked(UncheckedCause::NoCuratedProbe),
++    }
++}
++
++fn probe_with(
++    rows: &[Row],
++    owner: &dyn ProbeOwner,
++    state: &StateDir,
++    lock: &RunLock,
++    package: &str,
++    leaf: &str,
++    argv: &[String],
++) -> CheckAnswer {
++    let admitted = match AdmittedProbe::admit(rows, owner, package, leaf, argv) {
++        Ok(admitted) => admitted,
++        Err(cause) => return CheckAnswer::Unchecked(cause),
++    };
++    let euid = admitted.euid;
++    let not_started = CheckAnswer::Unchecked(UncheckedCause::ProbeNotStarted);
++    if lock.verify_still_current().is_err()
++        || !lock_is_this_roots(lock, state)
++        || state_root_under_a_prefix(state.root(), owner.prefix())
++    {
++        return not_started;
++    }
++    let probes = state.probes();
++    if !probes_directory_holds(&probes, euid) || sweep_leftovers(&probes, euid).is_err() {
++        return not_started;
++    }
++    let Some(scratch) = scratch_name().and_then(|name| make_scratch(&probes, &name, euid)) else {
++        return not_started;
++    };
++    let program = admitted.program.clone();
++    let target = admitted.target;
++    let spec = CommandSpec::curated_probe(admitted, &scratch.path);
++    let run = owner.runner().run_probe(&spec);
++    let unchanged = TargetIdentity::read(&program) == Some(target);
++    drop(scratch);
++    answer(&run, unchanged)
++}
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::persistence::run_lock;
++    use crate::process::system::{spawn_alone, StreamEnd};
++    use crate::process::{Recording, RecordingProvenance, ReplayRunner, SystemRunner};
++    use std::cell::{Cell, RefCell};
++    use std::os::unix::fs::{symlink, PermissionsExt};
++    use std::rc::Rc;
++
++    const PROVIDER: &str = "test-provider";
++    const PACKAGE: &str = "pkg";
++    /// Not on `PERMITTED_IN_TESTS`, so the allowlist refuses it in a test build too.
++    const LEAF: &str = "mpb-probe-target";
++    const VERSION: &str = "1.0_0";
++    /// A target condition 11 admits: an empty text stands for a copy of
++    /// `/usr/bin/true`, a Mach-O that exits 0 whatever it is given. (A copy of
++    /// `/usr/bin/touch` or `/bin/test` is killed by the system at exec, observed
++    /// 2026-11-08, so neither can be a placed target.)
++    const ADMISSIBLE: &str = "";
++
++    fn flag() -> Vec<String> {
++        vec!["--version".to_owned()]
++    }
++
++    fn row(provider: &str, package: &str, executable: &str, argv: &[&str], version: &str) -> Row {
++        Row {
++            provider: provider.to_owned(),
++            package: package.to_owned(),
++            executable: executable.to_owned(),
++            argv: argv.iter().map(|a| (*a).to_owned()).collect(),
++            observed_version: version.to_owned(),
++            source: "Observed in a test".to_owned(),
++            read_on: "2026-11-08".to_owned(),
++        }
++    }
++
++    fn the_row() -> Vec<Row> {
++        vec![row(PROVIDER, PACKAGE, LEAF, &["--version"], VERSION)]
++    }
++
++    fn write_executable(path: &Path, text: &str) {
++        if text.is_empty() {
++            std::fs::copy("/usr/bin/true", path).expect("copy");
++        } else {
++            std::fs::write(path, text).expect("write");
++        }
++        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("mode");
++    }
++
++    /// A scratch machine: a prefix with a placed link to a keg file, and a state
++    /// directory under the lock, both with a space in their path.
++    struct Fixture {
++        base: PathBuf,
++        prefix: PathBuf,
++        canonical: PathBuf,
++        state: StateDir,
++        euid: u32,
++        lock: Option<RunLock>,
++    }
++
++    impl Fixture {
++        fn new(name: &str, script: &str) -> Self {
++            let base =
++                std::env::temp_dir().join(format!("mpb probe {name} {}", std::process::id()));
++            let _ = std::fs::remove_dir_all(&base);
++            let prefix = base.join("prefix");
++            let keg = prefix
++                .join("Cellar")
++                .join(PACKAGE)
++                .join(VERSION)
++                .join("bin");
++            std::fs::create_dir_all(&keg).expect("keg");
++            std::fs::create_dir_all(prefix.join("bin")).expect("bin");
++            let canonical = keg.join(LEAF);
++            write_executable(&canonical, script);
++            symlink(&canonical, prefix.join("bin").join(LEAF)).expect("placed");
++            let state = StateDir::resolve(
++                None,
++                Some(
++                    &base
++                        .join("state dir, long enough to matter")
++                        .to_string_lossy(),
++                ),
++            )
++            .expect("state");
++            state.ensure().expect("ensure");
++            let euid = std::fs::metadata(state.root()).expect("root").uid();
++            let lock = run_lock::acquire(&state, euid).expect("lock");
++            Self {
++                canonical: std::fs::canonicalize(&canonical).expect("canonical"),
++                base,
++                prefix,
++                state,
++                euid,
++                lock: Some(lock),
++            }
++        }
++
++        fn place(&self, leaf: &str, target: &Path) {
++            symlink(target, self.prefix.join("bin").join(leaf)).expect("placed");
++        }
++
++        fn unplace(&self, leaf: &str) {
++            std::fs::remove_file(self.prefix.join("bin").join(leaf)).expect("unplace");
++        }
++
++        fn lock(&self) -> &RunLock {
++            self.lock.as_ref().expect("held")
++        }
++
++        fn probes_left(&self) -> usize {
++            std::fs::read_dir(self.state.probes()).map_or(0, Iterator::count)
++        }
++    }
++
++    impl Drop for Fixture {
++        fn drop(&mut self) {
++            self.lock.take();
++            let _ = std::fs::remove_dir_all(&self.base);
++        }
++    }
++
++    /// The live runner, counting the probes it was asked to start.
++    struct Counting {
++        inner: SystemRunner,
++        started: Rc<Cell<usize>>,
++        claims_replay: bool,
++        /// A file to change once the probe has ended, as a program that rewrote
++        /// itself would.
++        after: Option<PathBuf>,
++    }
++
++    impl ProcessRunner for Counting {
++        fn run(
++            &self,
++            spec: &CommandSpec,
++        ) -> Result<crate::process::Invocation, macportsbrew_domain::DomainError> {
++            self.inner.run(spec)
++        }
++        fn is_replay(&self) -> bool {
++            self.claims_replay
++        }
++        fn run_probe(&self, spec: &CommandSpec) -> ProbeRun {
++            self.started.set(self.started.get() + 1);
++            let run = self.inner.run_probe(spec);
++            if let Some(path) = &self.after {
++                let mut bytes = std::fs::read(path).expect("read");
++                bytes.push(0);
++                std::fs::write(path, bytes).expect("rewrite");
++            }
++            run
++        }
++        fn may_run_probes(&self) -> bool {
++            self.inner.may_run_probes()
++        }
++    }
++
++    /// The adapter's side, as a test double over the fixture.
++    struct Owner {
++        prefix: PathBuf,
++        runner: Box<dyn ProcessRunner>,
++        started: Rc<Cell<usize>>,
++        provider: &'static str,
++        this_machine: bool,
++        entry: OwnershipFacts,
++        target: Result<bool, UncheckedCause>,
++        entry_asked: RefCell<Vec<PathBuf>>,
++        target_asked: RefCell<Vec<(PathBuf, PathBuf)>>,
++    }
++
++    impl Owner {
++        fn of(fx: &Fixture) -> Self {
++            let started = Rc::new(Cell::new(0));
++            Self {
++                prefix: fx.prefix.clone(),
++                runner: Box::new(Counting {
++                    inner: SystemRunner::new(),
++                    started: Rc::clone(&started),
++                    claims_replay: false,
++                    after: None,
++                }),
++                started,
++                provider: PROVIDER,
++                this_machine: true,
++                entry: owned(PACKAGE, VERSION),
++                target: Ok(true),
++                entry_asked: RefCell::new(Vec::new()),
++                target_asked: RefCell::new(Vec::new()),
++            }
++        }
++
++        fn started(&self) -> usize {
++            self.started.get()
++        }
++    }
++
++    fn owned(name: &str, version: &str) -> OwnershipFacts {
++        OwnershipFacts::Owner {
++            name: name.to_owned(),
++            version: version.to_owned(),
++            active: Some(version.to_owned()),
++            versions_present: 1,
++            held: None,
++        }
++    }
++
++    impl ProbeOwner for Owner {
++        fn provider(&self) -> &str {
++            self.provider
++        }
++        fn is_this_machine(&self) -> bool {
++            self.this_machine
++        }
++        fn runner(&self) -> &dyn ProcessRunner {
++            self.runner.as_ref()
++        }
++        fn prefix(&self) -> &Path {
++            &self.prefix
++        }
++        fn entry_owner(
++            &self,
++            _package: &str,
++            _leaf: &ExecutableName,
++            placed: &Path,
++        ) -> OwnershipFacts {
++            self.entry_asked.borrow_mut().push(placed.to_path_buf());
++            self.entry.clone()
++        }
++        fn target_is_packages(
++            &self,
++            _package: &str,
++            placed: &Path,
++            canonical: &Path,
++        ) -> Result<bool, UncheckedCause> {
++            self.target_asked
++                .borrow_mut()
++                .push((placed.to_path_buf(), canonical.to_path_buf()));
++            self.target
++        }
++    }
++
++    fn probe(
++        fx: &Fixture,
++        owner: &Owner,
++        table: &[Row],
++        leaf: &str,
++        argv: &[String],
++    ) -> CheckAnswer {
++        probe_with(table, owner, &fx.state, fx.lock(), PACKAGE, leaf, argv)
++    }
++
++    /// Asserts `cause`, that nothing was started and no scratch was left. Each
++    /// refusal test starts from the passing fixture and changes one thing, so
++    /// dropping its condition reaches the runner.
++    fn refused(fx: &Fixture, owner: &Owner, answer: CheckAnswer, cause: UncheckedCause) {
++        assert_eq!(answer, CheckAnswer::Unchecked(cause));
++        assert_eq!(owner.started(), 0, "{cause:?}: a probe was started");
++        assert_eq!(fx.probes_left(), 0, "{cause:?}: scratch was left");
++    }
++
++    // ----- the passing case -----
++
++    #[test]
++    fn a_probe_that_passes_every_condition_holds_and_leaves_no_scratch() {
++        let _alone = spawn_alone();
++        let fx = Fixture::new("passes", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        assert_eq!(
++            probe(&fx, &owner, &the_row(), LEAF, &flag()),
++            CheckAnswer::Holds
++        );
++        assert_eq!(owner.started(), 1);
++        assert_eq!(fx.probes_left(), 0, "the scratch directory is gone");
++        let placed = fx.prefix.join("bin").join(LEAF);
++        assert_eq!(
++            *owner.entry_asked.borrow(),
++            vec![placed.clone()],
++            "the rule judged the placed entry"
++        );
++        assert_eq!(
++            *owner.target_asked.borrow(),
++            vec![(placed, fx.canonical.clone())]
++        );
++    }
++
++    // ----- the eleven conditions -----
++
++    #[test]
++    fn condition_1_another_machine_or_a_replay_runs_nothing() {
++        let fx = Fixture::new("c1", ADMISSIBLE);
++        let mut owner = Owner::of(&fx);
++        owner.this_machine = false;
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::NotObserved);
++        let mut owner = Owner::of(&fx);
++        owner.runner = Box::new(ReplayRunner::new(recording_answering(LEAF)));
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::NotObserved);
++    }
++
++    #[test]
++    fn condition_1_the_admission_asks_the_runner_itself() {
++        // A runner that says it is a replay and would still start a probe.
++        let _alone = spawn_alone();
++        let fx = Fixture::new("c1-runner", ADMISSIBLE);
++        let mut owner = Owner::of(&fx);
++        owner.runner = Box::new(Counting {
++            inner: SystemRunner::new(),
++            started: Rc::clone(&owner.started),
++            claims_replay: true,
++            after: None,
++        });
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::NotObserved);
++    }
++
++    #[test]
++    fn condition_1_a_recording_runner_touches_nothing_of_the_state_directory() {
++        let _alone = spawn_alone();
++        let fx = Fixture::new("c1-recording", ADMISSIBLE);
++        // A leftover the sweep would remove: it is still there afterwards.
++        let leftover = fx.state.probes().join("probe-1-abcdef");
++        DirBuilder::new()
++            .mode(0o700)
++            .create(&leftover)
++            .expect("leftover");
++        let mut owner = Owner::of(&fx);
++        let recording = Rc::new(SystemRunner::recording());
++        owner.runner = Box::new(Counting {
++            inner: SystemRunner::recording(),
++            started: Rc::clone(&owner.started),
++            claims_replay: false,
++            after: None,
++        });
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        assert_eq!(answer, CheckAnswer::Unchecked(UncheckedCause::NotObserved));
++        assert_eq!(owner.started(), 0);
++        assert!(leftover.exists(), "a capture swept the state directory");
++        assert_eq!(fx.probes_left(), 1);
++        // And through the trait's forwarding, nothing reaches a record.
++        assert!(!recording.may_run_probes());
++        assert!(recording.take_recorded().is_empty());
++    }
++
++    #[test]
++    fn invariant_06_a_probe_is_never_admitted_as_root() {
++        let fx = Fixture::new("c2", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        TREAT_AS_ROOT.with(|root| root.set(true));
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        TREAT_AS_ROOT.with(|root| root.set(false));
++        refused(&fx, &owner, answer, UncheckedCause::ProbeAsRoot);
++    }
++
++    #[test]
++    fn condition_3_a_leaf_outside_the_name_class_is_refused() {
++        let fx = Fixture::new("c3", ADMISSIBLE);
++        fx.place("-mpb", &fx.canonical);
++        let owner = Owner::of(&fx);
++        let table = vec![row(PROVIDER, PACKAGE, "-mpb", &["--version"], VERSION)];
++        let answer = probe(&fx, &owner, &table, "-mpb", &flag());
++        refused(&fx, &owner, answer, UncheckedCause::ProbeLeafRefused);
++    }
++
++    #[test]
++    fn condition_4_the_row_is_for_exactly_this_key_and_this_argv() {
++        let fx = Fixture::new("c4", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        let answer = probe(&fx, &owner, &[], LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::NoCuratedProbe);
++        for table in [
++            vec![row(
++                "other-provider",
++                PACKAGE,
++                LEAF,
++                &["--version"],
++                VERSION,
++            )],
++            vec![row(
++                PROVIDER,
++                "other-package",
++                LEAF,
++                &["--version"],
++                VERSION,
++            )],
++            vec![row(
++                PROVIDER,
++                PACKAGE,
++                "other-leaf",
++                &["--version"],
++                VERSION,
++            )],
++        ] {
++            let answer = probe(&fx, &owner, &table, LEAF, &flag());
++            refused(&fx, &owner, answer, UncheckedCause::NoCuratedProbe);
++        }
++        let other = vec!["-V".to_owned()];
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &other);
++        refused(&fx, &owner, answer, UncheckedCause::ProbeArgvNotTheRows);
++    }
++
++    #[test]
++    fn condition_5_a_flag_outside_the_closed_set_is_refused_even_when_a_row_says_it() {
++        let fx = Fixture::new("c5", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        for argv in [&["--daemon"][..], &[], &["--version", "--version"]] {
++            let table = vec![row(PROVIDER, PACKAGE, LEAF, argv, VERSION)];
++            let plan: Vec<String> = argv.iter().map(|a| (*a).to_owned()).collect();
++            let answer = probe(&fx, &owner, &table, LEAF, &plan);
++            refused(&fx, &owner, answer, UncheckedCause::ProbeArgvNotPermitted);
++        }
++    }
++
++    #[test]
++    fn condition_6_only_the_exact_observed_version_revision_included() {
++        let fx = Fixture::new("c6", ADMISSIBLE);
++        for version in ["1.0_1", "1.0", "2.0_0"] {
++            let mut owner = Owner::of(&fx);
++            owner.entry = owned(PACKAGE, version);
++            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++            refused(
++                &fx,
++                &owner,
++                answer,
++                UncheckedCause::ProbeVersionNotQualified,
++            );
++        }
++    }
++
++    #[test]
++    fn condition_7_the_placed_entry_is_the_packages_by_the_owner_rule_now() {
++        let fx = Fixture::new("c7", ADMISSIBLE);
++        for entry in [
++            owned("another", VERSION),
++            OwnershipFacts::NoEntry,
++            OwnershipFacts::NotOwned,
++            OwnershipFacts::OwnerLeavesItsDirectory {
++                owner: PACKAGE.to_owned(),
++            },
++            OwnershipFacts::CouldNotTell(UncheckedCause::ReadFailed),
++        ] {
++            let mut owner = Owner::of(&fx);
++            owner.entry = entry;
++            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++            refused(
++                &fx,
++                &owner,
++                answer,
++                UncheckedCause::ProbeEntryNotThePackages,
++            );
++        }
++        // Nothing placed, whatever the rule says.
++        fx.unplace(LEAF);
++        let owner = Owner::of(&fx);
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(
++            &fx,
++            &owner,
++            answer,
++            UncheckedCause::ProbeEntryNotThePackages,
++        );
++    }
++
++    #[test]
++    fn condition_8_what_it_resolves_to_is_the_packages_and_under_the_prefix() {
++        let fx = Fixture::new("c8", ADMISSIBLE);
++        for target in [Ok(false), Err(UncheckedCause::ReadFailed)] {
++            let mut owner = Owner::of(&fx);
++            owner.target = target;
++            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++            refused(
++                &fx,
++                &owner,
++                answer,
++                UncheckedCause::ProbeTargetNotThePackages,
++            );
++        }
++        // The floor: outside the destination's prefix, whatever the rule says.
++        let outside = fx.base.join(LEAF);
++        write_executable(&outside, ADMISSIBLE);
++        fx.unplace(LEAF);
++        fx.place(LEAF, &outside);
++        let owner = Owner::of(&fx);
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(
++            &fx,
++            &owner,
++            answer,
++            UncheckedCause::ProbeTargetNotThePackages,
++        );
++        assert!(lies_under(
++            Path::new("/opt/local/bin/x"),
++            Path::new("/opt/local")
++        ));
++        assert!(!lies_under(
++            Path::new("/opt/local2/bin/x"),
++            Path::new("/opt/local")
++        ));
++    }
++
++    #[test]
++    fn condition_9_a_target_of_the_wrong_type_mode_or_owner_is_refused() {
++        let fx = Fixture::new("c9", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        for mode in [0o775, 0o757, 0o4755, 0o2755] {
++            std::fs::set_permissions(&fx.canonical, std::fs::Permissions::from_mode(mode))
++                .expect("mode");
++            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++            refused(&fx, &owner, answer, UncheckedCause::ProbeTargetModeRefused);
++        }
++        // A directory is not a regular file.
++        std::fs::set_permissions(&fx.canonical, std::fs::Permissions::from_mode(0o755))
++            .expect("mode");
++        fx.unplace(LEAF);
++        fx.place(LEAF, fx.canonical.parent().expect("keg bin"));
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::ProbeTargetModeRefused);
++        // The owner, which a test cannot make another user: pure.
++        assert!(!target_mode_refused(true, 501, 0o755, 501));
++        assert!(!target_mode_refused(true, 0, 0o755, 501));
++        assert!(target_mode_refused(true, 502, 0o755, 501));
++        assert!(target_mode_refused(false, 501, 0o755, 501));
++    }
++
++    #[test]
++    fn invariant_05_a_probe_never_starts_a_provider_program() {
++        let fx = Fixture::new("c10", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        for leaf in ["bash", "brew", "sw_vers", "Python3.12"] {
++            fx.place(leaf, &fx.canonical);
++            let table = vec![row(PROVIDER, PACKAGE, leaf, &["--version"], VERSION)];
++            let answer = probe(&fx, &owner, &table, leaf, &flag());
++            refused(&fx, &owner, answer, UncheckedCause::ProbeProgramExcluded);
++        }
++        // The canonical leaf too: `bin/foo -> libexec/python3`.
++        let interpreter = fx.canonical.with_file_name("perl5.34");
++        std::fs::rename(&fx.canonical, &interpreter).expect("rename");
++        fx.unplace(LEAF);
++        fx.place(LEAF, &interpreter);
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::ProbeProgramExcluded);
++        // The canonical leaf a provider's own program.
++        let provider_program = interpreter.with_file_name("brew");
++        std::fs::rename(&interpreter, &provider_program).expect("rename");
++        fx.unplace(LEAF);
++        fx.place(LEAF, &provider_program);
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::ProbeProgramExcluded);
++        std::fs::rename(&provider_program, &fx.canonical).expect("restore");
++        fx.unplace(LEAF);
++        fx.place(LEAF, &fx.canonical);
++        // A text target with no `#!`, which the kernel would hand to `/bin/sh`,
++        // naming a provider's program on the probe's `PATH`.
++        std::fs::write(&fx.canonical, "brew --version\nport version\n").expect("write");
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::ProbeTargetIsEnvScript);
++        std::fs::copy("/usr/bin/true", &fx.canonical).expect("restore");
++        // And at the site, whatever admitted it: the program, the canonical
++        // leaf it is, and `arg0`.
++        let (spec, _scratch) = admitted_spec(&fx, &owner);
++        assert!(crate::process::may_spawn(&spec));
++        for program in [
++            "/opt/homebrew/bin/brew",
++            "/opt/local/bin/port",
++            "/usr/sbin/sysctl",
++        ] {
++            let mut s = spec.clone();
++            s.program = PathBuf::from(program);
++            assert!(!crate::process::may_spawn(&s), "{program}");
++        }
++        for arg0 in ["brew", "port", "sw_vers", "bash"] {
++            let mut s = spec.clone();
++            if let Admission::CuratedProbe { arg0: a, .. } = &mut s.admission {
++                *a = arg0.to_owned();
++            }
++            assert!(!crate::process::may_spawn(&s), "{arg0}");
++        }
++        for leaf in [
++            "sh",
++            "tclsh8.6",
++            "ENV",
++            "port",
++            "xcode-select",
++            "node22",
++            "ruby3.3",
++        ] {
++            assert!(is_excluded_leaf(leaf), "{leaf}");
++        }
++        for leaf in [
++            "xz",
++            "htop",
++            "gm4",
++            "pkg-config",
++            "sha1sum",
++            "shasum",
++            "tree",
++            "env-x",
++        ] {
++            assert!(!is_excluded_leaf(leaf), "{leaf}");
++        }
++    }
++
++    #[test]
++    fn condition_11_only_a_macho_executable_for_this_build_is_admitted() {
++        let runner_link = std::env::temp_dir().join(format!("mpb-runner-{}", std::process::id()));
++        let _ = std::fs::remove_file(&runner_link);
++        symlink("/bin/sh", &runner_link).expect("runner link");
++        let shebang_through_link = format!("#!{}\n", runner_link.display());
++        for (name, head, cause) in [
++            (
++                "c11-env",
++                "#!/usr/bin/env sh\n",
++                UncheckedCause::ProbeTargetIsEnvScript,
++            ),
++            ("c11-rel", "#!sh\n", UncheckedCause::ProbeTargetIsEnvScript),
++            (
++                "c11-shell",
++                "#!/bin/sh\n",
++                UncheckedCause::ProbeTargetIsEnvScript,
++            ),
++            (
++                "c11-unresolved",
++                "#!/mpb-nowhere/bash\n",
++                UncheckedCause::ProbeTargetIsEnvScript,
++            ),
++            (
++                "c11-linked",
++                shebang_through_link.as_str(),
++                UncheckedCause::ProbeTargetIsEnvScript,
++            ),
++            (
++                "c11-other",
++                "#!/opt/local/bin/mpb-interpreter\n",
++                UncheckedCause::ProbeTargetIsEnvScript,
++            ),
++            (
++                "c11-other2",
++                "#!/usr/local/bin/mpb-interpreter\n",
++                UncheckedCause::ProbeTargetIsEnvScript,
++            ),
++            (
++                "c11-absolute",
++                "#!/usr/bin/true\n",
++                UncheckedCause::ProbeTargetIsEnvScript,
++            ),
++        ] {
++            let fx = Fixture::new(name, head);
++            let owner = Owner::of(&fx);
++            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++            refused(&fx, &owner, answer, cause);
++        }
++        let _ = std::fs::remove_file(&runner_link);
++        // No `#!` at all, or not at its very start: macOS's spawn runs such a
++        // file with `/bin/sh` on `ENOEXEC`. And files too short to be anything.
++        let header = |cputype: u32, file_type: u32| -> Vec<u8> {
++            let mut bytes = Vec::new();
++            for word in [0xfeed_facf_u32, cputype, 3, file_type, 0, 0, 0, 0] {
++                bytes.extend_from_slice(&word.to_le_bytes());
++            }
++            bytes
++        };
++        let other_cputype = if crate::macho::THIS_BUILD_CPUTYPE == 0x0100_0007 {
++            0x0100_000c
++        } else {
++            0x0100_0007
++        };
++        let bodies: [(&str, Vec<u8>); 8] = [
++            ("c11-text", b"brew --version\n".to_vec()),
++            ("c11-bom", b"\xef\xbb\xbf#!/bin/sh\nexit 0\n".to_vec()),
++            ("c11-space", b" #!/bin/sh\nexit 0\n".to_vec()),
++            ("c11-newline", b"\n#!/bin/sh\nexit 0\n".to_vec()),
++            ("c11-empty", Vec::new()),
++            ("c11-one-byte", b"x".to_vec()),
++            ("c11-dylib", header(crate::macho::THIS_BUILD_CPUTYPE, 6)),
++            ("c11-other-arch", header(other_cputype, 2)),
++        ];
++        for (name, bytes) in bodies {
++            let fx = Fixture::new(name, ADMISSIBLE);
++            std::fs::write(&fx.canonical, &bytes).expect("write");
++            let owner = Owner::of(&fx);
++            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++            refused(&fx, &owner, answer, UncheckedCause::ProbeTargetIsEnvScript);
++        }
++        // Fat files, built by hand: the kernel, not this reader, picks the slice,
++        // and execs only a big-endian fat header.
++        let this = crate::macho::THIS_BUILD_CPUTYPE;
++        let good = header(this, 2);
++        let fat = |big_endian: bool, nfat: u32, slices: &[(u32, u32, Vec<u8>)], payload: &[u8]| {
++            let word = |w: u32| {
++                if big_endian {
++                    w.to_be_bytes()
++                } else {
++                    w.to_le_bytes()
++                }
++            };
++            let mut bytes = Vec::new();
++            bytes.extend_from_slice(&word(0xcafe_babe));
++            bytes.extend_from_slice(&word(nfat));
++            let mut place = Vec::new();
++            for index in 0..usize::try_from(nfat).unwrap_or(0) {
++                let which = index % slices.len();
++                let (cputype, subtype, data) = &slices[which];
++                let offset = 4096 * (1 + u32::try_from(which).unwrap_or(0));
++                for w in [
++                    *cputype,
++                    *subtype,
++                    offset,
++                    u32::try_from(data.len()).unwrap_or(0),
++                    12,
++                ] {
++                    bytes.extend_from_slice(&word(w));
++                }
++                place.push((offset, data.clone()));
++            }
++            bytes.extend_from_slice(payload);
++            for (offset, data) in place {
++                let at = usize::try_from(offset).unwrap_or(0);
++                if bytes.len() < at + data.len() {
++                    bytes.resize(at + data.len(), 0);
++                }
++                bytes[at..at + data.len()].copy_from_slice(&data);
++            }
++            bytes
++        };
++        let x86_64h = 8;
++        let swapped: Vec<u8> = [0xfeed_facf_u32, this, 3, 2, 0, 0, 0, 0]
++            .iter()
++            .flat_map(|w| w.to_be_bytes())
++            .collect();
++        let fats: [(&str, Vec<u8>); 7] = [
++            ("c11-thin-swapped", swapped.clone()),
++            (
++                "c11-fat-swapped-slice",
++                fat(true, 1, &[(this, 3, swapped)], b""),
++            ),
++            (
++                "c11-fat-cigam",
++                fat(
++                    false,
++                    10,
++                    &[(this, 3, good.clone())],
++                    b"\necho ran; exit 0\n",
++                ),
++            ),
++            (
++                "c11-fat-text",
++                fat(
++                    true,
++                    2,
++                    &[
++                        (this, 3, good.clone()),
++                        (this, x86_64h, b"echo ran; exit 0\n".to_vec()),
++                    ],
++                    b"",
++                ),
++            ),
++            (
++                "c11-fat-dylib",
++                fat(
++                    true,
++                    2,
++                    &[(this, 3, good.clone()), (this, x86_64h, header(this, 6))],
++                    b"",
++                ),
++            ),
++            (
++                "c11-fat-junk-other",
++                fat(
++                    true,
++                    2,
++                    &[
++                        (this, 3, good.clone()),
++                        (
++                            other_cputype,
++                            0,
++                            b"junk junk junk junk junk junk junk".to_vec(),
++                        ),
++                    ],
++                    b"",
++                ),
++            ),
++            (
++                "c11-fat-nested",
++                fat(
++                    true,
++                    2,
++                    &[
++                        (this, 3, good.clone()),
++                        (
++                            other_cputype,
++                            0,
++                            fat(
++                                true,
++                                1,
++                                &[(other_cputype, 0, header(other_cputype, 2))],
++                                b"",
++                            ),
++                        ),
++                    ],
++                    b"",
++                ),
++            ),
++        ];
++        for (name, bytes) in fats {
++            let fx = Fixture::new(name, ADMISSIBLE);
++            std::fs::write(&fx.canonical, &bytes).expect("write");
++            let owner = Owner::of(&fx);
++            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++            refused(&fx, &owner, answer, UncheckedCause::ProbeTargetIsEnvScript);
++        }
++        // The controls. The copy of `/usr/bin/true` is admitted: a big-endian fat
++        // file whose two slices (`x86_64`, `arm64e`) are both `MH_EXECUTE`, one for
++        // this build. So are a big-endian fat of two hand-built executables, one
++        // for this build, and the thin hand-built header for this build's
++        // architecture, which shows the other-architecture header above was
++        // refused for its architecture alone. The hand-built ones carry no
++        // `LC_MAIN`: the kernel would refuse them (`EBADMACHO`, so
++        // `PROBE_NOT_STARTED`, no shell), and they are only ever admitted here,
++        // never run.
++        let fx = Fixture::new("c11-this-arch", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        assert!(AdmittedProbe::admit(&the_row(), &owner, PACKAGE, LEAF, &flag()).is_ok());
++        let both = fat(
++            true,
++            2,
++            &[
++                (this, 3, good.clone()),
++                (other_cputype, 0, header(other_cputype, 2)),
++            ],
++            b"",
++        );
++        std::fs::write(&fx.canonical, both).expect("write");
++        assert!(AdmittedProbe::admit(&the_row(), &owner, PACKAGE, LEAF, &flag()).is_ok());
++        std::fs::write(&fx.canonical, header(this, 2)).expect("write");
++        assert!(AdmittedProbe::admit(&the_row(), &owner, PACKAGE, LEAF, &flag()).is_ok());
++        assert_eq!(owner.started(), 0);
++        // A head that cannot be read is condition 11's, not condition 9's.
++        let fx = Fixture::new("c11-unreadable", ADMISSIBLE);
++        std::fs::set_permissions(&fx.canonical, std::fs::Permissions::from_mode(0o311))
++            .expect("mode");
++        let owner = Owner::of(&fx);
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::ProbeTargetIsEnvScript);
++    }
++
++    #[test]
++    fn condition_11_reads_the_head_only_of_the_file_lstat_described() {
++        // The race between the `lstat` and the open, made by hand: the handle is
++        // another file than the identity admitted, so nothing is read off it.
++        let fx = Fixture::new("c11-handle", ADMISSIBLE);
++        let other = fx.base.join("other");
++        write_executable(&other, ADMISSIBLE);
++        let admitted = TargetIdentity::read(&other).expect("identity");
++        assert_eq!(
++            target_head_admits(&fx.canonical, &admitted),
++            Err(UncheckedCause::ProbeTargetChanged)
++        );
++        let own = TargetIdentity::read(&fx.canonical).expect("identity");
++        assert_eq!(target_head_admits(&fx.canonical, &own), Ok(()));
++    }
++
++    // ----- the lock, the state root, the scratch directory -----
++
++    #[test]
++    fn the_lock_must_be_this_state_roots() {
++        let fx = Fixture::new("lock", ADMISSIBLE);
++        let other = StateDir::resolve(None, Some(&fx.base.join("other state").to_string_lossy()))
++            .expect("state");
++        other.ensure().expect("ensure");
++        let lock = run_lock::acquire(&other, fx.euid).expect("lock");
++        let owner = Owner::of(&fx);
++        let answer = probe_with(&the_row(), &owner, &fx.state, &lock, PACKAGE, LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::ProbeNotStarted);
++    }
++
++    #[test]
++    fn the_scratch_directory_is_fresh_private_and_refused_when_planted() {
++        let fx = Fixture::new("scratch", ADMISSIBLE);
++        let probes = fx.state.probes();
++        let made = make_scratch(&probes, "probe-a", fx.euid).expect("made");
++        let meta = std::fs::symlink_metadata(&made.path).expect("meta");
++        assert_eq!(meta.mode() & 0o777, 0o700);
++        let path = made.path.clone();
++        drop(made);
++        assert!(!path.exists(), "removed when dropped");
++        std::fs::write(probes.join("probe-file"), "x").expect("file");
++        assert!(make_scratch(&probes, "probe-file", fx.euid).is_none());
++        symlink(&fx.base, probes.join("probe-link")).expect("link");
++        assert!(make_scratch(&probes, "probe-link", fx.euid).is_none());
++        assert!(make_scratch(&probes, "probe-b", fx.euid + 1).is_none());
++        assert!(
++            !probes.join("probe-b").exists(),
++            "a refused scratch is removed"
++        );
++        assert!(is_scratch_name(&scratch_name().expect("name")));
++        for name in ["probe-1-abcdef", "probe-123456-000fff"] {
++            assert!(is_scratch_name(name), "{name}");
++        }
++        for name in [
++            "probe-1-ABCDEF",
++            "probe--abcdef",
++            "probe-1-abcde",
++            "probe-1-abcdefa",
++            "probe-x-abcdef",
++            "probe-1abcdef",
++            "notes",
++            "probe-1-abcdef/",
++        ] {
++            assert!(!is_scratch_name(name), "{name}");
++        }
++    }
++
++    #[test]
++    fn only_a_scratch_shaped_leftover_is_swept_and_a_link_is_not_followed() {
++        let _alone = spawn_alone();
++        let fx = Fixture::new("sweep", ADMISSIBLE);
++        let probes = fx.state.probes();
++        let outside = fx.base.join("outside");
++        std::fs::create_dir_all(&outside).expect("outside");
++        std::fs::write(outside.join("keep"), "x").expect("keep");
++        let old = probes.join("probe-77-0a0b0c");
++        DirBuilder::new().mode(0o700).create(&old).expect("old");
++        std::fs::create_dir_all(old.join("deep")).expect("deep");
++        symlink(&outside, old.join("link")).expect("link");
++        let owner = Owner::of(&fx);
++        assert_eq!(
++            probe(&fx, &owner, &the_row(), LEAF, &flag()),
++            CheckAnswer::Holds
++        );
++        assert_eq!(fx.probes_left(), 0);
++        assert!(outside.join("keep").exists(), "the link was followed");
++    }
++
++    #[test]
++    fn anything_else_under_probes_is_left_alone_and_refuses_the_probe() {
++        let fx = Fixture::new("foreign", ADMISSIBLE);
++        let probes = fx.state.probes();
++        let leftover = probes.join("probe-77-0a0b0c");
++        DirBuilder::new()
++            .mode(0o700)
++            .create(&leftover)
++            .expect("leftover");
++        let file = probes.join("notes.txt");
++        let dir = probes.join("mine");
++        let loose = probes.join("probe-78-0a0b0c");
++        let private = probes.join("mine-too");
++        let link = probes.join("probe-79-0a0b0c");
++        for planted in 0..5 {
++            match planted {
++                0 => std::fs::write(&file, "the user's").expect("file"),
++                1 => std::fs::create_dir_all(dir.join("inside")).expect("dir"),
++                2 => DirBuilder::new().mode(0o755).create(&loose).expect("loose"),
++                3 => DirBuilder::new()
++                    .mode(0o700)
++                    .create(&private)
++                    .expect("private"),
++                _ => symlink(&fx.base, &link).expect("link"),
++            }
++            let owner = Owner::of(&fx);
++            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++            assert_eq!(
++                answer,
++                CheckAnswer::Unchecked(UncheckedCause::ProbeNotStarted),
++                "{planted}"
++            );
++            assert_eq!(owner.started(), 0);
++            assert!(leftover.exists(), "{planted}: something was removed");
++            match planted {
++                0 => {
++                    assert_eq!(std::fs::read_to_string(&file).expect("kept"), "the user's");
++                    std::fs::remove_file(&file).expect("clean");
++                }
++                1 => {
++                    assert!(dir.join("inside").exists());
++                    std::fs::remove_dir_all(&dir).expect("clean");
++                }
++                2 => {
++                    assert!(loose.exists());
++                    std::fs::remove_dir(&loose).expect("clean");
++                }
++                3 => {
++                    assert!(private.exists());
++                    std::fs::remove_dir(&private).expect("clean");
++                }
++                _ => {
++                    assert!(std::fs::symlink_metadata(&link).is_ok());
++                    std::fs::remove_file(&link).expect("clean");
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn a_planted_probes_directory_or_a_state_root_under_a_prefix_starts_nothing() {
++        let fx = Fixture::new("planted", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        let probes = fx.state.probes();
++        std::fs::remove_dir_all(&probes).expect("unprobes");
++        symlink(&fx.base, &probes).expect("planted link");
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        assert_eq!(
++            answer,
++            CheckAnswer::Unchecked(UncheckedCause::ProbeNotStarted)
++        );
++        std::fs::remove_file(&probes).expect("unplant");
++        std::fs::write(&probes, "x").expect("planted file");
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        assert_eq!(
++            answer,
++            CheckAnswer::Unchecked(UncheckedCause::ProbeNotStarted)
++        );
++        std::fs::remove_file(&probes).expect("unplant");
++        DirBuilder::new()
++            .mode(0o700)
++            .create(&probes)
++            .expect("probes");
++        std::fs::set_permissions(&probes, std::fs::Permissions::from_mode(0o755)).expect("mode");
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        assert_eq!(
++            answer,
++            CheckAnswer::Unchecked(UncheckedCause::ProbeNotStarted)
++        );
++        std::fs::remove_dir(&probes).expect("unprobes");
++        let empty = fx.base.join("empty");
++        DirBuilder::new().mode(0o700).create(&empty).expect("empty");
++        symlink(&empty, &probes).expect("planted link to an empty directory");
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        assert_eq!(
++            answer,
++            CheckAnswer::Unchecked(UncheckedCause::ProbeNotStarted)
++        );
++        let inside = StateDir::resolve(
++            None,
++            Some(&fx.prefix.join("var").join("state").to_string_lossy()),
++        )
++        .expect("state");
++        inside.ensure().expect("ensure");
++        let lock = run_lock::acquire(&inside, fx.euid).expect("lock");
++        let answer = probe_with(&the_row(), &owner, &inside, &lock, PACKAGE, LEAF, &flag());
++        assert_eq!(
++            answer,
++            CheckAnswer::Unchecked(UncheckedCause::ProbeNotStarted)
++        );
++        assert_eq!(owner.started(), 0);
++        assert!(state_root_under_a_prefix(
++            Path::new("/opt/local/var/macportsbrew"),
++            Path::new("/x")
++        ));
++        assert!(state_root_under_a_prefix(
++            Path::new("/x/y"),
++            Path::new("/x")
++        ));
++        assert!(!state_root_under_a_prefix(
++            Path::new("/x2/y"),
++            Path::new("/x")
++        ));
++    }
++
++    #[test]
++    fn a_target_changed_by_the_run_is_never_holds() {
++        // The runner changes the target once the probe has ended, as a program
++        // that rewrote itself would: the identity read after exit differs.
++        let _alone = spawn_alone();
++        let fx = Fixture::new("self-edit", ADMISSIBLE);
++        let mut owner = Owner::of(&fx);
++        owner.runner = Box::new(Counting {
++            inner: SystemRunner::new(),
++            started: Rc::clone(&owner.started),
++            claims_replay: false,
++            after: Some(fx.canonical.clone()),
++        });
++        assert_eq!(
++            probe(&fx, &owner, &the_row(), LEAF, &flag()),
++            CheckAnswer::Unchecked(UncheckedCause::ProbeTargetChanged)
++        );
++        assert_eq!(owner.started(), 1);
++        assert_eq!(fx.probes_left(), 0);
++    }
++
++    // ----- how it runs, on the runner itself -----
++
++    /// An admitted probe built by hand around `program`, as `admit` would for
++    /// a target it passed: for the runner's own behaviour, which a shell script
++    /// shows and condition 11 would refuse to admit.
++    fn direct(fx: &Fixture, program: &Path, arg0: &str) -> (CommandSpec, Scratch) {
++        let admitted = AdmittedProbe {
++            program: program.to_path_buf(),
++            arg0: arg0.to_owned(),
++            argv: flag(),
++            destination_bin: fx.prefix.join("bin"),
++            target: TargetIdentity::read(program).expect("identity"),
++            euid: fx.euid,
++        };
++        let scratch = make_scratch(&fx.state.probes(), "probe-1-000000", fx.euid).expect("scratch");
++        let spec = CommandSpec::curated_probe(admitted, &scratch.path);
++        (spec, scratch)
++    }
++
++    fn shell(fx: &Fixture, body: &str) -> PathBuf {
++        let path = fx.base.join("shell-target");
++        write_executable(&path, &format!("#!/bin/sh\n{body}\n"));
++        path
++    }
++
++    fn run_direct(fx: &Fixture, program: &Path, arg0: &str) -> CheckAnswer {
++        let (spec, _scratch) = direct(fx, program, arg0);
++        let target = TargetIdentity::read(program);
++        let run = SystemRunner::new().run_probe(&spec);
++        answer(&run, TargetIdentity::read(program) == target)
++    }
++
++    #[test]
++    fn invariant_10_a_probe_runs_in_exactly_its_environment() {
++        let _alone = spawn_alone();
++        let fx = Fixture::new("env", ADMISSIBLE);
++        let probes = fx.state.probes();
++        let body = format!(
++            "[ \"$HOME\" = \"$TMPDIR\" ] || exit 11\n\
++             [ -d \"$HOME\" ] || exit 12\n\
++             [ \"$(cd \"$HOME\" && pwd -P)\" = \"$(pwd -P)\" ] || exit 13\n\
++             [ \"$(stat -f %Lp \"$HOME\")\" = 700 ] || exit 14\n\
++             [ \"$LANG$LC_ALL$TERM$NO_COLOR$PYTHONDONTWRITEBYTECODE\" = CCdumb11 ] || exit 15\n\
++             [ \"$1\" = --version ] && [ $# = 1 ] || exit 16\n\
++             case \"$HOME\" in '{probes}'/probe-*) ;; *) exit 17 ;; esac\n\
++             [ \"${{PATH%%:*}}\" = '{bin}' ] || exit 18\n\
++             [ \"${{PATH#*:}}\" = /usr/bin:/bin:/usr/sbin:/sbin ] || exit 19\n\
++             exit 0",
++            probes = probes.display(),
++            bin = fx.prefix.join("bin").display(),
++        );
++        let program = shell(&fx, &body);
++        assert_eq!(run_direct(&fx, &program, LEAF), CheckAnswer::Holds);
++        // And the spec itself, key by key: nothing more reaches the kernel.
++        let owner = Owner::of(&fx);
++        let admitted =
++            AdmittedProbe::admit(&the_row(), &owner, PACKAGE, LEAF, &flag()).expect("admitted");
++        let scratch = Path::new("/private/var/scratch with space");
++        let spec = CommandSpec::curated_probe(admitted, scratch);
++        let expected: BTreeMap<String, String> = [
++            ("HOME", scratch.to_str().unwrap_or_default().to_owned()),
++            ("LANG", "C".to_owned()),
++            ("LC_ALL", "C".to_owned()),
++            ("NO_COLOR", "1".to_owned()),
++            (
++                "PATH",
++                format!(
++                    "{}:/usr/bin:/bin:/usr/sbin:/sbin",
++                    fx.prefix.join("bin").display()
++                ),
++            ),
++            ("PYTHONDONTWRITEBYTECODE", "1".to_owned()),
++            ("TERM", "dumb".to_owned()),
++            ("TMPDIR", scratch.to_str().unwrap_or_default().to_owned()),
++        ]
++        .into_iter()
++        .map(|(k, v)| (k.to_owned(), v))
++        .collect();
++        assert_eq!(spec.environment, expected);
++        assert!(!spec
++            .environment
++            .keys()
++            .any(|k| macportsbrew_domain::is_build_flag(k)));
++        assert_eq!(spec.program, fx.canonical, "the canonical path runs");
++        assert_eq!(spec.timeout, PROBE_TIMEOUT);
++        assert_eq!(spec.max_output_bytes, PROBE_MAX_OUTPUT_BYTES);
++    }
++
++    #[test]
++    fn arg0_is_the_placed_leaf_while_the_canonical_path_runs() {
++        // `/bin/test` dispatches on its `argv[0]`: as `[` it requires a closing
++        // `]` and exits 2; under any other name `test --version` is true. So a
++        // run with `arg0` `[` that fails proves `arg0` reached the program, and a
++        // runner passing the program path as `argv[0]` holds.
++        let _alone = spawn_alone();
++        let fx = Fixture::new("arg0", ADMISSIBLE);
++        let test = Path::new("/bin/test");
++        assert_eq!(
++            run_direct(&fx, test, "["),
++            CheckAnswer::Fails(CheckFailure::ProbeFailed)
++        );
++        assert_eq!(run_direct(&fx, test, "test-named"), CheckAnswer::Holds);
++    }
++
++    #[test]
++    fn the_answer_of_each_ending_on_a_real_program() {
++        let _alone = spawn_alone();
++        for (name, body, expected) in [
++            (
++                "exit1",
++                "exit 1",
++                CheckAnswer::Fails(CheckFailure::ProbeFailed),
++            ),
++            (
++                "signal",
++                "kill -TERM $$",
++                CheckAnswer::Fails(CheckFailure::ProbeFailed),
++            ),
++            (
++                "overcap",
++                "head -c 70000 /dev/zero\nexit 0",
++                CheckAnswer::Unchecked(UncheckedCause::ProbeOutputOverCap),
++            ),
++            (
++                "held",
++                "sleep 20 &\nexit 0",
++                CheckAnswer::Unchecked(UncheckedCause::ProbeLeftAProcess),
++            ),
++        ] {
++            let fx = Fixture::new(name, ADMISSIBLE);
++            let program = shell(&fx, body);
++            assert_eq!(run_direct(&fx, &program, LEAF), expected, "{name}");
++        }
++    }
++
++    #[test]
++    fn a_timeout_is_unchecked_and_never_fails() {
++        let _alone = spawn_alone();
++        let fx = Fixture::new("timeout", ADMISSIBLE);
++        let program = shell(&fx, "sleep 10\nexit 0");
++        let (spec, _scratch) = direct(&fx, &program, LEAF);
++        // Narrower than the ceiling is allowed; wider is not (below).
++        let spec = spec.with_timeout(Duration::from_millis(300));
++        let run = SystemRunner::new().run_probe(&spec);
++        assert_eq!(
++            answer(&run, true),
++            CheckAnswer::Unchecked(UncheckedCause::ProbeTimedOut)
++        );
++    }
++
++    /// Admits the fixture's target, then builds the spec over a fresh scratch,
++    /// as `probe_with` does.
++    fn admitted_spec(fx: &Fixture, owner: &Owner) -> (CommandSpec, Scratch) {
++        let admitted =
++            AdmittedProbe::admit(&the_row(), owner, PACKAGE, LEAF, &flag()).expect("admitted");
++        let scratch = make_scratch(&fx.state.probes(), "probe-2-000000", fx.euid).expect("scratch");
++        let spec = CommandSpec::curated_probe(admitted, &scratch.path);
++        (spec, scratch)
++    }
++
++    #[test]
++    fn a_target_changed_between_admission_and_spawn_is_never_started() {
++        let _alone = spawn_alone();
++        let fx = Fixture::new("changed", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        let (spec, _scratch) = admitted_spec(&fx, &owner);
++        std::fs::write(&fx.canonical, "#!/usr/bin/true\n# replaced\n").expect("write");
++        let run = SystemRunner::new().run_probe(&spec);
++        assert_eq!(run, ProbeRun::target_changed());
++        assert_eq!(
++            answer(&run, false),
++            CheckAnswer::Unchecked(UncheckedCause::ProbeTargetChanged)
++        );
++    }
++
++    #[test]
++    fn a_link_re_pointed_after_admission_still_runs_what_was_admitted() {
++        let _alone = spawn_alone();
++        let fx = Fixture::new("repoint", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        let (spec, _scratch) = admitted_spec(&fx, &owner);
++        let other = fx.base.join("other");
++        write_executable(&other, "#!/usr/bin/false\n");
++        fx.unplace(LEAF);
++        fx.place(LEAF, &other);
++        let run = SystemRunner::new().run_probe(&spec);
++        assert_eq!(
++            answer(&run, true),
++            CheckAnswer::Holds,
++            "the admitted target ran"
++        );
++    }
++
++    // ----- the site -----
++
++    #[test]
++    fn the_site_refuses_a_probe_widened_after_admission() {
++        let fx = Fixture::new("site", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        let (spec, _scratch) = admitted_spec(&fx, &owner);
++        assert!(crate::process::may_spawn(&spec), "the admitted spec passes");
++        assert!(crate::process::may_spawn(
++            &spec.clone().with_timeout(Duration::from_secs(1))
++        ));
++        let mut widened: Vec<(&str, CommandSpec)> = Vec::new();
++        widened.push((
++            "timeout",
++            spec.clone()
++                .with_timeout(PROBE_TIMEOUT + Duration::from_millis(1)),
++        ));
++        let mut s = spec.clone();
++        s.max_output_bytes += 1;
++        widened.push(("cap", s));
++        let mut s = spec.clone();
++        s.environment
++            .insert("DYLD_INSERT_LIBRARIES".into(), "/x".into());
++        widened.push(("extra variable", s));
++        let mut s = spec.clone();
++        s.environment.remove("TMPDIR");
++        widened.push(("missing variable", s));
++        let mut s = spec.clone();
++        s.environment
++            .insert("HOME".into(), "/Users/somebody".into());
++        widened.push(("real home", s));
++        let mut s = spec.clone();
++        let path = s.environment["PATH"].clone();
++        s.environment
++            .insert("PATH".into(), format!("/opt/local/bin:{path}"));
++        widened.push(("other provider on PATH", s));
++        let mut s = spec.clone();
++        s.environment.insert("LANG".into(), "en_US.UTF-8".into());
++        widened.push(("pinned value", s));
++        for argv in [
++            vec![],
++            vec!["--daemon".to_owned()],
++            vec!["-v".to_owned(), "-V".to_owned()],
++        ] {
++            let mut s = spec.clone();
++            s.argv = argv;
++            widened.push(("argv", s));
++        }
++        let mut s = spec.clone();
++        s.program = PathBuf::from("/opt/homebrew/bin/brew");
++        widened.push(("provider program", s));
++        let mut s = spec.clone();
++        s.program = PathBuf::from("relative/target");
++        widened.push(("relative program", s));
++        let mut s = spec.clone();
++        s.program = fx.prefix.join("bin").join("..").join("bin").join(LEAF);
++        widened.push(("traversal", s));
++        for arg0 in ["port", "sh", "a/b", "-x"] {
++            let mut s = spec.clone();
++            if let Admission::CuratedProbe { arg0: a, .. } = &mut s.admission {
++                *a = arg0.to_owned();
++            }
++            widened.push(("arg0", s));
++        }
++        for (what, spec) in &widened {
++            assert!(!crate::process::may_spawn(spec), "{what} was admitted");
++        }
++    }
++
++    #[test]
++    fn the_allowlist_refuses_a_probe_shaped_spec_and_run_refuses_a_probe() {
++        let _alone = spawn_alone();
++        let fx = Fixture::new("allowlist", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        let (spec, _scratch) = admitted_spec(&fx, &owner);
++        let mut listed = spec.clone();
++        listed.admission = Admission::Allowlist;
++        assert!(!crate::process::may_spawn(&listed));
++        let inv = SystemRunner::new().run(&listed).expect("record");
++        assert!(
++            matches!(inv.status, ExitStatus::NotStarted { .. }),
++            "{:?}",
++            inv.status
++        );
++        let recording = SystemRunner::recording();
++        let inv = recording.run(&spec).expect("record");
++        assert!(matches!(inv.status, ExitStatus::NotStarted { .. }));
++        assert!(inv.environment.is_empty() && inv.argv.is_empty());
++        assert!(recording.take_recorded().is_empty());
++        assert_eq!(recording.run_probe(&spec), ProbeRun::not_observed());
++        assert!(recording.take_recorded().is_empty());
++        assert_eq!(SystemRunner::new().run_probe(&listed), ProbeRun::refused());
++        let mut replayed = spec.clone();
++        replayed.replay_only = true;
++        assert_eq!(
++            SystemRunner::new().run_probe(&replayed),
++            ProbeRun::refused()
++        );
++    }
++
++    fn recording_answering(leaf: &str) -> Recording {
++        Recording {
++            schema_version: crate::process::recording::RECORDING_SCHEMA_VERSION,
++            provenance: RecordingProvenance {
++                macos: "15".into(),
++                architecture: "arm64".into(),
++                provider_versions: vec![],
++                captured_at: "2026-11-08T00:00:00Z".into(),
++                captured_by: "test".into(),
++                origin: "synthesised".into(),
++                note: None,
++            },
++            invocations: vec![crate::process::RecordedInvocation {
++                invocation: crate::process::Invocation {
++                    program: leaf.into(),
++                    argv: flag(),
++                    environment: BTreeMap::new(),
++                    status: ExitStatus::Exited { code: 0 },
++                    stdout: "recorded".into(),
++                    stderr: String::new(),
++                    truncated: false,
++                    duration_ms: 1,
++                },
++            }],
++        }
++    }
++
++    #[test]
++    fn invariant_15_a_replay_never_runs_a_probe_at_the_spawn_site() {
++        let fx = Fixture::new("replay", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        let (spec, _scratch) = admitted_spec(&fx, &owner);
++        let replay = ReplayRunner::new(recording_answering(LEAF));
++        assert!(replay.run(&spec).is_err(), "a recording answered a probe");
++        assert!(replay.consulted().is_empty());
++        assert_eq!(replay.run_probe(&spec), ProbeRun::not_observed());
++        assert!(!replay.may_run_probes());
++    }
++
++    // ----- the answer table -----
++
++    #[test]
++    fn every_row_of_the_answer_table() {
++        use CheckAnswer::{Fails, Holds, Unchecked};
++        use UncheckedCause as U;
++        let ended = |status, ending| ProbeRun::ended(status, ending);
++        let exited = |code| ExitStatus::Exited { code };
++        let failed = Fails(CheckFailure::ProbeFailed);
++        for (run, unchanged, expected) in [
++            (ended(exited(0), StreamEnd::Complete), true, Holds),
++            (
++                ended(exited(0), StreamEnd::Complete),
++                false,
++                Unchecked(U::ProbeTargetChanged),
++            ),
++            (ended(exited(1), StreamEnd::Complete), true, failed),
++            (
++                ended(exited(1), StreamEnd::Complete),
++                false,
++                Unchecked(U::ProbeTargetChanged),
++            ),
++            (ended(exited(255), StreamEnd::GaveUp), true, failed),
++            (
++                ended(
++                    ExitStatus::Signalled { signal: Some(9) },
++                    StreamEnd::Complete,
++                ),
++                true,
++                failed,
++            ),
++            (
++                ended(ExitStatus::Signalled { signal: None }, StreamEnd::Complete),
++                true,
++                Unchecked(U::ProbeEndNotRead),
++            ),
++            (
++                ended(ExitStatus::Cancelled, StreamEnd::Complete),
++                true,
++                Unchecked(U::ProbeEndNotRead),
++            ),
++            (
++                ended(ExitStatus::TimedOut, StreamEnd::Complete),
++                true,
++                Unchecked(U::ProbeTimedOut),
++            ),
++            (
++                ended(
++                    ExitStatus::NotStarted {
++                        error: String::new(),
++                    },
++                    StreamEnd::Complete,
++                ),
++                true,
++                Unchecked(U::ProbeNotStarted),
++            ),
++            (
++                ended(exited(0), StreamEnd::GaveUp),
++                true,
++                Unchecked(U::ProbeLeftAProcess),
++            ),
++            (
++                ended(exited(0), StreamEnd::OverCap),
++                true,
++                Unchecked(U::ProbeOutputOverCap),
++            ),
++            (
++                ended(exited(0), StreamEnd::ReadError),
++                true,
++                Unchecked(U::ProbeEndNotRead),
++            ),
++            (ProbeRun::not_observed(), true, Unchecked(U::NotObserved)),
++            (ProbeRun::refused(), true, Unchecked(U::ProbeNotStarted)),
++            (ProbeRun::not_started(), true, Unchecked(U::ProbeNotStarted)),
++            (
++                ProbeRun::target_changed(),
++                true,
++                Unchecked(U::ProbeTargetChanged),
++            ),
++            (ProbeRun::not_observed(), false, Unchecked(U::NotObserved)),
++        ] {
++            assert_eq!(
++                answer(&run, unchanged),
++                expected,
++                "{run:?} unchanged={unchanged}"
++            );
++        }
++        assert_eq!(StreamEnd::OverCap.max(StreamEnd::GaveUp), StreamEnd::GaveUp);
++        assert_eq!(
++            StreamEnd::Complete.max(StreamEnd::ReadError),
++            StreamEnd::ReadError
++        );
++    }
++
++    // ----- the table -----
++
++    #[test]
++    fn the_whole_probe_reads_only_the_embedded_table() {
++        let fx = Fixture::new("embedded", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        let answer = run_curated_probe(&owner, &fx.state, fx.lock(), PACKAGE, LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::NoCuratedProbe);
++    }
++
++    #[test]
++    fn the_shipped_table_parses_and_holds_only_closed_flags() {
++        let rows = table().expect("the shipped table parses");
++        assert!(!rows.is_empty());
++        for row in rows {
++            assert!(is_one_permitted_flag(&row.argv), "{row:?}");
++            assert!(ExecutableName::parse(&row.executable).is_ok(), "{row:?}");
++        }
++        // The read-only copy is the same rows, in the same order.
++        let copies = curated_probe_rows().expect("rows");
++        assert_eq!(copies.len(), rows.len());
++        for (copy, row) in copies.iter().zip(rows) {
++            assert_eq!(
++                (
++                    &copy.provider,
++                    &copy.package,
++                    &copy.executable,
++                    &copy.argv,
++                    &copy.observed_version,
++                    &copy.source,
++                    &copy.read_on
++                ),
++                (
++                    &row.provider,
++                    &row.package,
++                    &row.executable,
++                    &row.argv,
++                    &row.observed_version,
++                    &row.source,
++                    &row.read_on
++                )
++            );
++        }
++    }
++
++    #[test]
++    fn invariant_20_every_probe_row_is_dated() {
++        for row in table().expect("parses") {
++            assert!(is_iso_date(&row.read_on), "{row:?}");
++            assert!(!row.source.trim().is_empty(), "{row:?}");
++        }
++    }
++
++    #[test]
++    fn the_reader_fails_closed() {
++        let good = "[[probe]]\nprovider = \"p\"\npackage = \"k\"\nexecutable = \"e\"\n\
++                    argv = [\"--version\"]\nobserved_version = \"1\"\nsource = \"s\"\n\
++                    read_on = \"2026-11-08\"\n";
++        assert_eq!(parse_table(good).map(|r| r.len()), Ok(1));
++        let bad = [
++            format!("{good}{good}"),
++            good.replace("provider = \"p\"", "provider = \"\""),
++            good.replace("package = \"k\"", "package = \"\""),
++            good.replace("executable = \"e\"", "executable = \"a/b\""),
++            good.replace("[\"--version\"]", "[]"),
++            good.replace("[\"--version\"]", "[\"--daemon\"]"),
++            good.replace("[\"--version\"]", "[\"-v\", \"-V\"]"),
++            good.replace("observed_version = \"1\"", "observed_version = \"\""),
++            good.replace("source = \"s\"", "source = \" \""),
++            good.replace("2026-11-08", "8 Nov 2026"),
++            format!("{good}path = \"/x\"\n"),
++            "probe = 3".to_owned(),
++        ];
++        for text in bad {
++            assert!(parse_table(&text).is_err(), "{text}");
++        }
++    }
++}
+diff --git a/crates/adapters/src/process/recording.rs b/crates/adapters/src/process/recording.rs
+index b13d73c..d8856dc 100644
+--- a/crates/adapters/src/process/recording.rs
++++ b/crates/adapters/src/process/recording.rs
+@@ -7,7 +7,7 @@
+ //! invocation whose program name and argv match; a spec with no recorded
+ //! answer is an error, never a guess.
+ 
+-use super::{CommandSpec, Invocation, ProcessRunner};
++use super::{Admission, CommandSpec, Invocation, ProcessRunner};
+ use macportsbrew_domain::{DomainError, ErrorId};
+ use serde::{Deserialize, Serialize};
+ use std::cell::RefCell;
+@@ -123,6 +123,18 @@ impl ReplayRunner {
+ 
+ impl ProcessRunner for ReplayRunner {
+     fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
++        // A recording answers by leaf and argv, so one holding `htop --version`
++        // would otherwise answer a curated probe of that leaf. A probe is never
++        // answered from a recording, and nothing is looked up for it: under a
++        // replay every probe is `NOT_OBSERVED` (INV-15;
++        // `docs/passes/16-liveness-design.md`, "No record, either way").
++        // `run_probe` keeps the trait's default, which starts nothing.
++        if !matches!(spec.admission, Admission::Allowlist) {
++            return Err(DomainError::new(
++                ErrorId::Internal,
++                "a curated probe is never answered from a recording",
++            ));
++        }
+         let key = format!("{} {}", spec.program_name(), spec.argv.join(" "));
+         match self.recording.find(spec) {
+             Some(inv) => {
+diff --git a/crates/adapters/src/process/system.rs b/crates/adapters/src/process/system.rs
+index 3cfb089..4ca8556 100644
+--- a/crates/adapters/src/process/system.rs
++++ b/crates/adapters/src/process/system.rs
+@@ -5,7 +5,8 @@
+ //! flag; output bounded; optional recording of every invocation for
+ //! fixture capture.
+ 
+-use super::{CommandSpec, ExitStatus, Invocation, ProcessRunner, RecordedInvocation};
++use super::probe::{ProbeRun, TargetIdentity};
++use super::{Admission, CommandSpec, ExitStatus, Invocation, ProcessRunner, RecordedInvocation};
+ use macportsbrew_domain::DomainError;
+ use std::cell::RefCell;
+ use std::io::Read;
+@@ -111,18 +112,39 @@ impl SystemRunner {
+ /// process-wide lock around the spawn in `run` first.
+ const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(6);
+ 
+-/// Reads a stream up to `cap` bytes, returning the text and whether anything
+-/// was lost.
++/// How one output stream ended: the three-way ending the curated probe needs
++/// (`docs/passes/16-liveness-design.md`, "What the answer is"), plus a read
++/// error, which the probe answers apart from the cap.
++///
++/// The allowlist path reads any ending but [`StreamEnd::Complete`] as
++/// `truncated`, exactly as the one flag it replaced: nothing a provider read
++/// sees changes. Declared in severity order, so the worse of two streams is
++/// their `max`.
++#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
++pub(in crate::process) enum StreamEnd {
++    /// End of file, within the cap.
++    Complete,
++    /// More than the cap arrived; the excess was drained and discarded.
++    OverCap,
++    /// A read failed with something other than `Interrupted`.
++    ReadError,
++    /// The reader did not answer within [`READER_DRAIN_TIMEOUT`]: something
++    /// other than the child still holds the pipe.
++    GaveUp,
++}
++
++/// Reads a stream up to `cap` bytes, returning the text and how the stream
++/// ended.
+ ///
+ /// `Interrupted` is retried rather than treated as end of stream: a signal
+ /// arriving mid-read is not the provider having finished, and stopping there
+ /// would hand a parser a partial document while reporting it as complete. Any
+-/// other error ends the read and marks the result truncated, for the same
++/// other error ends the read and marks the result as not complete, for the same
+ /// reason: what was captured is not what the provider said.
+-fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, bool) {
++fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, StreamEnd) {
+     let mut buf = Vec::new();
+     let mut chunk = [0u8; 8192];
+-    let mut truncated = false;
++    let mut end = StreamEnd::Complete;
+     loop {
+         match reader.read(&mut chunk) {
+             Ok(0) => break,
+@@ -130,14 +152,14 @@ fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, bool) {
+             // the stream.
+             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+             Err(_) => {
+-                truncated = true;
++                end = StreamEnd::ReadError;
+                 break;
+             }
+             Ok(n) => {
+                 if buf.len() + n > cap {
+                     let room = cap.saturating_sub(buf.len());
+                     buf.extend_from_slice(&chunk[..room]);
+-                    truncated = true;
++                    end = StreamEnd::OverCap;
+                     // Keep draining so the child does not block on a full
+                     // pipe, but discard the excess.
+                     loop {
+@@ -154,24 +176,202 @@ fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, bool) {
+             }
+         }
+     }
+-    (String::from_utf8_lossy(&buf).into_owned(), truncated)
++    (String::from_utf8_lossy(&buf).into_owned(), end)
+ }
+ 
+ /// Collects one reader thread's result, giving up after
+ /// [`READER_DRAIN_TIMEOUT`].
+ ///
+ /// A thread that has not answered by then is blocked on a pipe somebody other
+-/// than the child is still holding. Its bytes are lost, which is what the
+-/// `true` says.
+-fn collect(rx: &Receiver<(String, bool)>) -> (String, bool) {
++/// than the child is still holding. Its bytes are lost, which is what
++/// [`StreamEnd::GaveUp`] says.
++fn collect(rx: &Reader) -> (String, StreamEnd) {
+     rx.recv_timeout(READER_DRAIN_TIMEOUT)
+-        .unwrap_or_else(|_| (String::new(), true))
++        .unwrap_or_else(|_| (String::new(), StreamEnd::GaveUp))
++}
++
++/// How the wait for a started child ended.
++#[derive(Clone, Copy)]
++enum Waited {
++    /// It exited, by a code or a signal.
++    Exited(std::process::ExitStatus),
++    /// `try_wait` failed; the child was killed.
++    WaitFailed,
++    /// The token was cancelled; the child was killed and reaped.
++    Cancelled,
++    /// The timeout passed; the child was killed and reaped.
++    TimedOut,
++}
++
++/// Waits for `child`, by polling, until it exits, the wait fails, `cancel` is
++/// cancelled or `timeout` passes since `start`. One loop for the allowlist and
++/// the curated probe, so neither can drift from the other.
++fn wait_for(
++    child: &mut std::process::Child,
++    start: Instant,
++    timeout: Duration,
++    cancel: &CancelToken,
++) -> Waited {
++    loop {
++        match child.try_wait() {
++            Ok(Some(status)) => return Waited::Exited(status),
++            Ok(None) => {}
++            Err(_) => {
++                // The child *was* started, so this is not `NotStarted`, which
++                // every adapter reads as "the program is not there" and turns
++                // into an absent provider. The executor killed it, and why it
++                // ended can no longer be learned: that is a signal of unknown
++                // number. The OS error text has no field to go in on this
++                // status, and stderr is the child's, not ours to append to.
++                let _ = child.kill();
++                return Waited::WaitFailed;
++            }
++        }
++        if cancel.is_cancelled() {
++            let _ = child.kill();
++            let _ = child.wait();
++            return Waited::Cancelled;
++        }
++        if start.elapsed() > timeout {
++            let _ = child.kill();
++            let _ = child.wait();
++            return Waited::TimedOut;
++        }
++        thread::sleep(Duration::from_millis(10));
++    }
++}
++
++/// The record's status for how the wait ended.
++fn exit_status(waited: Waited) -> ExitStatus {
++    match waited {
++        Waited::Exited(status) => match status.code() {
++            Some(code) => ExitStatus::Exited { code },
++            None => ExitStatus::Signalled {
++                signal: signal_of(status),
++            },
++        },
++        Waited::WaitFailed => ExitStatus::Signalled { signal: None },
++        Waited::Cancelled => ExitStatus::Cancelled,
++        Waited::TimedOut => ExitStatus::TimedOut,
++    }
++}
++
++/// What a spawn needs besides the spec's own fields.
++struct Launch<'a> {
++    /// The working directory: `/` for every allowlist spec, the scratch
++    /// directory for a curated probe.
++    directory: &'a std::path::Path,
++    /// `argv[0]`, when it is not the program path: the placed leaf of a probe.
++    arg0: Option<&'a str>,
++}
++
++impl SystemRunner {
++    /// **The one `Command` construction in this workspace.** Both the allowlist
++    /// and the curated probe come through here, so the environment, stdin, the
++    /// pipes and the process group are decided once
++    /// (`docs/passes/16-liveness-design.md`, "No new `Command::new` site").
++    fn spawn(spec: &CommandSpec, launch: &Launch<'_>) -> std::io::Result<std::process::Child> {
++        let mut command = Command::new(&spec.program);
++        if let Some(arg0) = launch.arg0 {
++            command.arg0(arg0);
++        }
++        command
++            .args(&spec.argv)
++            .env_clear()
++            .envs(&spec.environment)
++            .stdin(Stdio::null())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::piped());
++        // Never the caller's working directory. It is not inherited any more
++        // than the environment is: `port` resolves its `current` pseudo-port,
++        // and an `info` with no names, to the Portfile in the directory it was
++        // started in (`get_current_port`, `/opt/local/bin/port` lines 503-515,
++        // MacPorts 2.12.6, read 2026-09-25) - so an inherited directory would
++        // let wherever the user happened to run this tool decide what a read
++        // evaluates (security-reviewer, 2026-09-25; observed: a planted Portfile
++        // made `port -q info current` report its contents). `/` is root-owned,
++        // read-only here and holds no Portfile; the Homebrew prefix would not
++        // do, since on Intel it is user-writable. There is deliberately no
++        // per-spec override - `CommandSpec` has no directory field - so no
++        // caller can reintroduce a relative or inherited one. The one other
++        // directory is a curated probe's fresh scratch, which only
++        // `Admission::CuratedProbe` carries and only this module can set.
++        command.current_dir(launch.directory);
++        // Its own process group, so a terminal signal aimed at this process's
++        // foreground group (a Ctrl-C) does not also reach a provider read
++        // mid-flight; cancellation is what [`CancelToken`] is for, and it is
++        // the one the executor can record. Killing the whole group on timeout
++        // means signalling `-pid`, which needs `libc`; the alternative is
++        // spawning a kill utility, and that would be a second spawn path with
++        // no `CommandSpec` behind it — no sanitised environment, no timeout,
++        // no record. `04-migration-and-safety.md` ("Process execution") asks
++        // for one executor precisely so those are decided in one place, and
++        // `scripts/check-layering.sh` would not catch it here, because this
++        // module is the one place the grep exempts. So a grandchild that
++        // outlives its parent is handled by bounding the reads instead — see
++        // [`READER_DRAIN_TIMEOUT`]. The reasoning is ADR-0006, because a
++        // dependency decision does not belong in a comment (F-20); what is left
++        // here is what someone editing this line needs. Group kill needs a
++        // `libc`-free mechanism
++        // or an ADR admitting the dependency.
++        command.process_group(0);
++        command.spawn()
++    }
++}
++
++/// One reader thread's channel: what it read, and how the stream ended.
++type Reader = Receiver<(String, StreamEnd)>;
++
++/// Starts one reader thread per stream and returns their channels.
++///
++/// The results come back over channels rather than through
++/// `JoinHandle::join`, because a join is unbounded: a grandchild holding the
++/// write end of the pipe keeps the reader blocked long after the child is dead,
++/// and joining it would hang the whole program. `collect` waits
++/// [`READER_DRAIN_TIMEOUT`] and then gives up. The threads are left to finish
++/// on their own; they hold nothing but their own end of a pipe.
++fn start_readers(child: &mut std::process::Child, cap: usize) -> (Reader, Reader) {
++    let stdout = child.stdout.take();
++    let stderr = child.stderr.take();
++    let (out_tx, out_rx) = mpsc::channel();
++    let (err_tx, err_rx) = mpsc::channel();
++    thread::spawn(move || {
++        let _ = out_tx.send(stdout.map_or((String::new(), StreamEnd::Complete), |s| {
++            read_bounded(s, cap)
++        }));
++    });
++    thread::spawn(move || {
++        let _ = err_tx.send(stderr.map_or((String::new(), StreamEnd::Complete), |s| {
++            read_bounded(s, cap)
++        }));
++    });
++    (out_rx, err_rx)
+ }
+ 
+ impl ProcessRunner for SystemRunner {
+     fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+         let start = Instant::now();
+ 
++        // A curated probe never comes through here: its output and its scratch
++        // path must reach no record, and this function records. It is refused
++        // before the recording closure exists, and the refusal itself is not
++        // recorded (`docs/passes/16-liveness-design.md`, "No record, either
++        // way"). `run_probe` is its only route.
++        if !matches!(spec.admission, Admission::Allowlist) {
++            return Ok(Invocation {
++                program: spec.program_name(),
++                argv: Vec::new(),
++                environment: std::collections::BTreeMap::new(),
++                status: ExitStatus::NotStarted {
++                    error: "a curated probe is run only through `run_probe`".to_owned(),
++                },
++                stdout: String::new(),
++                stderr: String::new(),
++                truncated: false,
++                duration_ms: 0,
++            });
++        }
++
+         let record = |status: ExitStatus, stdout: String, stderr: String, truncated: bool| {
+             let inv = Invocation {
+                 program: spec.program_name(),
+@@ -230,7 +430,7 @@ impl ProcessRunner for SystemRunner {
+ 
+         // And for a provider, which of its subcommands: a permitted program
+         // asked to do a permitted program's mutation is the same program (F-53).
+-        if !crate::process::may_spawn(&spec.program, &spec.argv) {
++        if !crate::process::may_spawn(spec) {
+             return Ok(record(
+                 ExitStatus::NotStarted {
+                     error: format!(
+@@ -249,47 +449,11 @@ impl ProcessRunner for SystemRunner {
+             ));
+         }
+ 
+-        let mut command = Command::new(&spec.program);
+-        command
+-            .args(&spec.argv)
+-            .env_clear()
+-            .envs(&spec.environment)
+-            .stdin(Stdio::null())
+-            .stdout(Stdio::piped())
+-            .stderr(Stdio::piped());
+-        // Never the caller's working directory. It is not inherited any more
+-        // than the environment is: `port` resolves its `current` pseudo-port,
+-        // and an `info` with no names, to the Portfile in the directory it was
+-        // started in (`get_current_port`, `/opt/local/bin/port` lines 503-515,
+-        // MacPorts 2.12.6, read 2026-09-25) - so an inherited directory would
+-        // let wherever the user happened to run this tool decide what a read
+-        // evaluates (security-reviewer, 2026-09-25; observed: a planted Portfile
+-        // made `port -q info current` report its contents). `/` is root-owned,
+-        // read-only here and holds no Portfile; the Homebrew prefix would not
+-        // do, since on Intel it is user-writable. There is deliberately no
+-        // per-spec override - `CommandSpec` has no directory field - so no
+-        // caller can reintroduce a relative or inherited one.
+-        command.current_dir("/");
+-        // Its own process group, so a terminal signal aimed at this process's
+-        // foreground group (a Ctrl-C) does not also reach a provider read
+-        // mid-flight; cancellation is what [`CancelToken`] is for, and it is
+-        // the one the executor can record. Killing the whole group on timeout
+-        // means signalling `-pid`, which needs `libc`; the alternative is
+-        // spawning a kill utility, and that would be a second spawn path with
+-        // no `CommandSpec` behind it — no sanitised environment, no timeout,
+-        // no record. `04-migration-and-safety.md` ("Process execution") asks
+-        // for one executor precisely so those are decided in one place, and
+-        // `scripts/check-layering.sh` would not catch it here, because this
+-        // module is the one place the grep exempts. So a grandchild that
+-        // outlives its parent is handled by bounding the reads instead — see
+-        // [`READER_DRAIN_TIMEOUT`]. The reasoning is ADR-0006, because a
+-        // dependency decision does not belong in a comment (F-20); what is left
+-        // here is what someone editing this line needs. Group kill needs a
+-        // `libc`-free mechanism
+-        // or an ADR admitting the dependency.
+-        command.process_group(0);
+-
+-        let mut child = match command.spawn() {
++        let launch = Launch {
++            directory: std::path::Path::new("/"),
++            arg0: None,
++        };
++        let mut child = match Self::spawn(spec, &launch) {
+             Ok(child) => child,
+             Err(e) => {
+                 return Ok(record(
+@@ -303,79 +467,70 @@ impl ProcessRunner for SystemRunner {
+             }
+         };
+ 
+-        let cap = spec.max_output_bytes;
+-        let stdout = child.stdout.take();
+-        let stderr = child.stderr.take();
+-        // The results come back over channels rather than through
+-        // `JoinHandle::join`, because a join is unbounded: a grandchild
+-        // holding the write end of the pipe keeps the reader blocked long
+-        // after the child is dead, and joining it would hang the whole
+-        // program. `collect` waits [`READER_DRAIN_TIMEOUT`] and then gives up
+-        // with a truncated record. The threads are left to finish on their
+-        // own; they hold nothing but their own end of a pipe.
+-        let (out_tx, out_rx) = mpsc::channel();
+-        let (err_tx, err_rx) = mpsc::channel();
+-        thread::spawn(move || {
+-            let _ = out_tx.send(stdout.map_or((String::new(), false), |s| read_bounded(s, cap)));
+-        });
+-        thread::spawn(move || {
+-            let _ = err_tx.send(stderr.map_or((String::new(), false), |s| read_bounded(s, cap)));
+-        });
+-
+-        let status = loop {
+-            match child.try_wait() {
+-                Ok(Some(s)) => break s,
+-                Ok(None) => {}
+-                Err(_) => {
+-                    // The child *was* started, so this is not `NotStarted`,
+-                    // which every adapter reads as "the program is not there"
+-                    // and turns into an absent provider. The executor killed
+-                    // it, and why it ended can no longer be learned: that is
+-                    // a signal of unknown number. The OS error text has no
+-                    // field to go in on this status, and stderr is the
+-                    // child's, not ours to append to.
+-                    let _ = child.kill();
+-                    let (o, ot) = collect(&out_rx);
+-                    let (r, rt) = collect(&err_rx);
+-                    return Ok(record(
+-                        ExitStatus::Signalled { signal: None },
+-                        o,
+-                        r,
+-                        ot || rt,
+-                    ));
+-                }
+-            }
+-            if self.cancel.is_cancelled() {
+-                let _ = child.kill();
+-                let _ = child.wait();
+-                let (o, ot) = collect(&out_rx);
+-                let (r, rt) = collect(&err_rx);
+-                return Ok(record(ExitStatus::Cancelled, o, r, ot || rt));
+-            }
+-            if start.elapsed() > spec.timeout {
+-                let _ = child.kill();
+-                let _ = child.wait();
+-                let (o, ot) = collect(&out_rx);
+-                let (r, rt) = collect(&err_rx);
+-                return Ok(record(ExitStatus::TimedOut, o, r, ot || rt));
+-            }
+-            thread::sleep(Duration::from_millis(10));
+-        };
+-
+-        let (o, ot) = collect(&out_rx);
+-        let (r, rt) = collect(&err_rx);
+-        let exit = match status.code() {
+-            Some(code) => ExitStatus::Exited { code },
+-            None => ExitStatus::Signalled {
+-                signal: signal_of(status),
+-            },
+-        };
+-        Ok(record(exit, o, r, ot || rt))
++        let (out_rx, err_rx) = start_readers(&mut child, spec.max_output_bytes);
++        let waited = wait_for(&mut child, start, spec.timeout, &self.cancel);
++        let (o, oe) = collect(&out_rx);
++        let (r, re) = collect(&err_rx);
++        let truncated = oe != StreamEnd::Complete || re != StreamEnd::Complete;
++        Ok(record(exit_status(waited), o, r, truncated))
+     }
+ 
+     fn is_replay(&self) -> bool {
+         false
+     }
++
++    /// Yes, unless recording: a fixture must never hold a probe.
++    fn may_run_probes(&self) -> bool {
++        !self.recording
++    }
++
++    /// A curated probe, through the same spawn, the same wait and the same
++    /// readers as every other spec, and with none of its bytes kept: what each
++    /// stream held is dropped as soon as it is collected, and only how the
++    /// process and its streams ended comes back (`docs/passes/16-liveness-design.md`,
++    /// "How it runs").
++    ///
++    /// In order, before anything starts: a spec that is not a curated probe is
++    /// refused (this is not a second route to the allowlist); a recording runner
++    /// refuses, because a fixture must never hold a probe; a replay-marked spec
++    /// is refused; [`crate::process::may_spawn`] asks the probe's shape question;
++    /// and the canonical target's identity is re-read and must equal the one
++    /// `admit` recorded, so a target replaced in between is never started. The
++    /// remaining race is declared in the design note: macOS has no `fexecve`.
++    fn run_probe(&self, spec: &CommandSpec) -> ProbeRun {
++        let start = Instant::now();
++        let Admission::CuratedProbe {
++            scratch,
++            arg0,
++            target,
++        } = &spec.admission
++        else {
++            return ProbeRun::refused();
++        };
++        if self.recording {
++            return ProbeRun::not_observed();
++        }
++        if spec.replay_only || !crate::process::may_spawn(spec) {
++            return ProbeRun::refused();
++        }
++        if TargetIdentity::read(&spec.program) != Some(*target) {
++            return ProbeRun::target_changed();
++        }
++        let launch = Launch {
++            directory: scratch,
++            arg0: Some(arg0),
++        };
++        let Ok(mut child) = Self::spawn(spec, &launch) else {
++            return ProbeRun::not_started();
++        };
++        let (out_rx, err_rx) = start_readers(&mut child, spec.max_output_bytes);
++        let waited = wait_for(&mut child, start, spec.timeout, &self.cancel);
++        // Collected so the ending is known, and then dropped: never parsed,
++        // stored, recorded or shown.
++        let (_, out_end) = collect(&out_rx);
++        let (_, err_end) = collect(&err_rx);
++        ProbeRun::ended(exit_status(waited), out_end.max(err_end))
++    }
+ }
+ 
+ #[cfg(unix)]
+@@ -389,47 +544,51 @@ fn signal_of(_status: std::process::ExitStatus) -> Option<i32> {
+     None
+ }
+ 
++/// Every test in this module that reaches `Command::spawn` (and every
++/// curated-probe test in `probe.rs`) holds this for its whole
++/// body, so no two of them spawn at the same time (SE-057).
++///
++/// The test harness runs tests on parallel threads of one process, and on
++/// macOS - which has no `pipe2` - a child's pipes are not created
++/// close-on-exec atomically. A thread that spawns inside that window hands
++/// its child a copy of the *other* test's write end. When that child is the
++/// `sleep 30` that
++/// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` leaves behind,
++/// or the `yes` that `output_is_bounded` runs for five seconds, the other
++/// test's stream cannot reach end-of-file until it dies, its reader misses
++/// [`READER_DRAIN_TIMEOUT`], and `/bin/echo` comes back with an empty stdout
++/// marked truncated. Observed under load: `sleep 30` and `yes` children
++/// holding pipe descriptors they were never given. The runner did exactly what it should with a
++/// held pipe - the hazard is that this test binary spawns concurrently,
++/// which the product does not: nothing in it calls `run` from two threads
++/// at once (its one runner is an `Rc`, shared on one thread). `run` is not
++/// safe to call concurrently on macOS; a caller that needs that must add a
++/// process-wide spawn lock inside it first (SE-057).
++///
++/// This removes the cause rather than retrying around the symptom, so every
++/// assertion below keeps its full strength: a truncated read is still a
++/// failure, never a reason to try again.
++#[cfg(test)]
++static SPAWN_ALONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
++
++#[cfg(test)]
++pub(in crate::process) fn spawn_alone() -> std::sync::MutexGuard<'static, ()> {
++    // A test that panicked while holding the lock has already failed on its
++    // own; it is no reason to fail every test after it as well.
++    SPAWN_ALONE
++        .lock()
++        .unwrap_or_else(std::sync::PoisonError::into_inner)
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+     use std::collections::BTreeMap;
+-    use std::sync::{Mutex, MutexGuard, PoisonError};
+ 
+     fn env() -> BTreeMap<String, String> {
+         crate::process::sanitised_environment(&crate::process::EnvironmentSpec::default())
+     }
+ 
+-    /// Every test here that reaches `Command::spawn` holds this for its whole
+-    /// body, so no two of them spawn at the same time (SE-057).
+-    ///
+-    /// The test harness runs tests on parallel threads of one process, and on
+-    /// macOS - which has no `pipe2` - a child's pipes are not created
+-    /// close-on-exec atomically. A thread that spawns inside that window hands
+-    /// its child a copy of the *other* test's write end. When that child is the
+-    /// `sleep 30` that
+-    /// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` leaves behind,
+-    /// or the `yes` that `output_is_bounded` runs for five seconds, the other
+-    /// test's stream cannot reach end-of-file until it dies, its reader misses
+-    /// [`READER_DRAIN_TIMEOUT`], and `/bin/echo` comes back with an empty stdout
+-    /// marked truncated. Observed under load: `sleep 30` and `yes` children
+-    /// holding pipe descriptors they were never given. The runner did exactly what it should with a
+-    /// held pipe - the hazard is that this test binary spawns concurrently,
+-    /// which the product does not: nothing in it calls `run` from two threads
+-    /// at once (its one runner is an `Rc`, shared on one thread). `run` is not
+-    /// safe to call concurrently on macOS; a caller that needs that must add a
+-    /// process-wide spawn lock inside it first (SE-057).
+-    ///
+-    /// This removes the cause rather than retrying around the symptom, so every
+-    /// assertion below keeps its full strength: a truncated read is still a
+-    /// failure, never a reason to try again.
+-    static SPAWN_ALONE: Mutex<()> = Mutex::new(());
+-
+-    fn spawn_alone() -> MutexGuard<'static, ()> {
+-        // A test that panicked while holding the lock has already failed on its
+-        // own; it is no reason to fail every test after it as well.
+-        SPAWN_ALONE.lock().unwrap_or_else(PoisonError::into_inner)
+-    }
+-
+     #[test]
+     fn runs_argv_without_a_shell_and_records() {
+         let _alone = spawn_alone();
