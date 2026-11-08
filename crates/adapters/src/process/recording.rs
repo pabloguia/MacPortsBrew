@@ -7,7 +7,7 @@
 //! invocation whose program name and argv match; a spec with no recorded
 //! answer is an error, never a guess.
 
-use super::{CommandSpec, Invocation, ProcessRunner};
+use super::{Admission, CommandSpec, Invocation, ProcessRunner};
 use macportsbrew_domain::{DomainError, ErrorId};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -123,6 +123,18 @@ impl ReplayRunner {
 
 impl ProcessRunner for ReplayRunner {
     fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+        // A recording answers by leaf and argv, so one holding `htop --version`
+        // would otherwise answer a curated probe of that leaf. A probe is never
+        // answered from a recording, and nothing is looked up for it: under a
+        // replay every probe is `NOT_OBSERVED` (INV-15;
+        // `docs/passes/16-liveness-design.md`, "No record, either way").
+        // `run_probe` keeps the trait's default, which starts nothing.
+        if !matches!(spec.admission, Admission::Allowlist) {
+            return Err(DomainError::new(
+                ErrorId::Internal,
+                "a curated probe is never answered from a recording",
+            ));
+        }
         let key = format!("{} {}", spec.program_name(), spec.argv.join(" "));
         match self.recording.find(spec) {
             Some(inv) => {

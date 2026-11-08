@@ -22,7 +22,9 @@
 # python3 this script already needs - macOS ships no `timeout` command. A
 # name the script passes to a provider comes only from stdout `record` has
 # already captured, and is checked against the adapter's own name class first
-# (work order 16 part F, staged patch F/05).
+# (work order 16 part F, staged patch F/05). So does a path: the destination
+# checks' owner reads (part H, staged patch H/02) ask only about paths a
+# recorded `-q contents` stdout listed.
 
 set -euo pipefail
 # No word this script expands is meant as a pattern, and a name a provider
@@ -258,6 +260,24 @@ is_brew_name() {
   local lower; lower="$(printf '%s' "$1" | LC_ALL=C tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')"
   case "$lower" in *.rb|*.json|*.tar.gz) return 1 ;; esac
 }
+# Whether a listed path is an executable as `macports::contents_outcome` finds
+# one: a direct child of `<prefix>/bin` or `<prefix>/sbin`, compared as a whole
+# parent, never as a string prefix (`listing::direct_children`), and within
+# `is_safe_path`'s bound (`MAX_PATH_LEN`). The listing's own shape - no empty,
+# `.` or `..` component, no trailing `/` - is the adapter's to judge; a path
+# here is only ever asked about, never acted on.
+is_listed_executable() {
+  case "${1%/*}" in "$port_prefix/bin"|"$port_prefix/sbin") ;; *) return 1 ;; esac
+  [ "${#1}" -le 4096 ]
+}
+# `ExecutableName::parse`, narrowed to printable ASCII so no locale decides what
+# a control or format character is: 1-255 bytes, no `/` or `\`, not `.` or
+# `..`, no leading `-`. A name outside it is skipped with a message.
+is_executable_leaf() {
+  case "$1" in ''|.|..|-*|*/*|*\\*) return 1 ;; esac
+  [ -z "$(printf '%s' "$1" | LC_ALL=C tr -d ' -~')" ] || return 1
+  [ "${#1}" -le 255 ]
+}
 
 sys_env="$(mk_env "")"
 record "$sys_env" /usr/bin/sw_vers -productVersion
@@ -322,6 +342,8 @@ port_bin=""
 [ -x /opt/local/bin/port ] && port_bin=/opt/local/bin/port
 port_env="$(mk_env "/opt/local/bin:/opt/local/sbin")"
 port_prog="${port_bin:-/opt/local/bin/port}"
+# The prefix the executable lives in, which the adapter reads a listing against.
+port_prefix="${port_prog%/bin/port}"
 record "$port_env" "$port_prog" version
 port_version_out="$last_stdout"
 record "$port_env" "$port_prog" -q installed
@@ -386,9 +408,80 @@ if [ "$port_active_ok" = 1 ]; then
     fi
   done < <(printf '%s\n' "$port_active_out" | LC_ALL=C sort -u)
 fi
+# The executables each listing names are kept for the owner reads below: a
+# listing in a shape the adapter's `listing::parse` refuses (a line that is not
+# two spaces and an absolute path, or no line at all) gives the adapter no
+# executable to ask about, so none is taken from it.
+owned_paths=""
 if [ "${#active_ports[@]}" -gt 0 ]; then
   for port in "${active_ports[@]}"; do
     record "$port_env" "$port_prog" -q contents "$port"
+    if ! last_succeeded; then
+      echo "capture-fixture: warning: -q contents $port did not exit 0; no -q provides is recorded for its executables" >&2
+      continue
+    fi
+    listed=""; shape_ok=1
+    while IFS= read -r line; do
+      case "$line" in "  /"*) ;; *) shape_ok=0; break ;; esac
+      path="${line#  }"
+      is_listed_executable "$path" || continue
+      if is_executable_leaf "${path##*/}"; then
+        listed="$listed$path"$'\n'
+      else
+        echo "capture-fixture: skipping an executable path whose name is outside the adapter's class: $path" >&2
+      fi
+    done <<<"$last_stdout"
+    if [ "$shape_ok" = 1 ]; then
+      owned_paths="$owned_paths$listed"
+    else
+      echo "capture-fixture: warning: -q contents $port is not a listing the adapter reads; no -q provides is recorded for it" >&2
+    fi
+  done
+fi
+
+# The owner reads (part H, the destination checks): `-q provides <path>`, one
+# path per invocation, exactly `macports::ARGV_PROVIDES` and one path. The paths
+# are the executables the `-q contents` stdout recorded above lists - the
+# entries the adapter's ownership check asks about, `<prefix>/bin/<leaf>` or
+# `<prefix>/sbin/<leaf>` - deduplicated, in byte order. A path is passed as an
+# argument and is never redacted, so one holding the home path or the user name
+# stops the capture.
+owned=()
+if [ -n "$owned_paths" ]; then
+  while IFS= read -r owned_path; do
+    [ -n "$owned_path" ] || continue
+    case "$owned_path" in *"$HOME_DIR"*)
+      echo "capture-fixture: the path $owned_path contains the home path, and an argument is not redacted; refusing" >&2
+      exit 4 ;;
+    esac
+    refuse_user_name "the path $owned_path" "$owned_path"
+    owned+=("$owned_path")
+  done < <(printf '%s' "$owned_paths" | LC_ALL=C sort -u)
+fi
+if [ "${#owned[@]}" -gt 0 ]; then
+  for owned_path in "${owned[@]}"; do
+    record "$port_env" "$port_prog" -q provides "$owned_path"
+  done
+fi
+
+# The owner's version (part H): `-q installed <name>`, one installed port per
+# invocation, exactly `macports::ARGV_INSTALLED` and one name - the read the
+# adapter's `installed_rows` makes, and only for a name of the spawn site's
+# class, as `is_allowed_argv` binds it. The names are those of the `-q
+# installed` stdout recorded above, already checked against `is_safe_name`.
+installed_names=()
+if [ "${#port_names[@]}" -gt 0 ]; then
+  for name_read in "${port_names[@]}"; do
+    if is_port_name "$name_read"; then
+      installed_names+=("$name_read")
+    else
+      echo "capture-fixture: skipping an installed port name the spawn site refuses: $name_read" >&2
+    fi
+  done
+fi
+if [ "${#installed_names[@]}" -gt 0 ]; then
+  for installed_port in "${installed_names[@]}"; do
+    record "$port_env" "$port_prog" -q installed "$installed_port"
   done
 fi
 

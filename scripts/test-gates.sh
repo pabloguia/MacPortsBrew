@@ -1987,18 +1987,22 @@ else
 fi
 
 echo
-echo "== capture-fixture.sh: the executable-list argvs are the adapters' (pass 16 part F, F/05 (g))"
+echo "== capture-fixture.sh: the executable-list and owner-read argvs are the adapters' (pass 16 part F, F/05 (g); part H, H/02)"
 # A replayed read finds its invocation by program and exact argv, so the two
 # `record` tails the capture script sends one name after must be the adapter
 # constants the spawn site admits, and the script's copy of the reserved words
 # must be the spawn site's. Each is read out of its file, never written here:
-# a second spelling in this file would pass while both drifted. The checker
-# takes its four files as arguments so drifted copies can be fed to it.
-cap_check() { # <capture-fixture.sh> <homebrew/mod.rs> <macports/mod.rs> <process/mod.rs>
+# a second spelling in this file would pass while both drifted. Part H adds
+# the destination checks' two reads, `-q provides <path>` and `-q installed
+# <name>`: each `record` tail must be the constant `macports/destination.rs`
+# builds that read from, one element appended, and the constant must be one
+# the spawn site admits with a tail. The checker takes its five files as
+# arguments so drifted copies can be fed to it.
+cap_check() { # <capture-fixture.sh> <homebrew/mod.rs> <macports/mod.rs> <process/mod.rs> <macports/destination.rs>
   python3 - "$@" <<'PY'
 import re, sys
 
-script, homebrew, macports, process = (open(p).read() for p in sys.argv[1:5])
+script, homebrew, macports, process, destination = (open(p).read() for p in sys.argv[1:6])
 
 def one(pattern, text, what, flags=re.M):
     found = re.findall(pattern, text, flags)
@@ -2025,6 +2029,34 @@ for what, tail_pattern, rust, const in checks:
     if const not in [a.strip() for a in allowed.split(",")]:
         sys.exit("%s is not in its spawn-site ALLOWED_ARGV_PREFIXES" % const)
 
+# Part H. (record variable, adapter function, constant, how the spawn site
+# admits the constant with one appended element.)
+owner_reads = [
+    ("-q provides", "owned_path", "owner_read", "ARGV_PROVIDES",
+     lambda: const_in_prefixes("ARGV_PROVIDES")),
+    ("-q installed", "installed_port", "installed_rows", "ARGV_INSTALLED",
+     lambda: len(re.findall(r'\|\| is_head_and_one_name\(argv, ARGV_INSTALLED, crate::process::is_port_name\)',
+                            one(r'^fn is_allowed_argv\(argv: &\[String\]\) -> bool \{\n(.*?)^\}',
+                                macports, "is_allowed_argv", re.M | re.S))) == 1),
+]
+def const_in_prefixes(const):
+    allowed = one(r'^pub const ALLOWED_ARGV_PREFIXES: &\[&\[&str\]\] = &\[([^\]]*)\];$',
+                  macports, "ALLOWED_ARGV_PREFIXES beside " + const)
+    return const in [a.strip() for a in allowed.split(",")]
+for what, var, func, const, admitted in owner_reads:
+    tail = one(r'^\s*record "\$port_env" "\$port_prog" ((?:[^"\s]+ )+)"\$%s"$' % var, script,
+               "capture-fixture.sh, the %s record line" % what).split()
+    body = one(r'^(?:pub\(crate\) )?const %s: &\[&str\] = &\[([^\]]*)\];$' % const, macports, const)
+    if tail != strings(body):
+        sys.exit("capture-fixture.sh sends %r, %s is %r" % (tail, const, strings(body)))
+    fn = one(r'^    fn %s\(.*?^    \}$' % func, destination, "destination.rs, fn " + func, re.M | re.S)
+    built = re.findall(r'let mut argv: Vec<String> = (\w+)\.iter\(\)', fn)
+    if built != [const] or fn.count("argv.push(") != 1:
+        sys.exit("destination.rs %s builds its argv from %r with %d pushes; wanted %s and one"
+                 % (func, built, fn.count("argv.push("), const))
+    if not admitted():
+        sys.exit("the spawn site does not admit %s with one appended element" % const)
+
 port_fn = one(r'^is_port_name\(\) \{\n(.*?)^\}', script, "capture-fixture.sh, is_port_name",
               re.M | re.S)
 words = one(r'^\s*([a-z]+(?:\|[a-z]+)+)\) return 1 ;;$', port_fn,
@@ -2036,9 +2068,10 @@ if sorted(words) != sorted(reserved):
 PY
 }
 CAP_FILES=(scripts/capture-fixture.sh crates/adapters/src/homebrew/mod.rs
-           crates/adapters/src/macports/mod.rs crates/adapters/src/process/mod.rs)
+           crates/adapters/src/macports/mod.rs crates/adapters/src/process/mod.rs
+           crates/adapters/src/macports/destination.rs)
 cf="$(mktemp -d "${TMPDIR:-/tmp}/mpb-gates.XXXXXX")"
-cap_case() { # <want: accept|reject> <label> [<file index 0-3> <regex> <replacement>]
+cap_case() { # <want: accept|reject> <label> [<file index 0-4> <regex> <replacement>]
   local want="$1" label="$2" got=reject out k
   local files=("${CAP_FILES[@]}")
   if [ "$#" -eq 5 ]; then
@@ -2051,7 +2084,7 @@ cap_case() { # <want: accept|reject> <label> [<file index 0-3> <regex> <replacem
     fi
     files[$3]="$cf/drifted"
   fi
-  for k in 0 1 2 3; do [ -f "${files[$k]}" ] || { note FAIL "$label" "${files[$k]} is missing"; miss; return; }; done
+  for k in 0 1 2 3 4; do [ -f "${files[$k]}" ] || { note FAIL "$label" "${files[$k]} is missing"; miss; return; }; done
   if out="$(cap_check "${files[@]}" 2>&1)"; then got=accept; fi
   if [ "$got" = "$want" ]; then pass; note ok "$label" "$out"; else
     note FAIL "$label" "wanted $want, got $got: $out"; miss
@@ -2068,6 +2101,16 @@ cap_case reject "ARGV_LIST_FORMULA leaves the allowlist"   1 '^(pub const ALLOWE
 cap_case reject "ARGV_CONTENTS drifts"                     2 '^(pub\(crate\) const ARGV_CONTENTS.*)"contents"' '\1"content"'
 cap_case reject "ARGV_CONTENTS leaves the allowlist"       2 ', ARGV_CONTENTS\];$' '];'
 cap_case reject "PORT_RESERVED_WORDS gains a word"         3 '^    "all",$' '    "all",\n    "any",'
+cap_case reject "the script sends provides without -q"     0 '-q provides "\$owned_path"$' 'provides "$owned_path"'
+cap_case reject "a second -q provides record line"         0 '^(.*-q provides "\$owned_path")$' '\1\n\1'
+cap_case reject "the script sends installed without -q"    0 '-q installed "\$installed_port"$' 'installed "$installed_port"'
+cap_case reject "the script drops the -q installed <name> read" 0 '^.*-q installed "\$installed_port"\n' ''
+cap_case reject "ARGV_PROVIDES drifts"                     2 '^(pub\(crate\) const ARGV_PROVIDES.*)"provides"' '\1"provide"'
+cap_case reject "ARGV_PROVIDES leaves the allowlist"       2 '^(pub const ALLOWED_ARGV_PREFIXES.*), ARGV_PROVIDES' '\1'
+cap_case reject "ARGV_INSTALLED drifts"                    2 '^(const ARGV_INSTALLED.*)"installed"' '\1"list"'
+cap_case reject "is_allowed_argv drops -q installed <name>" 2 '^        \|\| is_head_and_one_name\(argv, ARGV_INSTALLED, crate::process::is_port_name\)$' '        || false'
+cap_case reject "owner_read builds from another constant"  4 '= ARGV_PROVIDES\.iter\(\)' '= ARGV_CONTENTS.iter()'
+cap_case reject "installed_rows appends a second element"  4 '^(        argv\.push\(name\.to_owned\(\)\);)$' '\1\n        argv.push(name.to_owned());'
 rm -rf "$cf"
 
 echo

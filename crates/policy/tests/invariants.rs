@@ -696,8 +696,29 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
         files.len()
     );
 
+    // A file that is test code whole: its first line is the SPDX comment and
+    // its second exactly `#![cfg(test)]`. That inner attribute cannot sit in a
+    // string or a comment, and it makes the file test-only however any module
+    // declares it, so the compiler draws this boundary, not a reading of text
+    // (SE-113). It is the same rule the stop gate and `check-no-shell.sh` use.
+    let test_only_file = |text: &str| {
+        let mut lines = text.lines();
+        lines.next() == Some("// SPDX-License-Identifier: Apache-2.0")
+            && lines.next() == Some("#![cfg(test)]")
+    };
+
+    let mut skipped: Vec<String> = Vec::new();
     for path in files {
         let text = std::fs::read_to_string(&path).expect("readable source file");
+        if test_only_file(&text) {
+            skipped.push(
+                path.strip_prefix(&workspace)
+                    .expect("under crates/")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            continue;
+        }
         // Where test code begins, and only where it *begins as a module*. The
         // first version latched on any `#[cfg(test)]`, which in
         // `adapters/src/process/mod.rs` is a `const` three hundred lines above
@@ -735,6 +756,14 @@ fn invariant_20_no_provider_deadline_is_written_into_source() {
             }
         }
     }
+    // The skip is pinned, so it cannot grow unnoticed: a new test-only file
+    // is added here deliberately, with the review that admits it.
+    skipped.sort();
+    assert_eq!(
+        skipped,
+        ["adapters/src/process/probe/tests.rs"],
+        "the files INV-20 skips as test-only changed"
+    );
     offenders.sort();
     assert!(
         offenders.is_empty(),

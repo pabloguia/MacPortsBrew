@@ -115,6 +115,74 @@ for d in crates/*/src; do [ -d "$d" ] && scan_paths+=("$d"); done
 for b in crates/*/build.rs; do [ -f "$b" ] && scan_paths+=("$b"); done
 if [ ${#scan_paths[@]} -gt 0 ]; then
   mutating='"[^"]*\b(install|uninstall|reinstall|upgrade|link|unlink|selfupdate|activate|deactivate)\b[^"]*"'
+  # Two exemptions, pass 16 part H (SE-113), both in one file,
+  # crates/adapters/src/process/probe.rs. Each is re-derived from the source
+  # on every run and can only remove a hit: a fact that cannot be established
+  # leaves the exemption off, and a command that fails is a failure. Every
+  # value handed to awk is one number - macOS awk rejects a newline in a `-v`
+  # value and dies, which would drop every hit.
+  #
+  # (a) The probe's unit tests, both scans: every hit in
+  #     crates/adapters/src/process/probe/tests.rs while its first line is the
+  #     SPDX comment and its second is exactly `#![cfg(test)]`. An inner
+  #     attribute in that position cannot sit inside a string or a comment,
+  #     and it makes the whole file test-only however any module declares it -
+  #     the compiler holds the boundary, not this script's reading of text. An
+  #     inline `mod tests {` boundary was tried first and refused: a
+  #     multi-line string can carry its two lines (SE-113).
+  # (b) The one line `    "osascript",` in probe.rs, token scan only, while
+  #     it sits in the EXCLUDED_LEAVES list - the programs the probe refuses
+  #     to run - whose every line is one lowercase name, and probe.rs names
+  #     that list exactly twice: its declaration, and the refusal line
+  #     `    EXCLUDED_LEAVES.iter().any(|base| {`.
+  probe_rs='crates/adapters/src/process/probe.rs'
+  probe_tests='crates/adapters/src/process/probe/tests.rs'
+  probe_tests_exempt=no
+  leaves_from=0
+  leaves_to=0
+  if [ -f "$probe_tests" ]; then
+    head2="$(awk 'NR <= 2' "$probe_tests")"; head2_rc=$?
+    if [ "$head2_rc" -ne 0 ]; then
+      fail+=("The probe tests exemption could not read probe/tests.rs (awk exit $head2_rc). That is not the same as passing.")
+    elif [ "$head2" = "$(printf '%s\n%s' '// SPDX-License-Identifier: Apache-2.0' '#![cfg(test)]')" ]; then
+      probe_tests_exempt=yes
+    fi
+  fi
+  if [ -f "$probe_rs" ]; then
+    starts="$(grep -nxF 'const EXCLUDED_LEAVES: &[&str] = &[' "$probe_rs")"; starts_rc=$?
+    refs="$(grep -oE '\bEXCLUDED_LEAVES\b' "$probe_rs")"; refs_rc=$?
+    refusal="$(grep -cxF '    EXCLUDED_LEAVES.iter().any(|base| {' "$probe_rs")"; refusal_rc=$?
+    if [ "$starts_rc" -gt 1 ] || [ "$refs_rc" -gt 1 ] || [ "$refusal_rc" -gt 1 ]; then
+      fail+=("The refusal-list exemption could not read probe.rs (grep exit $starts_rc/$refs_rc/$refusal_rc). That is not the same as passing.")
+    elif [ "$starts_rc" -eq 0 ] && [ "$(printf '%s\n' "$starts" | wc -l | tr -d ' ')" = 1 ] \
+         && [ "$(printf '%s\n' "$refs" | wc -l | tr -d ' ')" = 2 ] && [ "$refusal" = 1 ]; then
+      from="${starts%%:*}"
+      to="$(awk -v s="$from" 'NR <= s { next } $0 == "];" { print NR; ok = 1; exit } $0 !~ /^    "[a-z][a-z0-9_.+-]*",$/ { exit } END { if (!ok) print 0 }' "$probe_rs")"; to_rc=$?
+      if [ "$to_rc" -ne 0 ] || ! printf '%s' "$to" | grep -qxE '[0-9]+'; then
+        fail+=("The refusal-list exemption could not read probe.rs (awk exit $to_rc). That is not the same as passing.")
+      elif [ "$to" -gt 0 ]; then
+        leaves_from="$from"
+        leaves_to="$to"
+      fi
+    fi
+  fi
+  # exempt_hits <scan> <hits>: prints the hits neither exemption covers. It
+  # can only remove: every hit it does not name is printed unchanged.
+  exempt_hits() {
+    local scan="$1" h p rest n c
+    while IFS= read -r h; do
+      [ -z "$h" ] && continue
+      p="${h%%:*}"; rest="${h#*:}"; n="${rest%%:*}"; c="${rest#*:}"
+      if [ "$p" = "$probe_tests" ] && [ "$probe_tests_exempt" = yes ]; then
+        continue
+      fi
+      if [ "$scan" = token ] && [ "$p" = "$probe_rs" ] && [ "$c" = '    "osascript",' ] \
+         && [ "$leaves_to" -gt 0 ] && [ "$n" -gt "$leaves_from" ] && [ "$n" -lt "$leaves_to" ]; then
+        continue
+      fi
+      printf '%s\n' "$h"
+    done <<< "$2"
+  }
   # Each scan in this block is captured whole, then filtered. Under pipefail,
   # `| head -1 | grep -q .` is false when grep exits 2 (an unreadable file) or
   # a stage takes SIGPIPE (more hits than a pipe holds), and a hit then passed.
@@ -124,9 +192,15 @@ if [ ${#scan_paths[@]} -gt 0 ]; then
     fail+=("The mutating-literal scan could not read every file under src/ or build.rs (grep exit $mutating_rc), so it did not run. That is not the same as passing.")
   fi
   mutating_hits="$(printf '%s\n' "$mutating_raw" \
-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }')"
+     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }')"; mutating_filter_rc=$?
+  if [ "$mutating_filter_rc" -ne 0 ]; then
+    fail+=("The mutating-literal comment filter failed (exit $mutating_filter_rc), so the scan's hits are unknown. That is not the same as passing.")
+  fi
+  if ! mutating_hits="$(exempt_hits mutating "$mutating_hits")"; then
+    fail+=("The mutating-literal exemption filter failed, so the hits it would have printed are unknown. That is not the same as passing.")
+  fi
   if [ -n "$mutating_hits" ]; then
-    fail+=("A provider-mutating subcommand literal appears in src/ or build.rs. The foundation pass ships no mutating code path - see docs/spec/10-first-pass-work-order.md. If this is a plan type, model it as data rather than a command string; if it is a test, it belongs under crates/<crate>/tests/, which is not shipped and not scanned. And if you are relaxing this guard because the executor pass has begun: 04-migration-and-safety.md:201 is a MUST requiring a single-instance lock and a check for a concurrently running brew or port before anything mutates. Nothing implements it. This guard going away is the moment that MUST gets lost - see the obligations list in docs/schemas/plan.v1.md.")
+    fail+=("A provider-mutating subcommand literal appears in src/ or build.rs. The foundation pass ships no mutating code path - see docs/spec/10-first-pass-work-order.md. If this is a plan type, model it as data rather than a command string; if it is a test, it belongs under crates/<crate>/tests/, which is not shipped and not scanned, or in the one exempt test file this gate names (crates/adapters/src/process/probe/tests.rs, test-only by its own `#![cfg(test)]`; SE-113). And if you are relaxing this guard because the executor pass has begun: 04-migration-and-safety.md:201 is a MUST requiring a single-instance lock and a check for a concurrently running brew or port before anything mutates. Nothing implements it. This guard going away is the moment that MUST gets lost - see the obligations list in docs/schemas/plan.v1.md.")
   fi
   # The elevation program is the one token admitted, and only by path: under
   # crates/adapters/src/process/, where the process executor names it as its
@@ -139,7 +213,13 @@ if [ ${#scan_paths[@]} -gt 0 ]; then
     fail+=("The elevation, service-control and symlink token scan could not read every file under src/ or build.rs (grep exit $token_rc), so it did not run. That is not the same as passing.")
   fi
   token_hits="$(printf '%s\n' "$token_raw" \
-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }')"
+     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }')"; token_filter_rc=$?
+  if [ "$token_filter_rc" -ne 0 ]; then
+    fail+=("The token-scan comment filter failed (exit $token_filter_rc), so the scan's hits are unknown. That is not the same as passing.")
+  fi
+  if ! token_hits="$(exempt_hits token "$token_hits")"; then
+    fail+=("The token-scan exemption filter failed, so the hits it would have printed are unknown. That is not the same as passing.")
+  fi
   if [ -n "$token_hits" ]; then
     fail+=("An elevation, service-control or symlink token appears in non-comment code under src/ or build.rs. INV-06 / INV-19: nothing in this pass elevates, controls services or creates symlinks.")
   fi
