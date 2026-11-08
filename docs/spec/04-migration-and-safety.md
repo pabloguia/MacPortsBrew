@@ -582,9 +582,9 @@ resolve a read against the directory it was started in (`port`'s `current`
 pseudo-port; SE-050). A command spec carries no directory, so nothing can name
 another one.
 *Staged, not applied (`docs/passes/16-staged/H/01`, SE-113):* once the owner
-applies it, still, no *allowlist* spec carries a directory, and the one exception
-is the curated probe's admission, which alone sets the probe's fresh `0700`
-scratch directory under the state root as its working directory.
+applies it, the curated probe's admission is the one exception: it alone sets a
+working directory, the probe's fresh `0700` scratch directory under the state
+root. No *allowlist* spec carries one.
 
 **MUST.** Every invocation records argv, sanitised environment, exit status,
 stdout, stderr and duration, and supports timeout and cancellation.

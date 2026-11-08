@@ -181,10 +181,10 @@ index 509db3a..3381293 100644
              ["brew", "port", "sw_vers", "uname", "sysctl", "xcode-select"]
 diff --git a/crates/adapters/src/process/probe.rs b/crates/adapters/src/process/probe.rs
 new file mode 100644
-index 0000000..aa5c912
+index 0000000..61b8949
 --- /dev/null
 +++ b/crates/adapters/src/process/probe.rs
-@@ -0,0 +1,2334 @@
+@@ -0,0 +1,2436 @@
 +// SPDX-License-Identifier: Apache-2.0
 +
 +//! The curated liveness probe: the one way an installed package's own program
@@ -226,7 +226,6 @@ index 0000000..aa5c912
 +use serde::Deserialize;
 +use std::collections::{BTreeMap, BTreeSet};
 +use std::fs::{DirBuilder, Metadata};
-+use std::io::Read;
 +use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 +use std::path::{Component, Path, PathBuf};
 +use std::time::Duration;
@@ -675,8 +674,8 @@ index 0000000..aa5c912
 +        if is_excluded_leaf(leaf.as_str()) || canonical_leaf.is_none_or(is_excluded_leaf) {
 +            return Err(UncheckedCause::ProbeProgramExcluded);
 +        }
-+        // 11. Not a script of any kind, read on a handle that is the file
-+        // `lstat` described.
++        // 11. Only a Mach-O executable for this build's architecture, read on a
++        // handle that is the file `lstat` described.
 +        target_head_admits(&canonical, &target)?;
 +        Ok(Self {
 +            program: canonical,
@@ -720,18 +719,22 @@ index 0000000..aa5c912
 +    })
 +}
 +
-+/// Condition 11, and the handle half of condition 9. Opens the target, checks
-+/// the handle is the file `lstat` described (`PROBE_TARGET_CHANGED` if not),
-+/// and reads its first two bytes. **Every `#!` target is refused**, whatever its
-+/// interpreter: the table holds observed compiled programs only, and a script
-+/// leaves what really runs to its interpreter, to `PATH` or to run time
-+/// (security review of H/01, round 2, L1). The cause is the reserved
-+/// `PROBE_TARGET_IS_ENV_SCRIPT`; no new cause is added for the wider refusal.
++/// Condition 11, and the handle half of condition 9: **an allowlist of what a
++/// read shows**. Opens the target, checks the handle is the file `lstat`
++/// described (`PROBE_TARGET_CHANGED` if not), and admits it only if its bytes,
++/// read through that handle and bounded by `crate::macho`'s own limits, are a
++/// Mach-O `MH_EXECUTE` with a slice for this build's architecture
++/// (`THIS_BUILD_CPUTYPE`): thin, or a fat file holding such a slice.
 +///
-+/// A target that cannot be opened, `fstat`-ed or read is also
-+/// `PROBE_TARGET_IS_ENV_SCRIPT`: condition 11 is the condition that could not be
-+/// established (condition 9 already passed on the `lstat`, so its cause would
-+/// say something false).
++/// Anything else is refused with the reserved `PROBE_TARGET_IS_ENV_SCRIPT`: a
++/// script of any kind, but also a text file with no `#!` (macOS's spawn falls
++/// back to `/bin/sh` on `ENOEXEC`, so such a file runs as a shell script; review
++/// round 3), an empty or one-byte file, a dylib, a bundle, an object, an archive,
++/// another architecture, a malformed or over-limit header, and a read error.
++/// Condition 9 already passed on the `lstat`, so its cause would say something
++/// false of a read failure; condition 11 is the one that could not be
++/// established. (The cause's name now under-describes the refusal: a naming item
++/// for H-3, no cause is added here.)
 +fn target_head_admits(canonical: &Path, target: &TargetIdentity) -> Result<(), UncheckedCause> {
 +    let refused = UncheckedCause::ProbeTargetIsEnvScript;
 +    let file = std::fs::File::open(canonical).map_err(|_| refused)?;
@@ -739,12 +742,64 @@ index 0000000..aa5c912
 +    if meta.dev() != target.dev || meta.ino() != target.ino {
 +        return Err(UncheckedCause::ProbeTargetChanged);
 +    }
-+    let mut head = Vec::new();
-+    file.take(2).read_to_end(&mut head).map_err(|_| refused)?;
-+    if head.starts_with(b"#!") {
-+        return Err(refused);
++    if is_executable_for_this_build(&file, meta.size()) {
++        Ok(())
++    } else {
++        Err(refused)
 +    }
-+    Ok(())
++}
++
++/// Whether `file`, of `len` bytes, is a Mach-O `MH_EXECUTE` with a slice for
++/// this build's `cputype`, by `crate::macho`'s three stages, every read
++/// positioned (`pread`) on the one handle and bounded: the head by
++/// `macho::HEAD_BYTES`, each slice header by `SLICE_HEADER_BYTES`, each window by
++/// what `plan_slice` answers (at most `MAX_SIZEOFCMDS` and a header), and at
++/// most `MAX_SLICES` slices. Any error, short read or unknown shape is a no.
++fn is_executable_for_this_build(file: &std::fs::File, len: u64) -> bool {
++    use crate::macho::{
++        classify, plan_slice, read_slice, Classified, ExaminedType, SlicePlan, HEAD_BYTES,
++        SLICE_HEADER_BYTES, THIS_BUILD_CPUTYPE,
++    };
++    let read = |offset: u64, want: u64| -> Option<Vec<u8>> {
++        let want = usize::try_from(want).ok()?;
++        let mut bytes = vec![0u8; want];
++        let mut done = 0;
++        while done < want {
++            let at = offset.checked_add(u64::try_from(done).ok()?)?;
++            match std::os::unix::fs::FileExt::read_at(file, &mut bytes[done..], at) {
++                Ok(0) => return None,
++                Ok(n) => done += n,
++                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
++                Err(_) => return None,
++            }
++        }
++        Some(bytes)
++    };
++    let head_len = len.min(u64::try_from(HEAD_BYTES).unwrap_or(u64::MAX));
++    let Some(head) = read(0, head_len) else {
++        return false;
++    };
++    let ranges = match classify(&head, len) {
++        Ok(Classified::Thin(range)) => vec![range],
++        Ok(Classified::Fat(ranges)) => ranges,
++        Ok(Classified::NotObject | Classified::Skipped(_) | Classified::Script(_)) | Err(_) => {
++            return false
++        }
++    };
++    let header_bytes = u64::try_from(SLICE_HEADER_BYTES).unwrap_or(u64::MAX);
++    ranges.iter().any(|range| {
++        let Some(slice_head) = read(range.offset, range.size.min(header_bytes)) else {
++            return false;
++        };
++        let Ok(SlicePlan::Window { len: window_len }) = plan_slice(&slice_head, range.size) else {
++            return false;
++        };
++        read(range.offset, window_len)
++            .and_then(|window| read_slice(&window).ok())
++            .is_some_and(|refs| {
++                refs.file_type == ExaminedType::Execute && refs.cputype == THIS_BUILD_CPUTYPE
++            })
++    })
 +}
 +
 +// ---------------------------------------------------------------------------
@@ -1677,6 +1732,12 @@ index 0000000..aa5c912
 +        std::fs::rename(&provider_program, &fx.canonical).expect("restore");
 +        fx.unplace(LEAF);
 +        fx.place(LEAF, &fx.canonical);
++        // A text target with no `#!`, which the kernel would hand to `/bin/sh`,
++        // naming a provider's program on the probe's `PATH`.
++        std::fs::write(&fx.canonical, "brew --version\nport version\n").expect("write");
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::ProbeTargetIsEnvScript);
++        std::fs::copy("/usr/bin/true", &fx.canonical).expect("restore");
 +        // And at the site, whatever admitted it: the program, the canonical
 +        // leaf it is, and `arg0`.
 +        let (spec, _scratch) = admitted_spec(&fx, &owner);
@@ -1723,7 +1784,7 @@ index 0000000..aa5c912
 +    }
 +
 +    #[test]
-+    fn condition_11_every_script_is_refused_whatever_its_interpreter() {
++    fn condition_11_only_a_macho_executable_for_this_build_is_admitted() {
 +        let runner_link = std::env::temp_dir().join(format!("mpb-runner-{}", std::process::id()));
 +        let _ = std::fs::remove_file(&runner_link);
 +        symlink("/bin/sh", &runner_link).expect("runner link");
@@ -1772,6 +1833,47 @@ index 0000000..aa5c912
 +            refused(&fx, &owner, answer, cause);
 +        }
 +        let _ = std::fs::remove_file(&runner_link);
++        // No `#!` at all, or not at its very start: macOS's spawn runs such a
++        // file with `/bin/sh` on `ENOEXEC`. And files too short to be anything.
++        let header = |cputype: u32, file_type: u32| -> Vec<u8> {
++            let mut bytes = Vec::new();
++            for word in [0xfeed_facf_u32, cputype, 3, file_type, 0, 0, 0, 0] {
++                bytes.extend_from_slice(&word.to_le_bytes());
++            }
++            bytes
++        };
++        let other_cputype = if crate::macho::THIS_BUILD_CPUTYPE == 0x0100_0007 {
++            0x0100_000c
++        } else {
++            0x0100_0007
++        };
++        let bodies: [(&str, Vec<u8>); 8] = [
++            ("c11-text", b"brew --version\n".to_vec()),
++            ("c11-bom", b"\xef\xbb\xbf#!/bin/sh\nexit 0\n".to_vec()),
++            ("c11-space", b" #!/bin/sh\nexit 0\n".to_vec()),
++            ("c11-newline", b"\n#!/bin/sh\nexit 0\n".to_vec()),
++            ("c11-empty", Vec::new()),
++            ("c11-one-byte", b"x".to_vec()),
++            ("c11-dylib", header(crate::macho::THIS_BUILD_CPUTYPE, 6)),
++            ("c11-other-arch", header(other_cputype, 2)),
++        ];
++        for (name, bytes) in bodies {
++            let fx = Fixture::new(name, ADMISSIBLE);
++            std::fs::write(&fx.canonical, &bytes).expect("write");
++            let owner = Owner::of(&fx);
++            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++            refused(&fx, &owner, answer, UncheckedCause::ProbeTargetIsEnvScript);
++        }
++        // The controls: the copy of `/usr/bin/true` (a fat file whose slices are
++        // `MH_EXECUTE` for `x86_64` and `arm64e`) is admitted, and so is the same
++        // hand-built header for this build's architecture, so the one above was
++        // refused for its architecture alone.
++        let fx = Fixture::new("c11-this-arch", ADMISSIBLE);
++        let owner = Owner::of(&fx);
++        assert!(AdmittedProbe::admit(&the_row(), &owner, PACKAGE, LEAF, &flag()).is_ok());
++        std::fs::write(&fx.canonical, header(crate::macho::THIS_BUILD_CPUTYPE, 2)).expect("write");
++        assert!(AdmittedProbe::admit(&the_row(), &owner, PACKAGE, LEAF, &flag()).is_ok());
++        assert_eq!(owner.started(), 0);
 +        // A head that cannot be read is condition 11's, not condition 9's.
 +        let fx = Fixture::new("c11-unreadable", ADMISSIBLE);
 +        std::fs::set_permissions(&fx.canonical, std::fs::Permissions::from_mode(0o311))

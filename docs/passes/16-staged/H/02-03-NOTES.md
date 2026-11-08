@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Staged for the owner: work order 16 part H, patches 02 and 03
 
 Both patches are generated against `origin/main` at `54b56eb`. They change
@@ -150,7 +152,7 @@ could not be run.
   `  autoconf @2.73_0 (active)`). Output in `live/h02-trial.json`, scratch only,
   not a fixture.
 * `git apply --check` of `02` in the worktree at `54b56eb`: ok; applied, the
-  three files are byte-identical to the edited copies; the full
+  two files are byte-identical to the edited copies; the full
   `scripts/test-gates.sh` run there is reported below; `git apply --reverse
   --check` after applying: see below.
 
@@ -162,8 +164,9 @@ could not be run.
   a larger input. On macOS the threshold is the 64 KiB pipe buffer: 4.5 KB,
   14 KB and 47 KB inputs give 0 false failures for both forms; 71 KB, 96 KB,
   145 KB and 998 KB give **300/300 false failures for the old form and 0/300
-  for the new**. (Linux CI, where bash's stdio writes in smaller chunks and the
-  reader can win the race, fails below that threshold; the CI log shows it.)
+  for the new**. (Below the threshold it is a race the reader can win: PR #69's
+  `macos-26` job failed this way on 2026-11-04 with about 26 KB of input,
+  run 41854074485.)
 * The old and new scripts against the tree (worktree at `54b56eb`): both pass
   ("release workflow rules hold", exit 0).
 * A copy of `.github/workflows` with `needs: gate` removed from `claude.yml`

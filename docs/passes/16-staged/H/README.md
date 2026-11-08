@@ -2,9 +2,9 @@
 
 # Staged for the owner: the probe's admission and two script fixes (work order 16, part H)
 
-**Status.** Built, tested and staged; none is applied. Each patch was generated against `main` at
+**Status (2026-11-08).** Built, tested and staged; none is applied. Each patch was generated against `main` at
 `54b56eb` and applies there alone, in any order, and all three together. `01` **compiles only once
-`RunLock::path()` is on `main`**: that six-line accessor is outside the frozen module and lands in
+`RunLock::path()` is on `main`**: that accessor is outside the frozen module and lands in
 the session's pull request for this directory (#70), so apply `01` after that pull request merges.
 
 | Patch | Files | What it does | Blocks |
@@ -29,11 +29,14 @@ directory under the state root, 30 seconds and 64 KiB, its output thrown away. T
 one `Command::new`. A replay or a recording refuses a probe.
 
 Built in a scratch worktree on `54b56eb` plus `RunLock::path()`: build, `clippy -D warnings`, the
-workspace tests (2044 passed), `scripts/validate.sh --quick`, and 58 mutants, all killed
+workspace tests (2044 passed), `scripts/validate.sh --quick`, and every mutant of rounds 2 and 3 (58, then 13 on round 3's lines), all killed. The
+workspace run used an equivalent `RunLock::path()`; with #70's exact hunk the adapters crate's 788
+tests were run
 (`01-NOTES.md`, "As built" lists every refusal and its cause).
 
-**No script is admitted:** a target whose head starts `#!` is refused, whatever the interpreter.
-The table holds observed compiled programs only.
+**Only a compiled program is admitted:** a Mach-O executable with a slice for this build's
+architecture. Anything else is refused, a script with or without `#!`, an empty file, a dylib or
+another architecture's program, because macOS runs a file it cannot execute with `/bin/sh`.
 
 **The leftover sweep removes only what a probe made:** directories under `<state root>/probes`
 named `probe-<digits>-<6 hex>`, owned by the user, mode `0700`. Anything else there stops the probe
@@ -48,8 +51,11 @@ and nothing is removed, so a state directory pointed somewhere unexpected costs 
    adapter. The two adapters implement the crate-internal `ProbeOwner` trait the admission asks for
    the owner rule, and an agreement test reads the table through `process::curated_probe_rows()`.
 3. `observed_by_this_build` turns true for `LIVENESS_PROBE` in that same change.
-4. `~/Library` is closed first: **this stays open.** `security-reviewer` has not accepted the search
-   by name in R-28's last section.
+4. The cause `PROBE_TARGET_IS_ENV_SCRIPT` now covers every target that is not a compiled program
+   for this build. Its text says so in both catalogues; whether the identifier is renamed before
+   the first release is H-3's call.
+5. `~/Library` is closed first: **this stays open.** `security-reviewer` has not accepted the search
+   by name in `docs/research/R-28-liveness-probes.md`, "Re-qualification of rows 1-13".
 
 **What the version pin costs.** After any upgrade of a package with a row, its probe answers
 `PROBE_VERSION_NOT_QUALIFIED`, so the check is unchecked and the source is kept, until the row is
@@ -67,9 +73,10 @@ large output still fails on `jq`'s argument limit, the existing owner item.
 ## `03`: the release-workflow pipe
 
 `scripts/check-release-workflow.sh` fed three early-exiting readers (`grep -q`, `grep -Eqx`,
-`head -1`) through a pipe under `pipefail`. Once the input passes the 64 KiB pipe buffer, the writer
-gets SIGPIPE and the check reports a false failure, as CI did on PR #69 (`printf: write error: Broken
-pipe`). They read from a here-string now. Reproduced: 300 of 300 false failures above about 71 KB with
+`head -1`) through a pipe under `pipefail`. When the reader exits before the writer has finished, the writer gets
+SIGPIPE and the check reports a false failure: every time locally once the input passes the 64 KiB
+pipe buffer, intermittently below it, as on PR #69's `macos-26` job on 2026-11-04 with about 26 KB
+(`printf: write error: Broken pipe`). They read from a here-string now. Reproduced: 300 of 300 false failures above about 71 KB with
 the old form, none with the new. Other guarded scripts with the same shape are listed in
 `02-03-NOTES.md`, not patched.
 
@@ -77,6 +84,10 @@ the old form, none with the new. Other guarded scripts with the same shape are l
 
 From a clean checkout of `main` that contains pull request #70 (it carries `RunLock::path()`, which
 `01` needs to compile), on a topic branch:
+
+```bash
+git fetch origin && git switch -c wo16/H-apply origin/main
+```
 
 ```bash
 git apply --check docs/passes/16-staged/H/01-curated-probe-admission.patch docs/passes/16-staged/H/02-capture-ownership-reads.patch docs/passes/16-staged/H/03-release-workflow-pipe.patch
@@ -126,5 +137,7 @@ off until `~/Library` is closed.
 |---|---|---|---|
 | `security-reviewer`, round 1 | `01` built on `54b56eb` (sha256 `7997598b…`) | Pass with changes: M1 the sweep removed anything under `<state root>/probes`; M2 H-3 could not reach the module; L1-L5 | All fixed (`01-NOTES.md`, "Review round 1") |
 | `spec-guardian`, round 1 | the same | Approve with changes: F1 reachability, F2-F7, R1-R4, spec 04 wording | All fixed |
-| `security-reviewer`, round 2 | `b2a2351` | Pass with changes, nothing blocking: L1 a `#!` interpreter outside the prefixes was admitted unless named; L2 the euid oracle reads `TMPDIR`; L3 known prefixes omit a detected custom prefix; I1-I4 | L1 fixed: no script is admitted. L2, L3, I1 open for H-3 and part L (SE-113); I2 commented; I3, I4 for H-3 |
+| `security-reviewer`, round 2 | `b2a2351` | Pass with changes, nothing blocking: L1 a `#!` interpreter outside the prefixes was admitted unless named; L2 the euid oracle reads `TMPDIR`; L3 known prefixes omit a detected custom prefix; I1-I4 | L1 fixed. L2, L3, I1 open for H-3 and part L (SE-113); I2 commented; I3, I4 for H-3 |
 | `spec-guardian`, round 2 | `b2a2351` | Approve with changes: F1 the owner's commit left the new `probe.rs` out; F2 the staging PR is not docs-only; F3, F4 undeclared deviations; F5 stale notes; F6 no `invariant_05_*` probe test; F7 status | All fixed: the commit stages first; SE-113 declares F2-F4; `invariant_05_a_probe_never_starts_a_provider_program` |
+| `security-reviewer`, round 3 (confirmation) | `0264e35` | Not closed: without `#!`, macOS runs a non-Mach-O file with `/bin/sh`, so text, an empty or 1-byte file, or `#!` after a BOM or whitespace was admitted and run | Fixed: condition 11 admits only a Mach-O `MH_EXECUTE` for this build's architecture |
+| `docs-auditor` | `0264e35` | 14 findings: the cause's display text became false; the SIGPIPE explanation; H.md "docs only"; undated claims; stale lists | Fixed; the cause's text is reworded in both catalogues, its identifier left for H-3 |
