@@ -2,10 +2,9 @@
 
 # Staged for the owner: the probe's admission and two script fixes (work order 16, part H)
 
-**Status (2026-11-08).** Built, tested and staged; none is applied. Each patch was generated against `main` at
-`54b56eb` and applies there alone, in any order, and all three together. `01` **compiles only once
-`RunLock::path()` is on `main`**: that accessor is outside the frozen module and lands in
-the session's pull request for this directory (#70), so apply `01` after that pull request merges.
+**Status (2026-11-08).** Applied. PR #70 (`5aa536d`) staged them; on the owner's instruction a session
+applied all three on `wo16/H-apply` and `scripts/validate.sh` passed. The patches stay here as the
+record of what was reviewed.
 
 | Patch | Files | What it does | Blocks |
 |---|---|---|---|

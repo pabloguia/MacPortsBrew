@@ -5,7 +5,8 @@
 //! flag; output bounded; optional recording of every invocation for
 //! fixture capture.
 
-use super::{CommandSpec, ExitStatus, Invocation, ProcessRunner, RecordedInvocation};
+use super::probe::{ProbeRun, TargetIdentity};
+use super::{Admission, CommandSpec, ExitStatus, Invocation, ProcessRunner, RecordedInvocation};
 use macportsbrew_domain::DomainError;
 use std::cell::RefCell;
 use std::io::Read;
@@ -111,18 +112,39 @@ impl SystemRunner {
 /// process-wide lock around the spawn in `run` first.
 const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(6);
 
-/// Reads a stream up to `cap` bytes, returning the text and whether anything
-/// was lost.
+/// How one output stream ended: the three-way ending the curated probe needs
+/// (`docs/passes/16-liveness-design.md`, "What the answer is"), plus a read
+/// error, which the probe answers apart from the cap.
+///
+/// The allowlist path reads any ending but [`StreamEnd::Complete`] as
+/// `truncated`, exactly as the one flag it replaced: nothing a provider read
+/// sees changes. Declared in severity order, so the worse of two streams is
+/// their `max`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(in crate::process) enum StreamEnd {
+    /// End of file, within the cap.
+    Complete,
+    /// More than the cap arrived; the excess was drained and discarded.
+    OverCap,
+    /// A read failed with something other than `Interrupted`.
+    ReadError,
+    /// The reader did not answer within [`READER_DRAIN_TIMEOUT`]: something
+    /// other than the child still holds the pipe.
+    GaveUp,
+}
+
+/// Reads a stream up to `cap` bytes, returning the text and how the stream
+/// ended.
 ///
 /// `Interrupted` is retried rather than treated as end of stream: a signal
 /// arriving mid-read is not the provider having finished, and stopping there
 /// would hand a parser a partial document while reporting it as complete. Any
-/// other error ends the read and marks the result truncated, for the same
+/// other error ends the read and marks the result as not complete, for the same
 /// reason: what was captured is not what the provider said.
-fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, bool) {
+fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, StreamEnd) {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 8192];
-    let mut truncated = false;
+    let mut end = StreamEnd::Complete;
     loop {
         match reader.read(&mut chunk) {
             Ok(0) => break,
@@ -130,14 +152,14 @@ fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, bool) {
             // the stream.
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => {
-                truncated = true;
+                end = StreamEnd::ReadError;
                 break;
             }
             Ok(n) => {
                 if buf.len() + n > cap {
                     let room = cap.saturating_sub(buf.len());
                     buf.extend_from_slice(&chunk[..room]);
-                    truncated = true;
+                    end = StreamEnd::OverCap;
                     // Keep draining so the child does not block on a full
                     // pipe, but discard the excess.
                     loop {
@@ -154,23 +176,201 @@ fn read_bounded<R: Read>(mut reader: R, cap: usize) -> (String, bool) {
             }
         }
     }
-    (String::from_utf8_lossy(&buf).into_owned(), truncated)
+    (String::from_utf8_lossy(&buf).into_owned(), end)
 }
 
 /// Collects one reader thread's result, giving up after
 /// [`READER_DRAIN_TIMEOUT`].
 ///
 /// A thread that has not answered by then is blocked on a pipe somebody other
-/// than the child is still holding. Its bytes are lost, which is what the
-/// `true` says.
-fn collect(rx: &Receiver<(String, bool)>) -> (String, bool) {
+/// than the child is still holding. Its bytes are lost, which is what
+/// [`StreamEnd::GaveUp`] says.
+fn collect(rx: &Reader) -> (String, StreamEnd) {
     rx.recv_timeout(READER_DRAIN_TIMEOUT)
-        .unwrap_or_else(|_| (String::new(), true))
+        .unwrap_or_else(|_| (String::new(), StreamEnd::GaveUp))
+}
+
+/// How the wait for a started child ended.
+#[derive(Clone, Copy)]
+enum Waited {
+    /// It exited, by a code or a signal.
+    Exited(std::process::ExitStatus),
+    /// `try_wait` failed; the child was killed.
+    WaitFailed,
+    /// The token was cancelled; the child was killed and reaped.
+    Cancelled,
+    /// The timeout passed; the child was killed and reaped.
+    TimedOut,
+}
+
+/// Waits for `child`, by polling, until it exits, the wait fails, `cancel` is
+/// cancelled or `timeout` passes since `start`. One loop for the allowlist and
+/// the curated probe, so neither can drift from the other.
+fn wait_for(
+    child: &mut std::process::Child,
+    start: Instant,
+    timeout: Duration,
+    cancel: &CancelToken,
+) -> Waited {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Waited::Exited(status),
+            Ok(None) => {}
+            Err(_) => {
+                // The child *was* started, so this is not `NotStarted`, which
+                // every adapter reads as "the program is not there" and turns
+                // into an absent provider. The executor killed it, and why it
+                // ended can no longer be learned: that is a signal of unknown
+                // number. The OS error text has no field to go in on this
+                // status, and stderr is the child's, not ours to append to.
+                let _ = child.kill();
+                return Waited::WaitFailed;
+            }
+        }
+        if cancel.is_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Waited::Cancelled;
+        }
+        if start.elapsed() > timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Waited::TimedOut;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The record's status for how the wait ended.
+fn exit_status(waited: Waited) -> ExitStatus {
+    match waited {
+        Waited::Exited(status) => match status.code() {
+            Some(code) => ExitStatus::Exited { code },
+            None => ExitStatus::Signalled {
+                signal: signal_of(status),
+            },
+        },
+        Waited::WaitFailed => ExitStatus::Signalled { signal: None },
+        Waited::Cancelled => ExitStatus::Cancelled,
+        Waited::TimedOut => ExitStatus::TimedOut,
+    }
+}
+
+/// What a spawn needs besides the spec's own fields.
+struct Launch<'a> {
+    /// The working directory: `/` for every allowlist spec, the scratch
+    /// directory for a curated probe.
+    directory: &'a std::path::Path,
+    /// `argv[0]`, when it is not the program path: the placed leaf of a probe.
+    arg0: Option<&'a str>,
+}
+
+impl SystemRunner {
+    /// **The one `Command` construction in this workspace.** Both the allowlist
+    /// and the curated probe come through here, so the environment, stdin, the
+    /// pipes and the process group are decided once
+    /// (`docs/passes/16-liveness-design.md`, "No new `Command::new` site").
+    fn spawn(spec: &CommandSpec, launch: &Launch<'_>) -> std::io::Result<std::process::Child> {
+        let mut command = Command::new(&spec.program);
+        if let Some(arg0) = launch.arg0 {
+            command.arg0(arg0);
+        }
+        command
+            .args(&spec.argv)
+            .env_clear()
+            .envs(&spec.environment)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // Never the caller's working directory. It is not inherited any more
+        // than the environment is: `port` resolves its `current` pseudo-port,
+        // and an `info` with no names, to the Portfile in the directory it was
+        // started in (`get_current_port`, `/opt/local/bin/port` lines 503-515,
+        // MacPorts 2.12.6, read 2026-09-25) - so an inherited directory would
+        // let wherever the user happened to run this tool decide what a read
+        // evaluates (security-reviewer, 2026-09-25; observed: a planted Portfile
+        // made `port -q info current` report its contents). `/` is root-owned,
+        // read-only here and holds no Portfile; the Homebrew prefix would not
+        // do, since on Intel it is user-writable. There is deliberately no
+        // per-spec override - `CommandSpec` has no directory field - so no
+        // caller can reintroduce a relative or inherited one. The one other
+        // directory is a curated probe's fresh scratch, which only
+        // `Admission::CuratedProbe` carries and only this module can set.
+        command.current_dir(launch.directory);
+        // Its own process group, so a terminal signal aimed at this process's
+        // foreground group (a Ctrl-C) does not also reach a provider read
+        // mid-flight; cancellation is what [`CancelToken`] is for, and it is
+        // the one the executor can record. Killing the whole group on timeout
+        // means signalling `-pid`, which needs `libc`; the alternative is
+        // spawning a kill utility, and that would be a second spawn path with
+        // no `CommandSpec` behind it — no sanitised environment, no timeout,
+        // no record. `04-migration-and-safety.md` ("Process execution") asks
+        // for one executor precisely so those are decided in one place, and
+        // `scripts/check-layering.sh` would not catch it here, because this
+        // module is the one place the grep exempts. So a grandchild that
+        // outlives its parent is handled by bounding the reads instead — see
+        // [`READER_DRAIN_TIMEOUT`]. The reasoning is ADR-0006, because a
+        // dependency decision does not belong in a comment (F-20); what is left
+        // here is what someone editing this line needs. Group kill needs a
+        // `libc`-free mechanism
+        // or an ADR admitting the dependency.
+        command.process_group(0);
+        command.spawn()
+    }
+}
+
+/// One reader thread's channel: what it read, and how the stream ended.
+type Reader = Receiver<(String, StreamEnd)>;
+
+/// Starts one reader thread per stream and returns their channels.
+///
+/// The results come back over channels rather than through
+/// `JoinHandle::join`, because a join is unbounded: a grandchild holding the
+/// write end of the pipe keeps the reader blocked long after the child is dead,
+/// and joining it would hang the whole program. `collect` waits
+/// [`READER_DRAIN_TIMEOUT`] and then gives up. The threads are left to finish
+/// on their own; they hold nothing but their own end of a pipe.
+fn start_readers(child: &mut std::process::Child, cap: usize) -> (Reader, Reader) {
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let (out_tx, out_rx) = mpsc::channel();
+    let (err_tx, err_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = out_tx.send(stdout.map_or((String::new(), StreamEnd::Complete), |s| {
+            read_bounded(s, cap)
+        }));
+    });
+    thread::spawn(move || {
+        let _ = err_tx.send(stderr.map_or((String::new(), StreamEnd::Complete), |s| {
+            read_bounded(s, cap)
+        }));
+    });
+    (out_rx, err_rx)
 }
 
 impl ProcessRunner for SystemRunner {
     fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
         let start = Instant::now();
+
+        // A curated probe never comes through here: its output and its scratch
+        // path must reach no record, and this function records. It is refused
+        // before the recording closure exists, and the refusal itself is not
+        // recorded (`docs/passes/16-liveness-design.md`, "No record, either
+        // way"). `run_probe` is its only route.
+        if !matches!(spec.admission, Admission::Allowlist) {
+            return Ok(Invocation {
+                program: spec.program_name(),
+                argv: Vec::new(),
+                environment: std::collections::BTreeMap::new(),
+                status: ExitStatus::NotStarted {
+                    error: "a curated probe is run only through `run_probe`".to_owned(),
+                },
+                stdout: String::new(),
+                stderr: String::new(),
+                truncated: false,
+                duration_ms: 0,
+            });
+        }
 
         let record = |status: ExitStatus, stdout: String, stderr: String, truncated: bool| {
             let inv = Invocation {
@@ -230,7 +430,7 @@ impl ProcessRunner for SystemRunner {
 
         // And for a provider, which of its subcommands: a permitted program
         // asked to do a permitted program's mutation is the same program (F-53).
-        if !crate::process::may_spawn(&spec.program, &spec.argv) {
+        if !crate::process::may_spawn(spec) {
             return Ok(record(
                 ExitStatus::NotStarted {
                     error: format!(
@@ -249,47 +449,11 @@ impl ProcessRunner for SystemRunner {
             ));
         }
 
-        let mut command = Command::new(&spec.program);
-        command
-            .args(&spec.argv)
-            .env_clear()
-            .envs(&spec.environment)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        // Never the caller's working directory. It is not inherited any more
-        // than the environment is: `port` resolves its `current` pseudo-port,
-        // and an `info` with no names, to the Portfile in the directory it was
-        // started in (`get_current_port`, `/opt/local/bin/port` lines 503-515,
-        // MacPorts 2.12.6, read 2026-09-25) - so an inherited directory would
-        // let wherever the user happened to run this tool decide what a read
-        // evaluates (security-reviewer, 2026-09-25; observed: a planted Portfile
-        // made `port -q info current` report its contents). `/` is root-owned,
-        // read-only here and holds no Portfile; the Homebrew prefix would not
-        // do, since on Intel it is user-writable. There is deliberately no
-        // per-spec override - `CommandSpec` has no directory field - so no
-        // caller can reintroduce a relative or inherited one.
-        command.current_dir("/");
-        // Its own process group, so a terminal signal aimed at this process's
-        // foreground group (a Ctrl-C) does not also reach a provider read
-        // mid-flight; cancellation is what [`CancelToken`] is for, and it is
-        // the one the executor can record. Killing the whole group on timeout
-        // means signalling `-pid`, which needs `libc`; the alternative is
-        // spawning a kill utility, and that would be a second spawn path with
-        // no `CommandSpec` behind it — no sanitised environment, no timeout,
-        // no record. `04-migration-and-safety.md` ("Process execution") asks
-        // for one executor precisely so those are decided in one place, and
-        // `scripts/check-layering.sh` would not catch it here, because this
-        // module is the one place the grep exempts. So a grandchild that
-        // outlives its parent is handled by bounding the reads instead — see
-        // [`READER_DRAIN_TIMEOUT`]. The reasoning is ADR-0006, because a
-        // dependency decision does not belong in a comment (F-20); what is left
-        // here is what someone editing this line needs. Group kill needs a
-        // `libc`-free mechanism
-        // or an ADR admitting the dependency.
-        command.process_group(0);
-
-        let mut child = match command.spawn() {
+        let launch = Launch {
+            directory: std::path::Path::new("/"),
+            arg0: None,
+        };
+        let mut child = match Self::spawn(spec, &launch) {
             Ok(child) => child,
             Err(e) => {
                 return Ok(record(
@@ -303,78 +467,69 @@ impl ProcessRunner for SystemRunner {
             }
         };
 
-        let cap = spec.max_output_bytes;
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        // The results come back over channels rather than through
-        // `JoinHandle::join`, because a join is unbounded: a grandchild
-        // holding the write end of the pipe keeps the reader blocked long
-        // after the child is dead, and joining it would hang the whole
-        // program. `collect` waits [`READER_DRAIN_TIMEOUT`] and then gives up
-        // with a truncated record. The threads are left to finish on their
-        // own; they hold nothing but their own end of a pipe.
-        let (out_tx, out_rx) = mpsc::channel();
-        let (err_tx, err_rx) = mpsc::channel();
-        thread::spawn(move || {
-            let _ = out_tx.send(stdout.map_or((String::new(), false), |s| read_bounded(s, cap)));
-        });
-        thread::spawn(move || {
-            let _ = err_tx.send(stderr.map_or((String::new(), false), |s| read_bounded(s, cap)));
-        });
-
-        let status = loop {
-            match child.try_wait() {
-                Ok(Some(s)) => break s,
-                Ok(None) => {}
-                Err(_) => {
-                    // The child *was* started, so this is not `NotStarted`,
-                    // which every adapter reads as "the program is not there"
-                    // and turns into an absent provider. The executor killed
-                    // it, and why it ended can no longer be learned: that is
-                    // a signal of unknown number. The OS error text has no
-                    // field to go in on this status, and stderr is the
-                    // child's, not ours to append to.
-                    let _ = child.kill();
-                    let (o, ot) = collect(&out_rx);
-                    let (r, rt) = collect(&err_rx);
-                    return Ok(record(
-                        ExitStatus::Signalled { signal: None },
-                        o,
-                        r,
-                        ot || rt,
-                    ));
-                }
-            }
-            if self.cancel.is_cancelled() {
-                let _ = child.kill();
-                let _ = child.wait();
-                let (o, ot) = collect(&out_rx);
-                let (r, rt) = collect(&err_rx);
-                return Ok(record(ExitStatus::Cancelled, o, r, ot || rt));
-            }
-            if start.elapsed() > spec.timeout {
-                let _ = child.kill();
-                let _ = child.wait();
-                let (o, ot) = collect(&out_rx);
-                let (r, rt) = collect(&err_rx);
-                return Ok(record(ExitStatus::TimedOut, o, r, ot || rt));
-            }
-            thread::sleep(Duration::from_millis(10));
-        };
-
-        let (o, ot) = collect(&out_rx);
-        let (r, rt) = collect(&err_rx);
-        let exit = match status.code() {
-            Some(code) => ExitStatus::Exited { code },
-            None => ExitStatus::Signalled {
-                signal: signal_of(status),
-            },
-        };
-        Ok(record(exit, o, r, ot || rt))
+        let (out_rx, err_rx) = start_readers(&mut child, spec.max_output_bytes);
+        let waited = wait_for(&mut child, start, spec.timeout, &self.cancel);
+        let (o, oe) = collect(&out_rx);
+        let (r, re) = collect(&err_rx);
+        let truncated = oe != StreamEnd::Complete || re != StreamEnd::Complete;
+        Ok(record(exit_status(waited), o, r, truncated))
     }
 
     fn is_replay(&self) -> bool {
         false
+    }
+
+    /// Yes, unless recording: a fixture must never hold a probe.
+    fn may_run_probes(&self) -> bool {
+        !self.recording
+    }
+
+    /// A curated probe, through the same spawn, the same wait and the same
+    /// readers as every other spec, and with none of its bytes kept: what each
+    /// stream held is dropped as soon as it is collected, and only how the
+    /// process and its streams ended comes back (`docs/passes/16-liveness-design.md`,
+    /// "How it runs").
+    ///
+    /// In order, before anything starts: a spec that is not a curated probe is
+    /// refused (this is not a second route to the allowlist); a recording runner
+    /// refuses, because a fixture must never hold a probe; a replay-marked spec
+    /// is refused; [`crate::process::may_spawn`] asks the probe's shape question;
+    /// and the canonical target's identity is re-read and must equal the one
+    /// `admit` recorded, so a target replaced in between is never started. The
+    /// remaining race is declared in the design note: macOS has no `fexecve`.
+    fn run_probe(&self, spec: &CommandSpec) -> ProbeRun {
+        let start = Instant::now();
+        let Admission::CuratedProbe {
+            scratch,
+            arg0,
+            target,
+        } = &spec.admission
+        else {
+            return ProbeRun::refused();
+        };
+        if self.recording {
+            return ProbeRun::not_observed();
+        }
+        if spec.replay_only || !crate::process::may_spawn(spec) {
+            return ProbeRun::refused();
+        }
+        if TargetIdentity::read(&spec.program) != Some(*target) {
+            return ProbeRun::target_changed();
+        }
+        let launch = Launch {
+            directory: scratch,
+            arg0: Some(arg0),
+        };
+        let Ok(mut child) = Self::spawn(spec, &launch) else {
+            return ProbeRun::not_started();
+        };
+        let (out_rx, err_rx) = start_readers(&mut child, spec.max_output_bytes);
+        let waited = wait_for(&mut child, start, spec.timeout, &self.cancel);
+        // Collected so the ending is known, and then dropped: never parsed,
+        // stored, recorded or shown.
+        let (_, out_end) = collect(&out_rx);
+        let (_, err_end) = collect(&err_rx);
+        ProbeRun::ended(exit_status(waited), out_end.max(err_end))
     }
 }
 
@@ -389,45 +544,49 @@ fn signal_of(_status: std::process::ExitStatus) -> Option<i32> {
     None
 }
 
+/// Every test in this module that reaches `Command::spawn` (and every
+/// curated-probe test in `probe.rs`) holds this for its whole
+/// body, so no two of them spawn at the same time (SE-057).
+///
+/// The test harness runs tests on parallel threads of one process, and on
+/// macOS - which has no `pipe2` - a child's pipes are not created
+/// close-on-exec atomically. A thread that spawns inside that window hands
+/// its child a copy of the *other* test's write end. When that child is the
+/// `sleep 30` that
+/// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` leaves behind,
+/// or the `yes` that `output_is_bounded` runs for five seconds, the other
+/// test's stream cannot reach end-of-file until it dies, its reader misses
+/// [`READER_DRAIN_TIMEOUT`], and `/bin/echo` comes back with an empty stdout
+/// marked truncated. Observed under load: `sleep 30` and `yes` children
+/// holding pipe descriptors they were never given. The runner did exactly what it should with a
+/// held pipe - the hazard is that this test binary spawns concurrently,
+/// which the product does not: nothing in it calls `run` from two threads
+/// at once (its one runner is an `Rc`, shared on one thread). `run` is not
+/// safe to call concurrently on macOS; a caller that needs that must add a
+/// process-wide spawn lock inside it first (SE-057).
+///
+/// This removes the cause rather than retrying around the symptom, so every
+/// assertion below keeps its full strength: a truncated read is still a
+/// failure, never a reason to try again.
+#[cfg(test)]
+static SPAWN_ALONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(in crate::process) fn spawn_alone() -> std::sync::MutexGuard<'static, ()> {
+    // A test that panicked while holding the lock has already failed on its
+    // own; it is no reason to fail every test after it as well.
+    SPAWN_ALONE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
-    use std::sync::{Mutex, MutexGuard, PoisonError};
 
     fn env() -> BTreeMap<String, String> {
         crate::process::sanitised_environment(&crate::process::EnvironmentSpec::default())
-    }
-
-    /// Every test here that reaches `Command::spawn` holds this for its whole
-    /// body, so no two of them spawn at the same time (SE-057).
-    ///
-    /// The test harness runs tests on parallel threads of one process, and on
-    /// macOS - which has no `pipe2` - a child's pipes are not created
-    /// close-on-exec atomically. A thread that spawns inside that window hands
-    /// its child a copy of the *other* test's write end. When that child is the
-    /// `sleep 30` that
-    /// `a_grandchild_holding_the_pipe_does_not_hang_the_runner` leaves behind,
-    /// or the `yes` that `output_is_bounded` runs for five seconds, the other
-    /// test's stream cannot reach end-of-file until it dies, its reader misses
-    /// [`READER_DRAIN_TIMEOUT`], and `/bin/echo` comes back with an empty stdout
-    /// marked truncated. Observed under load: `sleep 30` and `yes` children
-    /// holding pipe descriptors they were never given. The runner did exactly what it should with a
-    /// held pipe - the hazard is that this test binary spawns concurrently,
-    /// which the product does not: nothing in it calls `run` from two threads
-    /// at once (its one runner is an `Rc`, shared on one thread). `run` is not
-    /// safe to call concurrently on macOS; a caller that needs that must add a
-    /// process-wide spawn lock inside it first (SE-057).
-    ///
-    /// This removes the cause rather than retrying around the symptom, so every
-    /// assertion below keeps its full strength: a truncated read is still a
-    /// failure, never a reason to try again.
-    static SPAWN_ALONE: Mutex<()> = Mutex::new(());
-
-    fn spawn_alone() -> MutexGuard<'static, ()> {
-        // A test that panicked while holding the lock has already failed on its
-        // own; it is no reason to fail every test after it as well.
-        SPAWN_ALONE.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     #[test]

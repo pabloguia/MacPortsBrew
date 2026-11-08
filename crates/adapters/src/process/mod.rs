@@ -10,10 +10,19 @@
 //! tested against real provider output without a real provider.
 
 mod environment;
+mod probe;
 mod recording;
 mod system;
 
 pub use environment::{sanitised_environment, EnvironmentSpec};
+pub use probe::{curated_probe_rows, CuratedProbeRow, ProbeRun};
+// What H-3's unfrozen wiring calls, so it needs no second hunk in this file.
+// Unused until then, in a test build too (the tests call them in place).
+#[allow(
+    unused_imports,
+    reason = "staged (H/01): H-3's unfrozen wiring is the first caller"
+)]
+pub(crate) use probe::{run_curated_probe, ProbeOwner};
 pub use recording::{RecordedInvocation, Recording, RecordingProvenance, ReplayRunner};
 pub use system::{CancelToken, SystemRunner};
 
@@ -571,14 +580,34 @@ pub(crate) const PERMITTED_IN_TESTS: &[&str] = &[
     "mpb-test-program",
 ];
 
-/// What the runner asks before it spawns: the shipped rule, plus - in a test
-/// build only - the handful of programs the executor's own tests name.
+/// What the runner asks before it spawns. **One rule at one site**, with two
+/// questions behind it, chosen by the spec's [`Admission`], which only this
+/// module can set:
+///
+/// - [`Admission::Allowlist`]: the shipped rule, plus - in a test build only -
+///   the handful of programs the executor's own tests name. Every package
+///   executable is still refused here: `PERMITTED_PROGRAMS`,
+///   `PERMITTED_SUBCOMMANDS`, `SYSTEM_PROBES` and [`is_permitted_invocation`]
+///   are untouched by the curated probe.
+/// - [`Admission::CuratedProbe`]: shape only, and **never** the test widening.
+///   The site cannot prove prefix membership, which `probe::AdmittedProbe::admit`
+///   established; it holds what can be read off the spec, so a probe cannot be
+///   widened after admission (`docs/passes/16-liveness-design.md`, "The
+///   admission").
 ///
 /// Kept separate from [`is_permitted_program`] so that
 /// `an_interpreter_is_refused_however_it_was_named` asserts the *shipped* rule
 /// rather than the widened one. A test that can only see the wider list cannot
 /// tell you anything about what ships.
-pub(in crate::process) fn may_spawn(program: &std::path::Path, argv: &[String]) -> bool {
+pub(in crate::process) fn may_spawn(spec: &CommandSpec) -> bool {
+    match &spec.admission {
+        Admission::Allowlist => may_spawn_listed(&spec.program, &spec.argv),
+        Admission::CuratedProbe { .. } => probe::is_admitted_probe_shape(spec),
+    }
+}
+
+/// The allowlist half of [`may_spawn`].
+fn may_spawn_listed(program: &std::path::Path, argv: &[String]) -> bool {
     if is_permitted_invocation(program, argv) {
         return true;
     }
@@ -653,6 +682,37 @@ pub struct CommandSpec {
     /// it (SE-050, "Not closed" item 7). Only [`CommandSpec::plan_read`] sets
     /// it; an adapter's own spec is built from the prefix its runner detected.
     pub(in crate::process) replay_only: bool,
+    /// Which question [`may_spawn`] asks of this spec. Private to this module,
+    /// so an allowlist spec can carry no scratch directory, no `arg0` and no
+    /// recorded identity, and the `port current` protection (`current_dir("/")`)
+    /// stays structural for every spec that is not a curated probe. Only
+    /// `probe.rs`'s `CommandSpec::curated_probe` sets anything but
+    /// [`Admission::Allowlist`].
+    pub(in crate::process) admission: Admission,
+}
+
+/// What admits a spec to the spawn site (`docs/passes/16-liveness-design.md`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::process) enum Admission {
+    /// The allowlist: six programs, a provider only for a read on its list.
+    Allowlist,
+    /// A curated liveness probe that `probe::AdmittedProbe::admit` passed.
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "staged (H/01): nothing outside this module constructs a probe until H-3"
+        )
+    )]
+    CuratedProbe {
+        /// The fresh directory serving as `HOME`, `TMPDIR` and the working
+        /// directory.
+        scratch: PathBuf,
+        /// The placed leaf, passed as `argv[0]` while the canonical path runs.
+        arg0: String,
+        /// The canonical target's identity at admission, re-read before spawn.
+        target: probe::TargetIdentity,
+    },
 }
 
 impl CommandSpec {
@@ -708,6 +768,7 @@ impl CommandSpec {
             timeout: DEFAULT_TIMEOUT,
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
             replay_only: false,
+            admission: Admission::Allowlist,
         }
     }
 
@@ -961,6 +1022,29 @@ pub trait ProcessRunner {
     /// whether a plan read is marked replay-only both follow from this answer,
     /// so a new runner must state it rather than inherit "live" (SE-050).
     fn is_replay(&self) -> bool;
+
+    /// Runs a curated liveness probe, and returns only how it ended: never an
+    /// [`Invocation`], so nothing it printed and none of its paths can reach a
+    /// record, a recording or a renderer (`docs/passes/16-liveness-design.md`,
+    /// "No record, either way").
+    ///
+    /// The default answers "not observed" and starts nothing, so a replay, a
+    /// test double and any runner written later run no package's program unless
+    /// they say so. Only [`SystemRunner`] overrides it, and it refuses while
+    /// recording. A [`ProbeRun`] cannot be built outside this module, so no
+    /// runner elsewhere can claim a probe ran.
+    fn run_probe(&self, spec: &CommandSpec) -> ProbeRun {
+        let _ = spec;
+        ProbeRun::not_observed()
+    }
+
+    /// Whether this runner may start a curated probe at all: asked at the
+    /// admission's condition 1, before anything is read or written, so a
+    /// capture never touches the state directory. Defaults to no; only a
+    /// [`SystemRunner`] that is not recording says yes.
+    fn may_run_probes(&self) -> bool {
+        false
+    }
 }
 
 impl<T: ProcessRunner + ?Sized> ProcessRunner for &T {
@@ -971,6 +1055,14 @@ impl<T: ProcessRunner + ?Sized> ProcessRunner for &T {
     fn is_replay(&self) -> bool {
         (**self).is_replay()
     }
+
+    fn run_probe(&self, spec: &CommandSpec) -> ProbeRun {
+        (**self).run_probe(spec)
+    }
+
+    fn may_run_probes(&self) -> bool {
+        (**self).may_run_probes()
+    }
 }
 
 impl<T: ProcessRunner + ?Sized> ProcessRunner for std::rc::Rc<T> {
@@ -980,6 +1072,14 @@ impl<T: ProcessRunner + ?Sized> ProcessRunner for std::rc::Rc<T> {
 
     fn is_replay(&self) -> bool {
         (**self).is_replay()
+    }
+
+    fn run_probe(&self, spec: &CommandSpec) -> ProbeRun {
+        (**self).run_probe(spec)
+    }
+
+    fn may_run_probes(&self) -> bool {
+        (**self).may_run_probes()
     }
 }
 
@@ -992,6 +1092,12 @@ mod tests {
         // Not a tautology: it is the assertion that makes PERMITTED_IN_TESTS
         // safe to have. If a test name ever migrates into the production list,
         // this is what says so.
+        //
+        // What it does not cover: a curated liveness probe, which starts an
+        // installed package's own program. That is not on this list and never
+        // will be; it reaches the site only as `Admission::CuratedProbe`, admitted
+        // by `probe::AdmittedProbe::admit` against the observed rows of
+        // `data/policy/liveness-probes.toml` (`docs/passes/16-liveness-design.md`).
         assert_eq!(
             PERMITTED_PROGRAMS,
             ["brew", "port", "sw_vers", "uname", "sysctl", "xcode-select"]
