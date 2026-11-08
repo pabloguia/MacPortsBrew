@@ -55,7 +55,10 @@ and nothing is removed, so a state directory pointed somewhere unexpected costs 
 4. The cause `PROBE_TARGET_IS_ENV_SCRIPT` now covers every target that is not a compiled program
    for this build. Its text says so in both catalogues; whether the identifier is renamed before
    the first release is H-3's call.
-5. `~/Library` is closed first: **this stays open.** `security-reviewer` has not accepted the search
+5. A target the kernel kills at exec (a malformed `MH_EXECUTE` past its header) answers `FAILS`,
+   the safe direction but a false report of the package; telling it apart is H-3's, and so is the
+   stale test comment `01-NOTES.md` names.
+6. `~/Library` is closed first: **this stays open.** `security-reviewer` has not accepted the search
    by name in `docs/research/R-28-liveness-probes.md`, "Re-qualification of rows 1-13".
 
 **What the version pin costs.** After any upgrade of a package with a row, its probe answers
@@ -142,4 +145,5 @@ off until `~/Library` is closed.
 | `spec-guardian`, round 2 | `b2a2351` | Approve with changes: F1 the owner's commit left the new `probe.rs` out; F2 the staging PR is not docs-only; F3, F4 undeclared deviations; F5 stale notes; F6 no `invariant_05_*` probe test; F7 status | All fixed: the commit stages first; SE-113 declares F2-F4; `invariant_05_a_probe_never_starts_a_provider_program` |
 | `security-reviewer`, round 3 (confirmation) | `0264e35` | Not closed: without `#!`, macOS runs a non-Mach-O file with `/bin/sh`, so text, an empty or 1-byte file, or `#!` after a BOM or whitespace was admitted and run | Fixed: condition 11 admits only a Mach-O `MH_EXECUTE` for this build's architecture |
 | `security-reviewer`, round 4 (confirmation) | `015be5e` | Not confirmed: a little-endian fat header, or a fat file whose slice the kernel prefers (x86_64h here, arm64 under Rosetta) is not an executable, was admitted and handed to `/bin/sh` | Fixed: big-endian fat only, every slice a native Mach-O executable, one for this build |
+| `security-reviewer`, round 4 confirmation | `58a9e52` | Confirmed: no admitted file reaches `ENOEXEC`, so no shell runs. Notes: a stale test comment; a malformed `MH_EXECUTE` killed at exec answers `FAILS` | Recorded for H-3 (`01-NOTES.md`, "Round 4 confirmation"); the patch is left as built |
 | `docs-auditor` | `0264e35` | 14 findings: the cause's display text became false; the SIGPIPE explanation; H.md "docs only"; undated claims; stale lists | Fixed; the cause's text is reworded in both catalogues, its identifier left for H-3 |

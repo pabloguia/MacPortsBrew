@@ -193,7 +193,7 @@ version checked after ownership; a changed target overriding `Fails`;
   (`KERNEL_FAT_MAGICS`), and **every** slice must be a thin native `MH_MAGIC_64` that passes
   `plan_slice` and `read_slice` as `MH_EXECUTE` (so no nested fat, no dylib, no text), with at least
   one slice for `THIS_BUILD_CPUTYPE`. Any failure refuses. `macho.rs` unchanged; nothing outside
-  `process/`. A truncated thin `MH_EXECUTE` gives `EBADMACHO` (no shell), per the reviewer, so a
+  `process/`. A truncated thin `MH_EXECUTE` gives `EBADMACHO` or a `SIGKILL` at exec (no shell either way), per the reviewers, so a
   thin file with the real magic needs nothing more.
 - **Regression tests** (in `condition_11_only_a_macho_executable_for_this_build_is_admitted`, all
   refused with the counter at 0): `FAT_CIGAM` nfat 10 with a shell payload; a byte-swapped thin
@@ -202,7 +202,7 @@ version checked after ownership; a changed target overriding `Fails`;
   nested fat. **Controls admitted:** the copy of `/usr/bin/true`; a big-endian fat of two
   hand-built executables, one for this build; and the thin hand-built header for this build. A
   comment states the hand-built ones carry no `LC_MAIN`, so the kernel would refuse them
-  (`EBADMACHO` → `PROBE_NOT_STARTED`, no shell); they are only admitted, never run.
+  (observed in review round 4's confirmation: the spawn succeeds and the kernel kills the child, `SIGKILL`, no shell); they are only admitted, never run.
 - **Mutants (changed lines):** little-endian fat accepted, killed; any instead of every, killed;
   slice magic unchecked, killed; `MH_EXECUTE` unchecked, killed; `cputype` unchecked, killed; fat
   refused, killed; thin refused, killed; the whole check bypassed, condition 11 dropped,
@@ -361,3 +361,24 @@ Against a clean detached worktree at `54b56eb`, with PR #70's `run_lock.rs` hunk
 - `git apply` → the four `process/` files are byte-identical (`cmp`) to the built worktree's; that
   tree built, linted and tested as above.
 - `git apply --reverse --check` → ok; both reversed → `git status` clean. The worktree was removed.
+
+## Round 4 confirmation (2026-11-08)
+
+`security-reviewer` confirmed the round-4 fix at `58a9e52`: little-endian fat, a text or dylib
+preferred slice, a 32-bit slice and an empty fat table are refused, and no file condition 11 admits
+can reach `ENOEXEC`, so no shell runs (XNU hands a file to another loader only for a magic or a
+filetype this rule now excludes, for the file and every slice). Two notes, not changed in the
+patch so that it stays the tree that was built and tested:
+
+- **A stale test comment.** The comment above the hand-built controls in
+  `condition_11_only_a_macho_executable_for_this_build_is_admitted` says the kernel refuses them with
+  `EBADMACHO`, so `PROBE_NOT_STARTED`. Observed: the spawn succeeds and the child is killed with
+  `SIGKILL`. H-3 corrects the comment.
+- **For H-3: a kill at exec answers `FAILS`.** An admitted `MH_EXECUTE` that is malformed past the
+  header (an unknown command in place of `LC_MAIN`, a segment past the end of the file) is killed by
+  the kernel at exec, which the answer table reads as a real signal: `FAILS (PROBE_FAILED)`. That is
+  the safe direction (the step halts and the source is kept, never `HOLDS`), but it reports a
+  package that never ran as failing. Telling an exec-time kill from the package's own failure is
+  H-3's.
+- Optional, not taken: checking each fat entry's `cputype` against its slice header, and slice
+  overlap. The kernel refuses both without a shell (`EBADARCH`, `EBADMACHO`).
