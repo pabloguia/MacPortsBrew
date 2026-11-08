@@ -29,8 +29,11 @@ directory under the state root, 30 seconds and 64 KiB, its output thrown away. T
 one `Command::new`. A replay or a recording refuses a probe.
 
 Built in a scratch worktree on `54b56eb` plus `RunLock::path()`: build, `clippy -D warnings`, the
-workspace tests (2043 passed), `scripts/validate.sh --quick`, and 59 mutants, all killed
+workspace tests (2044 passed), `scripts/validate.sh --quick`, and 58 mutants, all killed
 (`01-NOTES.md`, "As built" lists every refusal and its cause).
+
+**No script is admitted:** a target whose head starts `#!` is refused, whatever the interpreter.
+The table holds observed compiled programs only.
 
 **The leftover sweep removes only what a probe made:** directories under `<state root>/probes`
 named `probe-<digits>-<6 hex>`, owned by the user, mode `0700`. Anything else there stops the probe
@@ -72,7 +75,8 @@ the old form, none with the new. Other guarded scripts with the same shape are l
 
 ## What the owner does
 
-From a clean checkout of `main`, on a topic branch:
+From a clean checkout of `main` that contains pull request #70 (it carries `RunLock::path()`, which
+`01` needs to compile), on a topic branch:
 
 ```bash
 git apply --check docs/passes/16-staged/H/01-curated-probe-admission.patch docs/passes/16-staged/H/02-capture-ownership-reads.patch docs/passes/16-staged/H/03-release-workflow-pipe.patch
@@ -87,11 +91,18 @@ scripts/validate.sh
 ```
 
 The default mode runs the tests, the gate tests and shellcheck, which cover all three. If it passes,
-commit and open the pull request as usual:
+stage the files (`git apply` leaves the new `process/probe.rs` untracked, and a commit with a
+pathspec would leave it out) and commit:
 
 ```bash
-git commit -m "feat(process): the curated probe's admission, and two script fixes (part H)" -- crates/adapters/src/process scripts/capture-fixture.sh scripts/test-gates.sh scripts/check-release-workflow.sh
+git add crates/adapters/src/process scripts/capture-fixture.sh scripts/test-gates.sh scripts/check-release-workflow.sh
 ```
+
+```bash
+git commit -m "feat(process): the curated probe's admission, and two script fixes (part H)"
+```
+
+Then open the pull request as usual.
 
 Each patch may also go alone; `02`'s two files go together. If a check fails, do not edit around it:
 `git apply --reverse` what was applied and tell a session what failed.
@@ -113,3 +124,7 @@ off until `~/Library` is closed.
 
 | Reviewer | Reviewed at | Verdict | Resolution |
 |---|---|---|---|
+| `security-reviewer`, round 1 | `01` built on `54b56eb` (sha256 `7997598b…`) | Pass with changes: M1 the sweep removed anything under `<state root>/probes`; M2 H-3 could not reach the module; L1-L5 | All fixed (`01-NOTES.md`, "Review round 1") |
+| `spec-guardian`, round 1 | the same | Approve with changes: F1 reachability, F2-F7, R1-R4, spec 04 wording | All fixed |
+| `security-reviewer`, round 2 | `b2a2351` | Pass with changes, nothing blocking: L1 a `#!` interpreter outside the prefixes was admitted unless named; L2 the euid oracle reads `TMPDIR`; L3 known prefixes omit a detected custom prefix; I1-I4 | L1 fixed: no script is admitted. L2, L3, I1 open for H-3 and part L (SE-113); I2 commented; I3, I4 for H-3 |
+| `spec-guardian`, round 2 | `b2a2351` | Approve with changes: F1 the owner's commit left the new `probe.rs` out; F2 the staging PR is not docs-only; F3, F4 undeclared deviations; F5 stale notes; F6 no `invariant_05_*` probe test; F7 status | All fixed: the commit stages first; SE-113 declares F2-F4; `invariant_05_a_probe_never_starts_a_provider_program` |

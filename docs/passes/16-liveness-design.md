@@ -67,7 +67,7 @@ pub trait DestinationProbe {
 }
 ```
 
-**Amended (2026-11-05, work order 16 H-2 round 6; `security-reviewer` has yet to read this).** The trait above goes when H-3 lands, because its one implementor could never name the lock. The probe becomes `answer_probe(&self, leaf, argv, lock: Option<&RunLock>)` on `DestinationSite` in `crates/cli/src/executor/`, defaulting to `NOT_OBSERVED`, and an inherent method on `DestinationSites` taking `&RunLock`. It stays off `ProviderRead`, for the reason above.
+**Amended (2026-11-05, work order 16 H-2 round 6; read by `security-reviewer` 2026-11-08, no objection).** The trait above goes when H-3 lands, because its one implementor could never name the lock. The probe becomes `answer_probe(&self, leaf, argv, lock: Option<&RunLock>)` on `DestinationSite` in `crates/cli/src/executor/`, defaulting to `NOT_OBSERVED`, and an inherent method on `DestinationSites` taking `&RunLock`. It stays off `ProviderRead`, for the reason above.
 
 It is obtained only from `registry::destination_sites(ctx, &StateDir, &RunLock)`, which
 is added to the banned list of `crates/cli/tests/executor.rs` (`.claude/rules/executor.md`
@@ -194,7 +194,7 @@ the directory (exists before, gone after, `0700`, a planted file or link at the 
 at `probes` refuses); `arg0`; a target changed between `admit` and spawn; every row of
 the answer table; replay and recording refusing; that output reaches no record; the
 loader's rules. Named: `invariant_06_*`, `invariant_10_*`,
-`invariant_15_a_replay_never_runs_a_probe`, `invariant_19_a_stateful_package_is_no_row`,
+`invariant_15_a_replay_never_runs_a_probe_at_the_spawn_site` (as built), `invariant_19_a_stateful_package_is_no_row`,
 `invariant_20_every_probe_row_is_dated`. Mutants: drop each condition; `Fails` as
 `Holds`; a held pipe as `Holds`; the real `HOME`; the placed path for the canonical.
 
@@ -238,15 +238,22 @@ conditions, the post-admission checks, the site checks and the answer table are 
   `probe-<digits>-<6 lowercase hex>` that `lstat` shows as `0700` directories owned by the
   euid. Anything else there stops the probe with `PROBE_NOT_STARTED`, and nothing is removed.
   A state root pointed at a home directory therefore costs a probe, never a file.
-- **A `#!` interpreter is judged as the program that would run:** its leaf, written or
-  canonical, excluded is `PROBE_PROGRAM_EXCLUDED`; under another known prefix is
-  `PROBE_TARGET_NOT_THE_PACKAGES`. So a shell script is never admitted.
+- **No script is admitted.** A head that starts `#!`, whatever the interpreter, is refused at
+  condition 11 with `PROBE_TARGET_IS_ENV_SCRIPT`: the table holds observed compiled programs
+  only, and a deny list of interpreter names could not keep a system program that prompts
+  for a password out (security review, round 2).
+- **The site is `run_probe`, not `run`.** `ProcessRunner` gains `run_probe` and
+  `may_run_probes`, a probe's spec is an opaque `ProbeRun` only the module can build, and no
+  `Invocation` exists for a probe, so nothing can record it; `run` refuses a curated spec.
+- **The stateful exclusion stays with the policy loader,** not in the adapter's reader:
+  `check_liveness_probes` enforces it and `invariant_19_a_stateful_package_is_no_row` tests it
+  (`crates/policy/src/data.rs`); H-3's agreement test through `curated_probe_rows()` keeps
+  the two readers equal.
 - **Condition 11's own failure** (open, `fstat` or reading the head) is
   `PROBE_TARGET_IS_ENV_SCRIPT`, not condition 9's cause; a handle whose identity differs from
   the `lstat` is `PROBE_TARGET_CHANGED`.
 - Condition 7 is evaluated before condition 6; a changed target overrides `FAILS` as well as
-  `HOLDS`; `CFFIXED_USER_HOME` is not set; the stateful exclusion stays with the policy
-  loader and H-3's agreement test. Each is recorded in SE-113.
+  `HOLDS`; `CFFIXED_USER_HOME` is not set. Each item in this section is recorded in SE-113.
 
 ## Reviews
 

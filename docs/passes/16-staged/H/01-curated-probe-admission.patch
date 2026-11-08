@@ -181,10 +181,10 @@ index 509db3a..3381293 100644
              ["brew", "port", "sw_vers", "uname", "sysctl", "xcode-select"]
 diff --git a/crates/adapters/src/process/probe.rs b/crates/adapters/src/process/probe.rs
 new file mode 100644
-index 0000000..d18bff5
+index 0000000..aa5c912
 --- /dev/null
 +++ b/crates/adapters/src/process/probe.rs
-@@ -0,0 +1,2298 @@
+@@ -0,0 +1,2334 @@
 +// SPDX-License-Identifier: Apache-2.0
 +
 +//! The curated liveness probe: the one way an installed package's own program
@@ -227,7 +227,6 @@ index 0000000..d18bff5
 +use std::collections::{BTreeMap, BTreeSet};
 +use std::fs::{DirBuilder, Metadata};
 +use std::io::Read;
-+use std::os::unix::ffi::OsStrExt;
 +use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 +use std::path::{Component, Path, PathBuf};
 +use std::time::Duration;
@@ -676,10 +675,9 @@ index 0000000..d18bff5
 +        if is_excluded_leaf(leaf.as_str()) || canonical_leaf.is_none_or(is_excluded_leaf) {
 +            return Err(UncheckedCause::ProbeProgramExcluded);
 +        }
-+        // 11. Not an `env` shebang, nor an interpreter that is excluded or
-+        // another provider's, read on a handle that is the file `lstat`
-+        // described.
-+        target_head_admits(&canonical, &target, owner.prefix())?;
++        // 11. Not a script of any kind, read on a handle that is the file
++        // `lstat` described.
++        target_head_admits(&canonical, &target)?;
 +        Ok(Self {
 +            program: canonical,
 +            arg0: leaf.as_str().to_owned(),
@@ -724,66 +722,27 @@ index 0000000..d18bff5
 +
 +/// Condition 11, and the handle half of condition 9. Opens the target, checks
 +/// the handle is the file `lstat` described (`PROBE_TARGET_CHANGED` if not),
-+/// and reads its head. Then, on a `#!` line:
++/// and reads its first two bytes. **Every `#!` target is refused**, whatever its
++/// interpreter: the table holds observed compiled programs only, and a script
++/// leaves what really runs to its interpreter, to `PATH` or to run time
++/// (security review of H/01, round 2, L1). The cause is the reserved
++/// `PROBE_TARGET_IS_ENV_SCRIPT`; no new cause is added for the wider refusal.
 +///
-+/// - an `env` interpreter, a relative one, or a line this reader cannot finish
-+///   leaves what runs to run time: `PROBE_TARGET_IS_ENV_SCRIPT`;
-+/// - an interpreter whose leaf, as written or canonically, is a shell or an
-+///   interpreter, or a provider or system program: `PROBE_PROGRAM_EXCLUDED`, condition 10's cause, since it is
-+///   condition 10's judgement on the program that would really run;
-+/// - an interpreter under any provider's prefix other than the destination's:
-+///   `PROBE_TARGET_NOT_THE_PACKAGES`, condition 8's cause, since what would run
-+///   is not the destination package's file.
-+///
-+/// A target that cannot be opened, `fstat`-ed or read is
++/// A target that cannot be opened, `fstat`-ed or read is also
 +/// `PROBE_TARGET_IS_ENV_SCRIPT`: condition 11 is the condition that could not be
-+/// established, and its cause means "what runs could not be read off the file"
-+/// (the mode was already read, so condition 9's cause would say something
-+/// false).
-+fn target_head_admits(
-+    canonical: &Path,
-+    target: &TargetIdentity,
-+    destination: &Path,
-+) -> Result<(), UncheckedCause> {
-+    let unreadable = UncheckedCause::ProbeTargetIsEnvScript;
-+    let file = std::fs::File::open(canonical).map_err(|_| unreadable)?;
-+    let meta = file.metadata().map_err(|_| unreadable)?;
++/// established (condition 9 already passed on the `lstat`, so its cause would
++/// say something false).
++fn target_head_admits(canonical: &Path, target: &TargetIdentity) -> Result<(), UncheckedCause> {
++    let refused = UncheckedCause::ProbeTargetIsEnvScript;
++    let file = std::fs::File::open(canonical).map_err(|_| refused)?;
++    let meta = file.metadata().map_err(|_| refused)?;
 +    if meta.dev() != target.dev || meta.ino() != target.ino {
 +        return Err(UncheckedCause::ProbeTargetChanged);
 +    }
 +    let mut head = Vec::new();
-+    let cap = u64::try_from(crate::macho::HEAD_BYTES).unwrap_or(u64::MAX);
-+    file.take(cap)
-+        .read_to_end(&mut head)
-+        .map_err(|_| unreadable)?;
-+    if !head.starts_with(b"#!") {
-+        return Ok(());
-+    }
-+    let Ok(crate::macho::Classified::Script(crate::macho::Shebang::Absolute(interpreter))) =
-+        crate::macho::classify(&head, meta.size())
-+    else {
-+        return Err(UncheckedCause::ProbeTargetIsEnvScript);
-+    };
-+    let interpreter = Path::new(std::ffi::OsStr::from_bytes(&interpreter));
-+    // The leaf as written and, when it resolves, as the kernel will find it: a
-+    // link named `runner` to `/bin/sh` is a shell.
-+    let real = std::fs::canonicalize(interpreter).ok();
-+    let excluded = |path: &Path| {
-+        path.file_name()
-+            .and_then(|n| n.to_str())
-+            .is_none_or(is_excluded_leaf)
-+    };
-+    if excluded(interpreter) || real.as_deref().is_some_and(excluded) {
-+        return Err(UncheckedCause::ProbeProgramExcluded);
-+    }
-+    let forms = std::iter::once(interpreter).chain(real.as_deref());
-+    let foreign = known_prefixes(destination).iter().any(|prefix| {
-+        forms
-+            .clone()
-+            .any(|form| lies_under(form, prefix) && !lies_under(form, destination))
-+    });
-+    if foreign {
-+        return Err(UncheckedCause::ProbeTargetNotThePackages);
++    file.take(2).read_to_end(&mut head).map_err(|_| refused)?;
++    if head.starts_with(b"#!") {
++        return Err(refused);
 +    }
 +    Ok(())
 +}
@@ -1033,6 +992,8 @@ index 0000000..d18bff5
 +/// can be an override such as `$HOME` and its `probes` the user's own. Safe only
 +/// under the run's lock, which is why [`run_curated_probe`] takes it.
 +fn sweep_leftovers(probes: &Path, euid: u32) -> Result<(), ()> {
++    // Assumes probes run one at a time in this process; running them in parallel
++    // would need this to skip this pid's own scratch names.
 +    let entries = std::fs::read_dir(probes).map_err(|_| ())?;
 +    let mut leftovers = Vec::new();
 +    for entry in entries {
@@ -1179,9 +1140,11 @@ index 0000000..d18bff5
 +    /// Not on `PERMITTED_IN_TESTS`, so the allowlist refuses it in a test build too.
 +    const LEAF: &str = "mpb-probe-target";
 +    const VERSION: &str = "1.0_0";
-+    /// A target condition 11 admits: its interpreter is no shell and no
-+    /// provider's, and it exits 0 whatever it is given.
-+    const ADMISSIBLE: &str = "#!/usr/bin/true\n";
++    /// A target condition 11 admits: an empty text stands for a copy of
++    /// `/usr/bin/true`, a Mach-O that exits 0 whatever it is given. (A copy of
++    /// `/usr/bin/touch` or `/bin/test` is killed by the system at exec, observed
++    /// 2026-11-08, so neither can be a placed target.)
++    const ADMISSIBLE: &str = "";
 +
 +    fn flag() -> Vec<String> {
 +        vec!["--version".to_owned()]
@@ -1204,7 +1167,11 @@ index 0000000..d18bff5
 +    }
 +
 +    fn write_executable(path: &Path, text: &str) {
-+        std::fs::write(path, text).expect("write");
++        if text.is_empty() {
++            std::fs::copy("/usr/bin/true", path).expect("copy");
++        } else {
++            std::fs::write(path, text).expect("write");
++        }
 +        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("mode");
 +    }
 +
@@ -1286,6 +1253,9 @@ index 0000000..d18bff5
 +        inner: SystemRunner,
 +        started: Rc<Cell<usize>>,
 +        claims_replay: bool,
++        /// A file to change once the probe has ended, as a program that rewrote
++        /// itself would.
++        after: Option<PathBuf>,
 +    }
 +
 +    impl ProcessRunner for Counting {
@@ -1300,7 +1270,13 @@ index 0000000..d18bff5
 +        }
 +        fn run_probe(&self, spec: &CommandSpec) -> ProbeRun {
 +            self.started.set(self.started.get() + 1);
-+            self.inner.run_probe(spec)
++            let run = self.inner.run_probe(spec);
++            if let Some(path) = &self.after {
++                let mut bytes = std::fs::read(path).expect("read");
++                bytes.push(0);
++                std::fs::write(path, bytes).expect("rewrite");
++            }
++            run
 +        }
 +        fn may_run_probes(&self) -> bool {
 +            self.inner.may_run_probes()
@@ -1329,6 +1305,7 @@ index 0000000..d18bff5
 +                    inner: SystemRunner::new(),
 +                    started: Rc::clone(&started),
 +                    claims_replay: false,
++                    after: None,
 +                }),
 +                started,
 +                provider: PROVIDER,
@@ -1459,6 +1436,7 @@ index 0000000..d18bff5
 +            inner: SystemRunner::new(),
 +            started: Rc::clone(&owner.started),
 +            claims_replay: true,
++            after: None,
 +        });
 +        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
 +        refused(&fx, &owner, answer, UncheckedCause::NotObserved);
@@ -1480,6 +1458,7 @@ index 0000000..d18bff5
 +            inner: SystemRunner::recording(),
 +            started: Rc::clone(&owner.started),
 +            claims_replay: false,
++            after: None,
 +        });
 +        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
 +        assert_eq!(answer, CheckAnswer::Unchecked(UncheckedCause::NotObserved));
@@ -1672,7 +1651,7 @@ index 0000000..d18bff5
 +    }
 +
 +    #[test]
-+    fn condition_10_a_provider_program_a_system_probe_a_shell_or_an_interpreter_is_refused() {
++    fn invariant_05_a_probe_never_starts_a_provider_program() {
 +        let fx = Fixture::new("c10", ADMISSIBLE);
 +        let owner = Owner::of(&fx);
 +        for leaf in ["bash", "brew", "sw_vers", "Python3.12"] {
@@ -1688,6 +1667,36 @@ index 0000000..d18bff5
 +        fx.place(LEAF, &interpreter);
 +        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
 +        refused(&fx, &owner, answer, UncheckedCause::ProbeProgramExcluded);
++        // The canonical leaf a provider's own program.
++        let provider_program = interpreter.with_file_name("brew");
++        std::fs::rename(&interpreter, &provider_program).expect("rename");
++        fx.unplace(LEAF);
++        fx.place(LEAF, &provider_program);
++        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++        refused(&fx, &owner, answer, UncheckedCause::ProbeProgramExcluded);
++        std::fs::rename(&provider_program, &fx.canonical).expect("restore");
++        fx.unplace(LEAF);
++        fx.place(LEAF, &fx.canonical);
++        // And at the site, whatever admitted it: the program, the canonical
++        // leaf it is, and `arg0`.
++        let (spec, _scratch) = admitted_spec(&fx, &owner);
++        assert!(crate::process::may_spawn(&spec));
++        for program in [
++            "/opt/homebrew/bin/brew",
++            "/opt/local/bin/port",
++            "/usr/sbin/sysctl",
++        ] {
++            let mut s = spec.clone();
++            s.program = PathBuf::from(program);
++            assert!(!crate::process::may_spawn(&s), "{program}");
++        }
++        for arg0 in ["brew", "port", "sw_vers", "bash"] {
++            let mut s = spec.clone();
++            if let Admission::CuratedProbe { arg0: a, .. } = &mut s.admission {
++                *a = arg0.to_owned();
++            }
++            assert!(!crate::process::may_spawn(&s), "{arg0}");
++        }
 +        for leaf in [
 +            "sh",
 +            "tclsh8.6",
@@ -1714,7 +1723,7 @@ index 0000000..d18bff5
 +    }
 +
 +    #[test]
-+    fn condition_11_what_a_shebang_would_run_is_judged() {
++    fn condition_11_every_script_is_refused_whatever_its_interpreter() {
 +        let runner_link = std::env::temp_dir().join(format!("mpb-runner-{}", std::process::id()));
 +        let _ = std::fs::remove_file(&runner_link);
 +        symlink("/bin/sh", &runner_link).expect("runner link");
@@ -1729,27 +1738,32 @@ index 0000000..d18bff5
 +            (
 +                "c11-shell",
 +                "#!/bin/sh\n",
-+                UncheckedCause::ProbeProgramExcluded,
++                UncheckedCause::ProbeTargetIsEnvScript,
 +            ),
 +            (
 +                "c11-unresolved",
 +                "#!/mpb-nowhere/bash\n",
-+                UncheckedCause::ProbeProgramExcluded,
++                UncheckedCause::ProbeTargetIsEnvScript,
 +            ),
 +            (
 +                "c11-linked",
 +                shebang_through_link.as_str(),
-+                UncheckedCause::ProbeProgramExcluded,
++                UncheckedCause::ProbeTargetIsEnvScript,
 +            ),
 +            (
 +                "c11-other",
 +                "#!/opt/local/bin/mpb-interpreter\n",
-+                UncheckedCause::ProbeTargetNotThePackages,
++                UncheckedCause::ProbeTargetIsEnvScript,
 +            ),
 +            (
 +                "c11-other2",
 +                "#!/usr/local/bin/mpb-interpreter\n",
-+                UncheckedCause::ProbeTargetNotThePackages,
++                UncheckedCause::ProbeTargetIsEnvScript,
++            ),
++            (
++                "c11-absolute",
++                "#!/usr/bin/true\n",
++                UncheckedCause::ProbeTargetIsEnvScript,
 +            ),
 +        ] {
 +            let fx = Fixture::new(name, head);
@@ -1765,6 +1779,22 @@ index 0000000..d18bff5
 +        let owner = Owner::of(&fx);
 +        let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
 +        refused(&fx, &owner, answer, UncheckedCause::ProbeTargetIsEnvScript);
++    }
++
++    #[test]
++    fn condition_11_reads_the_head_only_of_the_file_lstat_described() {
++        // The race between the `lstat` and the open, made by hand: the handle is
++        // another file than the identity admitted, so nothing is read off it.
++        let fx = Fixture::new("c11-handle", ADMISSIBLE);
++        let other = fx.base.join("other");
++        write_executable(&other, ADMISSIBLE);
++        let admitted = TargetIdentity::read(&other).expect("identity");
++        assert_eq!(
++            target_head_admits(&fx.canonical, &admitted),
++            Err(UncheckedCause::ProbeTargetChanged)
++        );
++        let own = TargetIdentity::read(&fx.canonical).expect("identity");
++        assert_eq!(target_head_admits(&fx.canonical, &own), Ok(()));
 +    }
 +
 +    // ----- the lock, the state root, the scratch directory -----
@@ -1966,11 +1996,17 @@ index 0000000..d18bff5
 +
 +    #[test]
 +    fn a_target_changed_by_the_run_is_never_holds() {
-+        // `#!/usr/bin/touch` touches the script it is given, so the identity read
-+        // after exit differs from the one admitted.
++        // The runner changes the target once the probe has ended, as a program
++        // that rewrote itself would: the identity read after exit differs.
 +        let _alone = spawn_alone();
-+        let fx = Fixture::new("self-edit", "#!/usr/bin/touch\n");
-+        let owner = Owner::of(&fx);
++        let fx = Fixture::new("self-edit", ADMISSIBLE);
++        let mut owner = Owner::of(&fx);
++        owner.runner = Box::new(Counting {
++            inner: SystemRunner::new(),
++            started: Rc::clone(&owner.started),
++            claims_replay: false,
++            after: Some(fx.canonical.clone()),
++        });
 +        assert_eq!(
 +            probe(&fx, &owner, &the_row(), LEAF, &flag()),
 +            CheckAnswer::Unchecked(UncheckedCause::ProbeTargetChanged)
