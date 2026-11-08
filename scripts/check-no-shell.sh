@@ -52,16 +52,39 @@ fi
 # A `#[cfg(test)]` on a const or a `use` is ordinary code and stays scanned;
 # only the one that opens the inline test module is a boundary, and there must
 # be exactly one of those, running to the end of the file.
+#
+# The out-of-line layout is admitted in one form only (SE-113): a file whose
+# first line is the SPDX comment and whose second is exactly `#![cfg(test)]`
+# is test code whole. An inner attribute there cannot sit inside a string or a
+# comment, and the compiler, not this script, makes the file test-only - which
+# is the opposite of the `#[cfg(test)] mod tests;` declaration the review
+# above refused, where the declaring file's text decided it.
+#
+# A grep that cannot read the file is not "no boundary": it fails the check.
+test_only_file() {
+  local head2
+  head2="$(awk 'NR <= 2' "$1")" || return 1
+  [ "$head2" = "$(printf '%s\n%s' '// SPDX-License-Identifier: Apache-2.0' '#![cfg(test)]')" ]
+}
 test_boundary() {
-  local file="$1" opens
-  opens="$(grep -n -B1 '^mod tests {' "$file" \
-    | grep -c '#\[cfg(test)\]' || true)"
+  local file="$1" before rc opens
+  rc=0
+  before="$(grep -n -B1 '^mod tests {' "$file")" || rc=$?
+  [ "$rc" -gt 1 ] && { echo error; return; }
+  # Reading a variable, so grep's only non-zero answer here is "none" (1).
+  opens="$(printf '%s\n' "$before" | grep -c '#\[cfg(test)\]' || true)"
   [ "$opens" = "1" ] || { echo 0; return; }
   grep -n '^mod tests {' "$file" | head -1 | cut -d: -f1
 }
 
 while IFS= read -r file; do
+  test_only_file "$file" && continue
   boundary="$(test_boundary "$file")"
+  if [ "$boundary" = error ]; then
+    echo "no-shell: could not read ${file}, so it was not checked. That is not the same as passing." >&2
+    status=1
+    continue
+  fi
   end="${boundary}"
   [ "$end" = "0" ] && end="$(( $(wc -l < "$file") + 1 ))"
 

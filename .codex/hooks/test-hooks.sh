@@ -379,65 +379,87 @@ if [ "$(id -u)" -ne 0 ]; then
   chmod 644 "$boundary/crates/adapters/src/locked.rs"
   rm -f "$boundary/crates/adapters/src/locked.rs" "$boundary/crates/adapters/src/registry.rs"
 fi
-# The two probe.rs exemptions (pass 16 part H, SE-113): the trailing test
-# module, and the one `    "<the AppleScript runner>",` line in the refusal
-# list. Each case starts from the passing fixture and changes one thing. The
-# tokens are assembled so this file names none of them whole.
+# The two probe exemptions (pass 16 part H, SE-113): every hit in
+# probe/tests.rs while its first two lines are the SPDX comment and exactly
+# `#![cfg(test)]`, and the one `    "<the AppleScript runner>",` line in
+# probe.rs's refusal list. Each case starts from the passing fixture and
+# changes one thing. The tokens are assembled so this file names none whole.
 SYM="sym""link"; OSA="osa""script"; LINK="li""nk"
+SPDX='// SPDX-License-Identifier: Apache-2.0'
 probe_rs="$boundary/crates/adapters/src/process/probe.rs"
+probe_tests="$boundary/crates/adapters/src/process/probe/tests.rs"
+mkdir -p "$boundary/crates/adapters/src/process/probe"
 probe_fixture() {  # probe_fixture [variant] - writes the passing shape, or one change to it
   local v="${1:-pass}"
   {
-    printf '// SPDX-License-Identifier: Apache-2.0\n'
+    printf '%s\n' "$SPDX"
     [ "$v" = sym-in-code ] && printf 'fn shipped() { %s(a, b); }\n' "$SYM"
     [ "$v" = osa-elsewhere ] && printf 'fn shipped() { run("%s"); }\n' "$OSA"
+    # The inline boundary this design replaced, carried by a multi-line
+    # string: it no longer exempts anything, so the call after it is a hit.
+    [ "$v" = string-fake ] && printf 'pub fn shipped() {\n    let _ = "\n}\n\n#[cfg(test)]\nmod tests {\n    ";\n    %s("a", "b");\n}\n' "$SYM"
     printf 'const EXCLUDED_LEAVES: &[&str] = &[\n'
     printf '    "sh",\n'
     printf '    "%s",\n' "$OSA"
     [ "$v" = non-name ] && printf '    "sh", // and more\n'
     [ "$v" = mutating-in-list ] && printf '    "%s",\n' "$INST"
-    printf '];\n'
-    printf 'fn refused(b: &str) -> bool { EXCLUDED_LEAVES.contains(&b) }\n'
+    [ "$v" = no-close ] || printf '];\n'
+    if [ "$v" = refusal-changed ]; then
+      printf 'fn refused(b: &str) -> bool {\n    run(EXCLUDED_LEAVES[1])\n}\n'
+    else
+      printf 'fn refused(b: &str) -> bool {\n    EXCLUDED_LEAVES.iter().any(|base| {\n        *base == b\n    })\n}\n'
+    fi
     [ "$v" = third-ref ] && printf 'fn also() -> usize { EXCLUDED_LEAVES.len() }\n'
-    [ "$v" = no-blank ] && printf 'fn tight() {}\n' || printf '\n'
-    [ "$v" = no-cfg ] || printf '#[cfg(test)]\n'
-    printf 'mod tests {\n'
-    printf '    use super::*;\n'
-    printf '    fn t() { %s(a, b); let s = "probe-%s"; }\n' "$SYM" "$LINK"
-    [ "$v" = twice ] && printf '    #[cfg(test)]\nmod tests {\n    fn u() {}\n    }\n'
-    printf '}\n'
-    [ "$v" = after ] && printf 'fn shipped() { %s(a, b); }\n' "$SYM"
-    [ "$v" = after ] && printf '}\n'
-    [ "$v" = not-last ] && printf '// trailing\n'
+    printf '#[cfg(test)]\nmod tests;\n'
   } > "$probe_rs"
+  {
+    printf '%s\n' "$SPDX"
+    [ "$v" = attr-line3 ] && printf '\n'
+    [ "$v" = no-attr ] || printf '#![cfg(test)]\n'
+    printf 'use super::*;\nfn t() { %s(a, b); let s = "probe-%s"; }\n' "$SYM" "$LINK"
+  } > "$probe_tests"
   if [ "$v" = crlf ]; then
-    awk '{ printf "%s\r\n", $0 }' "$probe_rs" > "$probe_rs.tmp" && mv "$probe_rs.tmp" "$probe_rs"
+    awk '{ printf "%s\r\n", $0 }' "$probe_tests" > "$probe_tests.tmp" && mv "$probe_tests.tmp" "$probe_tests"
   fi
 }
 probe_fixture
-boundary_case "probe.rs: the test module and the refusal-list line pass" 0 ''
-for v in no-cfg twice sym-in-code after not-last no-blank third-ref non-name osa-elsewhere crlf; do
+boundary_case "probe: the test file and the refusal-list line pass" 0 ''
+for v in no-attr attr-line3 crlf string-fake sym-in-code third-ref non-name no-close refusal-changed osa-elsewhere; do
   probe_fixture "$v"
-  boundary_case "probe.rs ($v) blocks" block 'elevation, service-control or symlink token'
+  boundary_case "probe ($v) blocks" block 'elevation, service-control or symlink token'
 done
 probe_fixture mutating-in-list
-boundary_case "probe.rs: a mutating name in the refusal list blocks" block 'mutating subcommand literal'
+boundary_case "probe: a mutating name in the refusal list blocks" block 'mutating subcommand literal'
 probe_fixture
-printf 'const EXCLUDED_LEAVES: &[&str] = &[\n    "%s",\n];\nfn r(b: &str) -> bool { EXCLUDED_LEAVES.contains(&b) }\n' "$OSA" \
-  > "$boundary/crates/adapters/src/process/other.rs"
+printf '%s\n#![cfg(test)]\nfn f() { %s(a, b); }\n' "$SPDX" "$SYM" > "$boundary/crates/adapters/src/process/tests.rs"
+boundary_case "a test-only file at another path blocks" block 'elevation, service-control or symlink token'
+printf 'const EXCLUDED_LEAVES: &[&str] = &[\n    "%s",\n];\nfn r(b: &str) -> bool {\n    EXCLUDED_LEAVES.iter().any(|base| {\n        *base == b\n    })\n}\n' "$OSA" \
+  > "$boundary/crates/adapters/src/process/tests.rs"
 boundary_case "the refusal list in another process/ file blocks" block 'elevation, service-control or symlink token'
-printf 'fn f() { %s(a, b); }\n' "$SYM" > "$boundary/crates/adapters/src/process/other.rs"
+printf 'fn f() { %s(a, b); }\n' "$SYM" > "$boundary/crates/adapters/src/process/tests.rs"
 boundary_case "a real hit beside both exempt ones blocks" block 'elevation, service-control or symlink token'
-rm -f "$boundary/crates/adapters/src/process/other.rs"
+rm -f "$boundary/crates/adapters/src/process/tests.rs"
 # macOS awk dies on a newline in a `-v` value; the gate must never hand it
-# one, and an awk that fails must fail the gate rather than drop the hits.
+# one. And an awk that fails in either exemption's own read must fail the
+# gate rather than drop the hits: each stub fails one read and no other.
 probe_fixture
 out="$(printf '{}' | PATH="/usr/bin:$PATH" CLAUDE_PROJECT_DIR="$boundary" "$HERE/stop-gate.sh" 2>&1)"; rc=$?
-if gate_rc_matches "$rc" 0 "$out"; then pass=$((pass + 1)); else failures+=("boundary: probe.rs under /usr/bin/awk: rc=$rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)"); fi
-stub="$(mktemp -d)"; printf '#!/bin/sh\nexit 2\n' > "$stub/awk"; chmod +x "$stub/awk"
-out="$(printf '{}' | PATH="$stub:$PATH" CLAUDE_PROJECT_DIR="$boundary" "$HERE/stop-gate.sh" 2>&1)"; rc=$?
-if gate_rc_matches "$rc" block "$out"; then pass=$((pass + 1)); else failures+=("boundary: probe.rs with an awk that exits 2: rc=$rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)"); fi
-rm -rf "$stub" "$probe_rs"
+if gate_rc_matches "$rc" 0 "$out"; then pass=$((pass + 1)); else failures+=("boundary: probe under /usr/bin/awk: rc=$rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)"); fi
+stub="$(mktemp -d)"
+probe_awk_stub() {  # probe_awk_stub <label> <argument that makes it fail> <needle>
+  # shellcheck disable=SC2016  # $a and $@ are the stub's own, expanded when it runs
+  printf '#!/bin/sh\nfor a; do [ "$a" = "%s" ] && exit 2; done\nexec /usr/bin/awk "$@"\n' "$2" > "$stub/awk"
+  chmod +x "$stub/awk"
+  out="$(printf '{}' | PATH="$stub:$PATH" CLAUDE_PROJECT_DIR="$boundary" "$HERE/stop-gate.sh" 2>&1)"; rc=$?
+  if gate_rc_matches "$rc" block "$out" && printf '%s' "$out" | grep -q "$3"; then
+    pass=$((pass + 1))
+  else
+    failures+=("boundary: $1: rc=$rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)")
+  fi
+}
+probe_awk_stub "the test-file read failing blocks" 'NR <= 2' 'probe tests exemption could not read'
+probe_awk_stub "the refusal-list read failing blocks" "s=$(grep -nxF 'const EXCLUDED_LEAVES: &[&str] = &[' "$probe_rs" | cut -d: -f1)" 'refusal-list exemption could not read'
+rm -rf "$stub" "$probe_rs" "$boundary/crates/adapters/src/process/probe"
 rm -rf "$boundary"
 
 # --- cases added after the 2026-09-05 security review ------------------------
