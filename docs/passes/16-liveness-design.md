@@ -211,6 +211,43 @@ and the data file: the owner is not handed code that has never compiled. Until i
 applied every probe answers `Unchecked (NOT_OBSERVED)`, which is safe: the source is
 kept and the run says so.
 
+## As built, staged (H/01, 2026-11-08)
+
+`16-staged/H/01-curated-probe-admission.patch` as built, after its round-1 reviews. Where this
+section and an earlier one disagree, this one is what the patch does. The full table of
+conditions, the post-admission checks, the site checks and the answer table are in
+`16-staged/H/01-NOTES.md`, "As built"; what differs from the sections above is:
+
+- **Who judges the answer.** `run_curated_probe` returns `CheckAnswer` itself, through an
+  exhaustive table over the run's ending; there is no `ProbeObservation` and no application
+  judge for the probe. The `DestinationProbe` trait above is not built: the call reaches the
+  module through H-3's `DestinationSites` method, as the round-6 amendment says.
+- **The owner rule is a crate-internal trait, `ProbeOwner`,** re-exported with
+  `run_curated_probe` as `pub(crate)` from `process/mod.rs`. The admission asks it
+  `entry_owner(package, leaf, placed)` on the path the admission built, and
+  `target_is_packages(package, placed, canonical)`; the canonical path must also lie under
+  `prefix()` by component, or `PROBE_TARGET_NOT_THE_PACKAGES`. H-3 implements it for both
+  adapters.
+- **Condition 1 also asks the runner.** `ProcessRunner::may_run_probes()`, default false, is
+  true only of a `SystemRunner` that is not recording, and is asked before any write.
+- **The euid is read inside `admit`** from `effective_uid()`; `None` is `PROBE_NOT_STARTED`.
+- **The lock must be this root's:** `lock.path()` equals `<state root>/run.lock`, or
+  `PROBE_NOT_STARTED`. `RunLock::path()` is added outside the frozen module, in the session's
+  pull request, and must merge before H/01 is applied.
+- **The leftover sweep removes only what a probe made:** entries under `probes` named
+  `probe-<digits>-<6 lowercase hex>` that `lstat` shows as `0700` directories owned by the
+  euid. Anything else there stops the probe with `PROBE_NOT_STARTED`, and nothing is removed.
+  A state root pointed at a home directory therefore costs a probe, never a file.
+- **A `#!` interpreter is judged as the program that would run:** its leaf, written or
+  canonical, excluded is `PROBE_PROGRAM_EXCLUDED`; under another known prefix is
+  `PROBE_TARGET_NOT_THE_PACKAGES`. So a shell script is never admitted.
+- **Condition 11's own failure** (open, `fstat` or reading the head) is
+  `PROBE_TARGET_IS_ENV_SCRIPT`, not condition 9's cause; a handle whose identity differs from
+  the `lstat` is `PROBE_TARGET_CHANGED`.
+- Condition 7 is evaluated before condition 6; a changed target overrides `FAILS` as well as
+  `HOLDS`; `CFFIXED_USER_HOME` is not set; the stateful exclusion stays with the policy
+  loader and H-3's agreement test. Each is recorded in SE-113.
+
 ## Reviews
 
 | Reviewer | Reviewed at | Verdict | Resolution |

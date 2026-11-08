@@ -1,0 +1,41 @@
+diff --git a/scripts/check-release-workflow.sh b/scripts/check-release-workflow.sh
+index 06e1006..d833455 100755
+--- a/scripts/check-release-workflow.sh
++++ b/scripts/check-release-workflow.sh
+@@ -65,6 +65,9 @@ fail() { printf 'check-release-workflow: FAIL: %s\n' "$*" >&2; failures=$((failu
+ hits_of() { # <body> <extended regex> [-i]; prints matching lines, fails if none
+   printf '%s\n' "$1" | grep -E ${3:+"$3"} -- "$2"
+ }
++# A reader that stops before the end of its input (`grep -q`, `head`) is fed a
++# here-string, never a pipe: under pipefail the writer's SIGPIPE, once its input
++# outgrows one buffer, fails the pipeline and turns a match into a FAIL.
+ 
+ # A file, comment lines removed, as "<file>:<line>:<text>".
+ uncommented() { # <file>
+@@ -134,7 +137,7 @@ if [ -f "$release" ]; then
+   on_keys="$(printf '%s\n' "$on_block" | sed -n -E 's/^  ([A-Za-z_]+):.*/\1/p' | sort | tr '\n' ' ')"
+   [ "$on_keys" = "push workflow_dispatch " ] || fail "release.yml's triggers are '$on_keys'; they must be exactly push and workflow_dispatch"
+   push_block="$(printf '%s\n' "$on_block" | awk '/^  [A-Za-z_]/ { inpush = ($0 ~ /^  push:[[:space:]]*$/); next } inpush { print }')"
+-  if ! printf '%s\n' "$push_block" | grep -Eqx '    tags:[[:space:]]*\[[[:space:]]*"v\*"[[:space:]]*\][[:space:]]*' \
++  if ! grep -Eqx '    tags:[[:space:]]*\[[[:space:]]*"v\*"[[:space:]]*\][[:space:]]*' <<<"$push_block" \
+      || [ "$(printf '%s\n' "$push_block" | grep -c .)" != 1 ]; then
+     fail "release.yml's push trigger must be exactly: tags: [\"v*\"]"
+   fi
+@@ -168,7 +171,7 @@ if [ -f "$release" ]; then
+       if hits="$(hits_of "$jobtext" '(^|[^A-Za-z0-9_-])(cargo|rustup|rust-toolchain|validate\.sh|run-fixture-matrix)([^A-Za-z0-9_-]|$)')"; then
+         fail "the signing job compiles or runs the project (plan, D-W2):"$'\n'"$hits"
+       fi
+-      first="$(printf '%s\n' "$job" | head -1 | cut -d: -f1)"
++      first="$(head -1 <<<"$job" | cut -d: -f1)"
+       last="$(printf '%s\n' "$job" | tail -1 | cut -d: -f1)"
+       if hits="$(printf '%s\n' "$body" | awk -F: -v a="$first" -v b="$last" '/secrets\./ && ($2 < a || $2 > b)')" && [ -n "$hits" ]; then
+         fail "secrets. outside the signing job:"$'\n'"$hits"
+@@ -226,7 +229,7 @@ for cf in "$dir/claude.yml" "$dir/claude-code-review.yml"; do
+     continue
+   fi
+   envjob="$(printf '%s' "$sel" | cut -d: -f2)"
+-  if ! printf '%s\n' "$tagged" | grep -qE "^[0-9]+:$envjob:    needs:[[:space:]]*gate[[:space:]]*\$"; then
++  if ! grep -qE "^[0-9]+:$envjob:    needs:[[:space:]]*gate[[:space:]]*\$" <<<"$tagged"; then
+     fail "$cf: the job '$envjob' holds the claude environment but does not 'needs: gate' (DP-039 (b).1, (b).3)"
+   fi
+   all_keys="$(printf '%s\n' "$cbody" | grep -ciE "$claudekey" || true)"

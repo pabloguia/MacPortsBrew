@@ -271,6 +271,14 @@ fn acquire_with(
 }
 
 impl RunLock {
+    /// The lock file's path, so a holder can check the lock is the one of the
+    /// state root it is about to write under (the staged probe, H/01). Unused
+    /// until `16-staged/H/01` is applied; H-3 removes the `allow`.
+    #[allow(dead_code)]
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
     /// Re-checks that the lock file is still the object this run locked. Called
     /// when the marker is written, the last point before a provider change:
     /// deleting `run.lock` mid-run is unsupported and this is what notices.
@@ -326,6 +334,15 @@ mod tests {
     use super::*;
 
     const EUID: u32 = 501;
+
+    #[test]
+    fn the_lock_names_the_file_of_its_own_state_root() {
+        let (base, state, uid) = scratch("path");
+        let held = acquire(&state, uid).unwrap();
+        assert_eq!(held.path(), state.root().join(LOCK_FILE));
+        drop(held);
+        std::fs::remove_dir_all(&base).ok();
+    }
 
     #[test]
     fn the_probe_tells_held_from_free_from_untestable_and_creates_nothing() {
