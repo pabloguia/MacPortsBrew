@@ -29,13 +29,14 @@ directory under the state root, 30 seconds and 64 KiB, its output thrown away. T
 one `Command::new`. A replay or a recording refuses a probe.
 
 Built in a scratch worktree on `54b56eb` plus `RunLock::path()`: build, `clippy -D warnings`, the
-workspace tests (2044 passed), `scripts/validate.sh --quick`, and every mutant of rounds 2 and 3 (58, then 13 on round 3's lines), all killed. The
+workspace tests (2044 passed), `scripts/validate.sh --quick`, and every mutant of rounds 2 and 3 (58, then 13 and 12 on rounds 3 and 4's lines; one equivalent survivor), all killed. The
 workspace run used an equivalent `RunLock::path()`; with #70's exact hunk the adapters crate's 788
 tests were run
 (`01-NOTES.md`, "As built" lists every refusal and its cause).
 
-**Only a compiled program is admitted:** a Mach-O executable with a slice for this build's
-architecture. Anything else is refused, a script with or without `#!`, an empty file, a dylib or
+**Only a compiled program is admitted:** a thin native 64-bit Mach-O executable for this build's
+architecture, or a big-endian fat file every slice of which is a Mach-O executable and one of which
+is for this build's architecture (the kernel, not this reader, picks the slice). Anything else is refused, a script with or without `#!`, an empty file, a dylib or
 another architecture's program, because macOS runs a file it cannot execute with `/bin/sh`.
 
 **The leftover sweep removes only what a probe made:** directories under `<state root>/probes`
@@ -140,4 +141,5 @@ off until `~/Library` is closed.
 | `security-reviewer`, round 2 | `b2a2351` | Pass with changes, nothing blocking: L1 a `#!` interpreter outside the prefixes was admitted unless named; L2 the euid oracle reads `TMPDIR`; L3 known prefixes omit a detected custom prefix; I1-I4 | L1 fixed. L2, L3, I1 open for H-3 and part L (SE-113); I2 commented; I3, I4 for H-3 |
 | `spec-guardian`, round 2 | `b2a2351` | Approve with changes: F1 the owner's commit left the new `probe.rs` out; F2 the staging PR is not docs-only; F3, F4 undeclared deviations; F5 stale notes; F6 no `invariant_05_*` probe test; F7 status | All fixed: the commit stages first; SE-113 declares F2-F4; `invariant_05_a_probe_never_starts_a_provider_program` |
 | `security-reviewer`, round 3 (confirmation) | `0264e35` | Not closed: without `#!`, macOS runs a non-Mach-O file with `/bin/sh`, so text, an empty or 1-byte file, or `#!` after a BOM or whitespace was admitted and run | Fixed: condition 11 admits only a Mach-O `MH_EXECUTE` for this build's architecture |
+| `security-reviewer`, round 4 (confirmation) | `015be5e` | Not confirmed: a little-endian fat header, or a fat file whose slice the kernel prefers (x86_64h here, arm64 under Rosetta) is not an executable, was admitted and handed to `/bin/sh` | Fixed: big-endian fat only, every slice a native Mach-O executable, one for this build |
 | `docs-auditor` | `0264e35` | 14 findings: the cause's display text became false; the SIGPIPE explanation; H.md "docs only"; undated claims; stale lists | Fixed; the cause's text is reworded in both catalogues, its identifier left for H-3 |

@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# H/01 — curated probe admission: build notes (review rounds 1, 2 and 3 applied)
+# H/01 — curated probe admission: build notes (review rounds 1 to 4 applied)
 
 Built in a detached scratch worktree on `origin/main` = `54b56eb`
 (`scratchpad/h01`, its own `target/`). Nothing applied to the main tree, nothing
@@ -10,12 +10,12 @@ committed.
 
 | File | What | sha256 |
 |---|---|---|
-| `01-curated-probe-admission.patch` | **The owner's patch.** `crates/adapters/src/process/` only: `mod.rs`, `system.rs`, `recording.rs`, new `probe.rs` | `3c1094241e606838739952e5cab4deb2dd18dcc3bb89a2095f362484e9c6e502` |
+| `01-curated-probe-admission.patch` | **The owner's patch.** `crates/adapters/src/process/` only: `mod.rs`, `system.rs`, `recording.rs`, new `probe.rs` | `21b5ac9c5af5bbb49d7ea4871a49a0f42301b5077a969af6485d2519278f8835` |
 
 **Prerequisite, not a patch file:** `RunLock::path()` landed in PR #70 (`wo16/H-4-stage`, at
 `b2a2351`) in `crates/adapters/src/persistence/run_lock.rs`, with `#[allow(dead_code)]` until H/01
 is applied and the test `the_lock_names_the_file_of_its_own_state_root`. H/01 calls it (item 5
-of round 1) and does not compile without it. Earlier patches (`7997598b…`, `40540c2e…`, `c2fde761…`) are
+of round 1) and does not compile without it. Earlier patches (`7997598b…`, `40540c2e…`, `c2fde761…`, `3c109424…`) are
 superseded.
 
 ## Review round 1: what changed, item by item
@@ -150,7 +150,7 @@ version checked after ownership; a changed target overriding `Fails`;
 
 ## Review round 3
 
-- **High finding fixed: condition 11 is now an allowlist.** Refusing only heads that start `#!` was
+- *(Tightened in round 4.)* **High finding fixed: condition 11 is now an allowlist.** Refusing only heads that start `#!` was
   not enough: on `ENOEXEC` macOS's spawn falls back to `/bin/sh`, so a text file with no `#!`, a
   BOM or whitespace or newline before `#!`, an empty file and a one-byte file were admitted and run
   by `sh` (the empty and one-byte ones giving a false `HOLDS`), and with `PATH = <prefix>/bin:` plus
@@ -179,6 +179,37 @@ version checked after ownership; a changed target overriding `Fails`;
   `any`); unreadable as condition 9's cause; handle unchecked; condition 11 dropped; plus
   re-runs of the condition-10, placed-for-canonical and post-exit-identity mutants.
 
+## Review round 4
+
+- **High finding fixed (reproduced by the reviewer).** (a) `macho::classify` also reads
+  little-endian fat (`FAT_CIGAM`/`FAT_CIGAM_64`), which the kernel does not exec: `ENOEXEC`, then
+  `/bin/sh`. A `be ba fe ca 0a 00 00 00` header (nfat 10, `\n` at byte 4) whose slices pointed at a
+  real executable slice, with `echo …; exit 0` in the padding, was admitted and run by the shell.
+  (b) "any slice qualifies" is not the kernel's choice: it prefers `x86_64h` over `x86_64` on this
+  CPU, and picks the native slice for a child of an `x86_64` build under Rosetta, so a good slice
+  beside a text or dylib slice was admitted and handed to `/bin/sh`.
+- **Now:** the raw magic is read by this module, not taken from `classify`'s answer. **Thin:** only
+  native `MH_MAGIC_64` (`NATIVE_THIN_MAGIC`). **Fat:** only big-endian `FAT_MAGIC`/`FAT_MAGIC_64`
+  (`KERNEL_FAT_MAGICS`), and **every** slice must be a thin native `MH_MAGIC_64` that passes
+  `plan_slice` and `read_slice` as `MH_EXECUTE` (so no nested fat, no dylib, no text), with at least
+  one slice for `THIS_BUILD_CPUTYPE`. Any failure refuses. `macho.rs` unchanged; nothing outside
+  `process/`. A truncated thin `MH_EXECUTE` gives `EBADMACHO` (no shell), per the reviewer, so a
+  thin file with the real magic needs nothing more.
+- **Regression tests** (in `condition_11_only_a_macho_executable_for_this_build_is_admitted`, all
+  refused with the counter at 0): `FAT_CIGAM` nfat 10 with a shell payload; a byte-swapped thin
+  `MH_EXECUTE`; a big-endian fat with one byte-swapped slice; good this-arch + text `x86_64h`; good
+  this-arch + dylib `x86_64h`; good this-arch + junk other-arch (arm64 here); good this-arch +
+  nested fat. **Controls admitted:** the copy of `/usr/bin/true`; a big-endian fat of two
+  hand-built executables, one for this build; and the thin hand-built header for this build. A
+  comment states the hand-built ones carry no `LC_MAIN`, so the kernel would refuse them
+  (`EBADMACHO` → `PROBE_NOT_STARTED`, no shell); they are only admitted, never run.
+- **Mutants (changed lines):** little-endian fat accepted, killed; any instead of every, killed;
+  slice magic unchecked, killed; `MH_EXECUTE` unchecked, killed; `cputype` unchecked, killed; fat
+  refused, killed; thin refused, killed; the whole check bypassed, condition 11 dropped,
+  unreadable as condition 9's cause, handle unchecked: all killed. **One equivalent:** dropping the
+  thin file's head-magic guard survives, because a thin file's one slice starts at offset 0 and
+  the per-slice check reads the same four bytes and refuses; the guard stays as the stated rule.
+
 ## As built (for the design note)
 
 **Admission (`AdmittedProbe::admit`), in evaluation order, each refusal a named cause, none a spawn:**
@@ -197,7 +228,7 @@ version checked after ownership; a changed target overriding `Fails`;
 | 9 | one `lstat` of canonical: regular file, no `04000`/`02000`, uid = euid or 0, no `022` | `PROBE_TARGET_MODE_REFUSED` |
 | 10 | neither the placed leaf nor the canonical leaf is a provider program, a system probe, or a shell/interpreter (with version suffix, case-folded) | `PROBE_PROGRAM_EXCLUDED` |
 | 11 | open and `fstat` canonical; the handle is the `lstat`ed file | open/`fstat` failure → `PROBE_TARGET_IS_ENV_SCRIPT`; handle `(dev, ino)` ≠ the `lstat`'s → `PROBE_TARGET_CHANGED` |
-| 11 | **allowlist**: a `pread` of the head (≤ `macho::HEAD_BYTES`), each slice header (≤ `SLICE_HEADER_BYTES`) and each window (as `plan_slice` answers) through that handle shows a Mach-O `MH_EXECUTE` with a slice for `THIS_BUILD_CPUTYPE`, thin or fat (≤ `MAX_SLICES`) | anything else (text with no `#!`, any script, empty, one byte, dylib, bundle, object, archive, another architecture, malformed or over-limit, a read error) → `PROBE_TARGET_IS_ENV_SCRIPT` |
+| 11 | **allowlist**: through that handle, a `pread` of the head (≤ `macho::HEAD_BYTES`), each slice header (≤ `SLICE_HEADER_BYTES`) and each window (as `plan_slice` answers) shows either a **thin file whose raw magic is native `MH_MAGIC_64`**, an `MH_EXECUTE` for `THIS_BUILD_CPUTYPE`; or a **fat file whose raw magic is big-endian `FAT_MAGIC`/`FAT_MAGIC_64`** (≤ `MAX_SLICES`), **every** slice a thin native `MH_MAGIC_64` `MH_EXECUTE` (no nested fat, no dylib, no text) and **one** slice for `THIS_BUILD_CPUTYPE` | anything else (text with no `#!`, any script, empty, one byte, dylib, bundle, object, archive, another architecture, a byte-swapped thin or fat header, a fat file with any non-executable slice, malformed or over-limit, a read error) → `PROBE_TARGET_IS_ENV_SCRIPT` |
 
 **After admission, before spawn (`probe_with`). Every failure here is `PROBE_NOT_STARTED`:**
 - `lock.verify_still_current()`;
@@ -245,7 +276,7 @@ A malformed embedded table answers `NO_CURATED_PROBE`.
   per the coordinator.
 - **Condition 5 is backed by the reader and the site,** so its test feeds `admit`
   a hand-built row inside the unit test, with no seam.
-- **Condition 11 is an allowlist** (round 3): only a Mach-O executable for this build's architecture is admitted, far wider than the note's `env`-shebang refusal; same reserved cause, whose name now under-describes it (a cause-naming item for H-3; not renamed here).
+- **Condition 11 is an allowlist** (rounds 3 and 4): admitted is a thin native 64-bit Mach-O executable for this build's architecture, or a big-endian fat file every slice of which is a Mach-O executable and one of which is for this build's architecture, far wider than the note's `env`-shebang refusal; same reserved cause, whose name now under-describes it (a cause-naming item for H-3; not renamed here).
 - **Condition 7 is evaluated before condition 6.**
 - **A changed target overrides `FAILS` as well as `HOLDS`.** Kept.
 - **`CFFIXED_USER_HOME` is not set.** Kept.
@@ -267,8 +298,9 @@ All in `process/` under `cfg(test)`; no `pub` seam accepts a table or a prefix. 
   recording runner that leaves the state directory untouched), 2, 3, 4, 5, 6, 7 (rule asked of the
   placed path), 8 (with the prefix floor), 9, 10 (as `invariant_05_…`, also at the site), 11 (eight
   `#!` heads, no-`#!` text, BOM/space/newline before `#!`, empty, one byte, a dylib, another
-  architecture, an unreadable head; the `/usr/bin/true` copy and a this-architecture header
-  admitted; the handle check).
+  architecture, a byte-swapped thin, little-endian fat with a payload, fat with a byte-swapped,
+  text, dylib, junk or nested-fat slice, an unreadable head; admitted: the `/usr/bin/true` copy, a
+  big-endian fat of two executables and a this-architecture thin header; the handle check).
 - **Flow:** the lock of another root; the scratch directory; the sweep (a conforming leftover with
   a link inside removed, outside kept; five foreign entries left intact, each refusing); a planted
   `probes` (link, file, `0755` directory, link to an empty directory); a state root under the
@@ -284,7 +316,7 @@ All in `process/` under `cfg(test)`; no `pub` seam accepts a table or a prefix. 
 
 No provider program runs.
 
-## Results (final tree, round 3)
+## Results (final tree, round 4)
 
 In `scratchpad/h01` (which carries an equivalent `RunLock::path()`):
 - `cargo build`: ok. `cargo clippy --all-targets --all-features -- -D warnings`: ok.

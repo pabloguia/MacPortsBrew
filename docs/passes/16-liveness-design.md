@@ -213,7 +213,7 @@ kept and the run says so.
 
 ## As built, staged (H/01, 2026-11-08)
 
-`16-staged/H/01-curated-probe-admission.patch` as built, after its review rounds 1 to 3. Where this
+`16-staged/H/01-curated-probe-admission.patch` as built, after its review rounds 1 to 4. Where this
 section and an earlier one disagree, this one is what the patch does. The full table of
 conditions, the post-admission checks, the site checks and the answer table are in
 `16-staged/H/01-NOTES.md`, "As built"; what differs from the sections above is:
@@ -239,11 +239,12 @@ conditions, the post-admission checks, the site checks and the answer table are 
   euid. Anything else there stops the probe with `PROBE_NOT_STARTED`, and nothing is removed.
   A state root pointed at a home directory therefore costs a probe, never a file.
 - **Only a compiled program is admitted.** Condition 11 reads the head through the opened,
-  identity-checked handle with `crate::macho` and admits only a Mach-O `MH_EXECUTE` with a slice
-  for this build's architecture; anything else is `PROBE_TARGET_IS_ENV_SCRIPT`. A `#!` deny list
+  identity-checked handle with `crate::macho` and admits only a thin native 64-bit `MH_EXECUTE` for this build's
+  architecture, or a big-endian fat file every slice of which is one, one of them for this build; anything else is `PROBE_TARGET_IS_ENV_SCRIPT`. A `#!` deny list
   could not keep out a system program that prompts for a password (review round 2), and refusing
   `#!` alone was not enough, because macOS runs a file it cannot execute with `/bin/sh`: text, an
-  empty file, `#!` after a BOM (review round 3). The cause's text says this in both catalogues.
+  empty file, `#!` after a BOM (review round 3), and a fat file's slice is chosen by the kernel,
+  not by this reader (review round 4). The cause's text says this in both catalogues.
 - **The site is `run_probe`, not `run`.** `ProcessRunner` gains `run_probe` and
   `may_run_probes`, a probe's spec is an opaque `ProbeRun` only the module can build, and no
   `Invocation` exists for a probe, so nothing can record it; `run` refuses a curated spec.

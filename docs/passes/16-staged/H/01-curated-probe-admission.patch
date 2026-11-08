@@ -181,10 +181,10 @@ index 509db3a..3381293 100644
              ["brew", "port", "sw_vers", "uname", "sysctl", "xcode-select"]
 diff --git a/crates/adapters/src/process/probe.rs b/crates/adapters/src/process/probe.rs
 new file mode 100644
-index 0000000..61b8949
+index 0000000..6c4ec95
 --- /dev/null
 +++ b/crates/adapters/src/process/probe.rs
-@@ -0,0 +1,2436 @@
+@@ -0,0 +1,2610 @@
 +// SPDX-License-Identifier: Apache-2.0
 +
 +//! The curated liveness probe: the one way an installed package's own program
@@ -722,19 +722,21 @@ index 0000000..61b8949
 +/// Condition 11, and the handle half of condition 9: **an allowlist of what a
 +/// read shows**. Opens the target, checks the handle is the file `lstat`
 +/// described (`PROBE_TARGET_CHANGED` if not), and admits it only if its bytes,
-+/// read through that handle and bounded by `crate::macho`'s own limits, are a
-+/// Mach-O `MH_EXECUTE` with a slice for this build's architecture
-+/// (`THIS_BUILD_CPUTYPE`): thin, or a fat file holding such a slice.
++/// read through that handle and bounded by `crate::macho`'s own limits, are
++/// either **a thin native 64-bit Mach-O executable for this build's
++/// architecture**, or **a big-endian fat file every slice of which is a Mach-O
++/// executable and one of which is for this build's architecture**
++/// ([`is_executable_for_this_build`]).
 +///
-+/// Anything else is refused with the reserved `PROBE_TARGET_IS_ENV_SCRIPT`: a
-+/// script of any kind, but also a text file with no `#!` (macOS's spawn falls
-+/// back to `/bin/sh` on `ENOEXEC`, so such a file runs as a shell script; review
-+/// round 3), an empty or one-byte file, a dylib, a bundle, an object, an archive,
-+/// another architecture, a malformed or over-limit header, and a read error.
-+/// Condition 9 already passed on the `lstat`, so its cause would say something
-+/// false of a read failure; condition 11 is the one that could not be
-+/// established. (The cause's name now under-describes the refusal: a naming item
-+/// for H-3, no cause is added here.)
++/// Anything else is refused with the reserved `PROBE_TARGET_IS_ENV_SCRIPT`,
++/// because what the kernel cannot exec it hands to `/bin/sh` (`ENOEXEC`, review
++/// round 3): a script of any kind, text with no `#!`, an empty or one-byte file,
++/// a dylib, a bundle, an object, an archive, another architecture, a
++/// little-endian fat file, a fat file with any slice that is not an executable,
++/// a malformed or over-limit header, and a read error. Condition 9 already
++/// passed on the `lstat`, so its cause would say something false of a read
++/// failure. (The cause's name now under-describes the refusal: a naming item for
++/// H-3, no cause is added here.)
 +fn target_head_admits(canonical: &Path, target: &TargetIdentity) -> Result<(), UncheckedCause> {
 +    let refused = UncheckedCause::ProbeTargetIsEnvScript;
 +    let file = std::fs::File::open(canonical).map_err(|_| refused)?;
@@ -749,12 +751,32 @@ index 0000000..61b8949
 +    }
 +}
 +
-+/// Whether `file`, of `len` bytes, is a Mach-O `MH_EXECUTE` with a slice for
-+/// this build's `cputype`, by `crate::macho`'s three stages, every read
-+/// positioned (`pread`) on the one handle and bounded: the head by
-+/// `macho::HEAD_BYTES`, each slice header by `SLICE_HEADER_BYTES`, each window by
-+/// what `plan_slice` answers (at most `MAX_SIZEOFCMDS` and a header), and at
-+/// most `MAX_SLICES` slices. Any error, short read or unknown shape is a no.
++/// `MH_MAGIC_64` as it lies on disk for this build's byte order (both macOS
++/// architectures are little-endian): the only thin magic admitted.
++const NATIVE_THIN_MAGIC: [u8; 4] = 0xfeed_facf_u32.to_le_bytes();
++
++/// `FAT_MAGIC` and `FAT_MAGIC_64`, big-endian on disk: the only fat magics the
++/// kernel execs. `crate::macho::classify` also reads the byte-swapped
++/// `FAT_CIGAM` forms for the linkage reader; the kernel does not, and a file it
++/// cannot exec runs as a shell script (review round 4).
++const KERNEL_FAT_MAGICS: [[u8; 4]; 2] =
++    [0xcafe_babe_u32.to_be_bytes(), 0xcafe_babf_u32.to_be_bytes()];
++
++/// Whether `file`, of `len` bytes, is what condition 11 admits, by
++/// `crate::macho`'s three stages with every read positioned (`pread`) on the one
++/// handle and bounded: the head by `macho::HEAD_BYTES`, each slice header by
++/// `SLICE_HEADER_BYTES`, each window by what `plan_slice` answers (at most
++/// `MAX_SIZEOFCMDS` and a header), and at most `MAX_SLICES` slices.
++///
++/// - A thin file: its raw magic is native `MH_MAGIC_64`, and its one slice is
++///   an `MH_EXECUTE` for `THIS_BUILD_CPUTYPE`.
++/// - A fat file: its raw magic is big-endian `FAT_MAGIC` or `FAT_MAGIC_64`;
++///   **every** slice is a thin native `MH_MAGIC_64` `MH_EXECUTE` (no nested fat,
++///   no dylib, no text), because the kernel, not this reader, picks the slice
++///   (`x86_64h` before `x86_64` on this CPU, the native slice for a child under
++///   Rosetta); and at least one slice is for `THIS_BUILD_CPUTYPE`.
++///
++/// Any error, short read or other shape is a no.
 +fn is_executable_for_this_build(file: &std::fs::File, len: u64) -> bool {
 +    use crate::macho::{
 +        classify, plan_slice, read_slice, Classified, ExaminedType, SlicePlan, HEAD_BYTES,
@@ -779,27 +801,36 @@ index 0000000..61b8949
 +    let Some(head) = read(0, head_len) else {
 +        return false;
 +    };
++    let magic = head.get(..4);
 +    let ranges = match classify(&head, len) {
-+        Ok(Classified::Thin(range)) => vec![range],
-+        Ok(Classified::Fat(ranges)) => ranges,
-+        Ok(Classified::NotObject | Classified::Skipped(_) | Classified::Script(_)) | Err(_) => {
-+            return false
++        Ok(Classified::Thin(range)) if magic == Some(&NATIVE_THIN_MAGIC[..]) => vec![range],
++        Ok(Classified::Fat(ranges)) if KERNEL_FAT_MAGICS.iter().any(|m| magic == Some(&m[..])) => {
++            ranges
 +        }
++        Ok(
++            Classified::Thin(_)
++            | Classified::Fat(_)
++            | Classified::NotObject
++            | Classified::Skipped(_)
++            | Classified::Script(_),
++        )
++        | Err(_) => return false,
 +    };
 +    let header_bytes = u64::try_from(SLICE_HEADER_BYTES).unwrap_or(u64::MAX);
-+    ranges.iter().any(|range| {
-+        let Some(slice_head) = read(range.offset, range.size.min(header_bytes)) else {
-+            return false;
-+        };
++    // The `cputype` of each slice, when it is a thin native `MH_EXECUTE`.
++    let executable_cputype = |range: &crate::macho::SliceRange| -> Option<u32> {
++        let slice_head = read(range.offset, range.size.min(header_bytes))?;
++        if slice_head.get(..4) != Some(&NATIVE_THIN_MAGIC[..]) {
++            return None;
++        }
 +        let Ok(SlicePlan::Window { len: window_len }) = plan_slice(&slice_head, range.size) else {
-+            return false;
++            return None;
 +        };
-+        read(range.offset, window_len)
-+            .and_then(|window| read_slice(&window).ok())
-+            .is_some_and(|refs| {
-+                refs.file_type == ExaminedType::Execute && refs.cputype == THIS_BUILD_CPUTYPE
-+            })
-+    })
++        let refs = read_slice(&read(range.offset, window_len)?).ok()?;
++        (refs.file_type == ExaminedType::Execute).then_some(refs.cputype)
++    };
++    let cputypes: Option<Vec<u32>> = ranges.iter().map(executable_cputype).collect();
++    cputypes.is_some_and(|cputypes| cputypes.contains(&THIS_BUILD_CPUTYPE))
 +}
 +
 +// ---------------------------------------------------------------------------
@@ -1864,14 +1895,157 @@ index 0000000..61b8949
 +            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
 +            refused(&fx, &owner, answer, UncheckedCause::ProbeTargetIsEnvScript);
 +        }
-+        // The controls: the copy of `/usr/bin/true` (a fat file whose slices are
-+        // `MH_EXECUTE` for `x86_64` and `arm64e`) is admitted, and so is the same
-+        // hand-built header for this build's architecture, so the one above was
-+        // refused for its architecture alone.
++        // Fat files, built by hand: the kernel, not this reader, picks the slice,
++        // and execs only a big-endian fat header.
++        let this = crate::macho::THIS_BUILD_CPUTYPE;
++        let good = header(this, 2);
++        let fat = |big_endian: bool, nfat: u32, slices: &[(u32, u32, Vec<u8>)], payload: &[u8]| {
++            let word = |w: u32| {
++                if big_endian {
++                    w.to_be_bytes()
++                } else {
++                    w.to_le_bytes()
++                }
++            };
++            let mut bytes = Vec::new();
++            bytes.extend_from_slice(&word(0xcafe_babe));
++            bytes.extend_from_slice(&word(nfat));
++            let mut place = Vec::new();
++            for index in 0..usize::try_from(nfat).unwrap_or(0) {
++                let which = index % slices.len();
++                let (cputype, subtype, data) = &slices[which];
++                let offset = 4096 * (1 + u32::try_from(which).unwrap_or(0));
++                for w in [
++                    *cputype,
++                    *subtype,
++                    offset,
++                    u32::try_from(data.len()).unwrap_or(0),
++                    12,
++                ] {
++                    bytes.extend_from_slice(&word(w));
++                }
++                place.push((offset, data.clone()));
++            }
++            bytes.extend_from_slice(payload);
++            for (offset, data) in place {
++                let at = usize::try_from(offset).unwrap_or(0);
++                if bytes.len() < at + data.len() {
++                    bytes.resize(at + data.len(), 0);
++                }
++                bytes[at..at + data.len()].copy_from_slice(&data);
++            }
++            bytes
++        };
++        let x86_64h = 8;
++        let swapped: Vec<u8> = [0xfeed_facf_u32, this, 3, 2, 0, 0, 0, 0]
++            .iter()
++            .flat_map(|w| w.to_be_bytes())
++            .collect();
++        let fats: [(&str, Vec<u8>); 7] = [
++            ("c11-thin-swapped", swapped.clone()),
++            (
++                "c11-fat-swapped-slice",
++                fat(true, 1, &[(this, 3, swapped)], b""),
++            ),
++            (
++                "c11-fat-cigam",
++                fat(
++                    false,
++                    10,
++                    &[(this, 3, good.clone())],
++                    b"\necho ran; exit 0\n",
++                ),
++            ),
++            (
++                "c11-fat-text",
++                fat(
++                    true,
++                    2,
++                    &[
++                        (this, 3, good.clone()),
++                        (this, x86_64h, b"echo ran; exit 0\n".to_vec()),
++                    ],
++                    b"",
++                ),
++            ),
++            (
++                "c11-fat-dylib",
++                fat(
++                    true,
++                    2,
++                    &[(this, 3, good.clone()), (this, x86_64h, header(this, 6))],
++                    b"",
++                ),
++            ),
++            (
++                "c11-fat-junk-other",
++                fat(
++                    true,
++                    2,
++                    &[
++                        (this, 3, good.clone()),
++                        (
++                            other_cputype,
++                            0,
++                            b"junk junk junk junk junk junk junk".to_vec(),
++                        ),
++                    ],
++                    b"",
++                ),
++            ),
++            (
++                "c11-fat-nested",
++                fat(
++                    true,
++                    2,
++                    &[
++                        (this, 3, good.clone()),
++                        (
++                            other_cputype,
++                            0,
++                            fat(
++                                true,
++                                1,
++                                &[(other_cputype, 0, header(other_cputype, 2))],
++                                b"",
++                            ),
++                        ),
++                    ],
++                    b"",
++                ),
++            ),
++        ];
++        for (name, bytes) in fats {
++            let fx = Fixture::new(name, ADMISSIBLE);
++            std::fs::write(&fx.canonical, &bytes).expect("write");
++            let owner = Owner::of(&fx);
++            let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
++            refused(&fx, &owner, answer, UncheckedCause::ProbeTargetIsEnvScript);
++        }
++        // The controls. The copy of `/usr/bin/true` is admitted: a big-endian fat
++        // file whose two slices (`x86_64`, `arm64e`) are both `MH_EXECUTE`, one for
++        // this build. So are a big-endian fat of two hand-built executables, one
++        // for this build, and the thin hand-built header for this build's
++        // architecture, which shows the other-architecture header above was
++        // refused for its architecture alone. The hand-built ones carry no
++        // `LC_MAIN`: the kernel would refuse them (`EBADMACHO`, so
++        // `PROBE_NOT_STARTED`, no shell), and they are only ever admitted here,
++        // never run.
 +        let fx = Fixture::new("c11-this-arch", ADMISSIBLE);
 +        let owner = Owner::of(&fx);
 +        assert!(AdmittedProbe::admit(&the_row(), &owner, PACKAGE, LEAF, &flag()).is_ok());
-+        std::fs::write(&fx.canonical, header(crate::macho::THIS_BUILD_CPUTYPE, 2)).expect("write");
++        let both = fat(
++            true,
++            2,
++            &[
++                (this, 3, good.clone()),
++                (other_cputype, 0, header(other_cputype, 2)),
++            ],
++            b"",
++        );
++        std::fs::write(&fx.canonical, both).expect("write");
++        assert!(AdmittedProbe::admit(&the_row(), &owner, PACKAGE, LEAF, &flag()).is_ok());
++        std::fs::write(&fx.canonical, header(this, 2)).expect("write");
 +        assert!(AdmittedProbe::admit(&the_row(), &owner, PACKAGE, LEAF, &flag()).is_ok());
 +        assert_eq!(owner.started(), 0);
 +        // A head that cannot be read is condition 11's, not condition 9's.
