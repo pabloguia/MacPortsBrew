@@ -481,3 +481,93 @@ A slip, recorded: the first attempt at the twelve ran under zsh, which does not 
 - **Writes done by another process are not this process's `file-write`.** The profile allows by default `user-preference-write`, `mach-lookup` and IPC, so a write that a daemon (for example `cfprefsd` or `ReportCrash`) performs for the program would not be a violation here. No crash report appeared. Whether any row reached such a service was not recorded.
 - **The sandboxed form is not the deployed form.** The probe as designed runs without a sandbox, and with `arg0` set to the placed leaf (`pkg-config`, not `.../pkgconf`). A program that checks whether it is sandboxed, or that branches on `arg0`, could act differently there. The plain-run rounds of R-28 (the sweep and the re-qualification) cover that form only through what they observed afterwards: exit 0, nothing on stderr, nothing in scratch, no process left, no crash report, `xcrun_db` and the Command Line Tools marker unchanged, nothing in either prefix (E-7), and a name search of `~/Library` that left out the directories listed above. So for the unsandboxed form, a write under another name, or into those directories, is still excluded only by inference from this round: the same binaries, the same arguments and environment, and no reported attempt. It is not excluded by observation.
 - One Intel machine, one OS build, the installed versions listed above. arm64 is not covered.
+
+## Canary-seen repetitions and the deployed arg0 (2026-11-14, work order 16 H-4)
+
+Two conditions from `security-reviewer` on 2026-11-13. **B1:** at least three canary-seen runs per row, preferably in one fresh round, capped at 10 attempts per row. **B2:** Homebrew `pkg-config` (`pkgconf`) run with `argv[0] = pkg-config`, the deployed form (`probe.rs`, `arg0: leaf.as_str()`), under the same reporting sandbox, with at least three canary-seen runs. Machine: the same one, macOS 26.7.3 (25G342), x86_64, Homebrew 7.0.11-143-g874c46a, MacPorts 2.12.6, local time UTC-3. Round window: 2026-11-14 19:43:45-20:02:32.
+
+**Versions, checked first (read-only).** All twelve rows match `observed_version`, so none was skipped:
+
+```
+$ ls -lT ~/Library/Caches/Homebrew/api/internal/      # before: packages.tahoe.jws.json Nov 13 19:39:26 2026, 15751505 bytes
+$ env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin LANG=C LC_ALL=C TERM=dumb NO_COLOR=1 HOME="$HOME" \
+    HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1 HOMEBREW_NO_INSTALL_CLEANUP=1 \
+    HOMEBREW_NO_COLOR=1 HOMEBREW_NO_EMOJI=1 /usr/local/bin/brew list --versions gettext htop pkgconf tree wget xz
+gettext 1.0 / htop 3.5.3 / pkgconf 3.0.6 3.0.7 / tree 2.3.2 / wget 1.25.0 / xz 5.8.3        (exit 0)
+$ readlink /usr/local/opt/<formula>     → ../Cellar/<formula>/<the version above>; pkgconf → ../Cellar/pkgconf/3.0.7
+$ ls -lT ~/Library/Caches/Homebrew/api/internal/      # after: unchanged (same mtimes and sizes)
+$ port -q installed htop jq m4 pkgconfig tree xz
+  htop @3.5.2_0 (active) / jq @1.8.2_0 (active) / m4 @1.4.21_0 (active) / pkgconfig @0.29.2_0 (active) / tree @2.3.2_0 (active) / xz @5.8.3_0 (active)
+```
+
+There was no `Downloading Homebrew API data` this time. The cache written on 2026-11-13 19:39 was present and less than a day old, and its files were unchanged afterwards. This fits R-15: the six variables keep a read offline on a warm cache, not on a cold one. `port version` printed `Warning: port definitions are more than two weeks old`, which is advisory, and nothing was updated.
+
+**The form run.** The same as 2026-11-13 (the profile, environment, stdin, stdout/stderr redirection, `argv` `--version` and log predicate recorded above), with these differences:
+- **The harness is bash** (`/bin/bash`, each argument a separate array element). The zsh slip did not recur: every call started its program (all exits are 0, below).
+- **Scratch:** one fresh directory per attempt, `<session scratch>/h4/scratch/<label> run<N>`, mode `0700`.
+- **Attribution by pid.** `$!` of the backgrounded `env -i … sandbox-exec …` is the program's pid, because `env` and `sandbox-exec` both exec in place. A run counts as canary-seen only if the log holds `Sandbox: <program basename>(<pid>) deny(1) file-write-data /dev/dtracehelper`.
+- **Pacing:** each attempt's log window was read 3 s after it ended, widened by 2 s at the end, and the next attempt started 2 s later. A row stopped at 3 canary-seen runs or 10 attempts.
+- **A second log channel:** `log stream` with the same predicate ran for 97 of the 115 row-program runs, from `hb-htop` run 1 onwards.
+
+**Controls, once at the start (19:43:46).** Target `~/Library/mpb-sandbox-control-104ad8d46894` (random, absent before):
+
+```
+pos: touch exit 1, stderr: touch: ~/Library/mpb-sandbox-control-104ad8d46894: Operation not permitted
+2026-11-14 19:43:46.036 E  kernel[0:7c265f] [com.apple.sandbox.reporting:violation] Sandbox: touch(18902) deny(1) file-write-data /dev/dtracehelper
+2026-11-14 19:43:46.038 E  kernel[0:7c265f] [com.apple.sandbox.reporting:violation] Sandbox: touch(18902) deny(1) file-write-create ~/Library/mpb-sandbox-control-104ad8d46894
+neg: touch exit 0, created <scratch>/inside
+2026-11-14 19:43:46.135 E  kernel[0:7c2676] [com.apple.sandbox.reporting:violation] Sandbox: touch(18912) deny(1) file-write-data /dev/dtracehelper
+```
+
+The control file was absent after the controls and at the end of the round. The negative control produced no report for its own path.
+
+**B1, per row (canonical path, this round only).**
+
+| Row (provider, package, executable) | Attempts | Canary seen | Exit | stderr | Violations other than the canary | Scratch after | Process left | ≥ 3 this round | Cumulative seen (11-13 + 11-14) |
+|---|---|---|---|---|---|---|---|---|---|
+| macports, m4, gm4 | 8 | 3 (runs 6-8) | 0 in all | empty in all | none | empty | none | **yes** | 4 |
+| homebrew, gettext, gettext | 10 (cap) | 1 (run 9) | 0 in all | empty in all | none | empty | none | **no** | 5 |
+| homebrew, htop, htop | 3 | 3 | 0 | empty | none | empty | none | **yes** | 5 |
+| homebrew, pkgconf, pkg-config | 8 | 3 (runs 1, 2, 8) | 0 | empty | none | empty | none | **yes** | 5 |
+| homebrew, tree, tree | 3 | 3 | 0 | empty | none | empty | none | **yes** | 5 |
+| homebrew, wget, wget | 9 | 3 (runs 3, 8, 9) | 0 | empty | none | empty | none | **yes** | 5 |
+| homebrew, xz, xz | 10 (cap) | 1 (run 9) | 0 | empty | none | empty | none | **no** | 3 |
+| macports, htop, htop | 10 (cap) | 1 (run 8) | 0 | empty | none | empty | none | **no** | 3 |
+| macports, jq, jq | 10 (cap) | 1 (run 7) | 0 | empty | none | empty | none | **no** | 5 |
+| macports, pkgconfig, pkg-config | 10 (cap) | 1 | 0 | empty | none | empty | none | **no** | 3 |
+| macports, tree, tree | 9 | 3 | 0 | empty | none | empty | none | **yes** | 5 |
+| macports, xz, xz | 10 (cap) | 1 | 0 | empty | none | empty | none | **no** | 3 |
+
+Total: 100 runs, 24 canary-seen. Every run printed its row's version line, identical in all of its runs and to the 2026-11-13 lines (`gettext (GNU gettext-runtime) 1.0`, `htop 3.5.3-3.5.3`, `3.0.7`, `tree v2.3.2 (c) 1996 - 2026 …`, `GNU Wget 1.25.0 built on darwin23.6.0.`, `xz (XZ Utils) 5.8.3`, `m4 (GNU M4) 1.4.21`, `htop 3.5.2-3.5.2`, `jq-1.8.2`, `0.29.2`). For every row program, in every run, the pid-filtered report list is either empty or exactly `file-write-data /dev/dtracehelper`. "Process left" compared counts of `ps -axo pid=,comm=,command=` lines naming the program's basename or `pkg-config`, before and after each run. The only line in the logs that a row program produced outside the sandbox channel and that was noticed is `gettext[28714] (libsystem_info.dylib) Retrieve User by ID`, a user-database lookup and not a write.
+
+**Where the canaries went, observed.** The loss was much worse than on 2026-11-13 (24 of 100 against 27 of 34), and was worse for some rows than others for no reason this round found.
+- **`log stream` and `log show` agree on all 97 runs both covered**, canary for canary. So the loss is upstream of logd's persisted store: the report was never emitted to the log.
+- **On a missed run's own kernel thread** (found from its `map_with_linking_np: [<pid>(<name>)]` line) there is either no sandbox line at all, or only a coalesced line for another process: `<N> duplicate report(s) for Sandbox: imagent(576) deny(1) mach-lookup com.apple.contactsd.persistence`, with N = 1 (`gettext` run 1, `gm4` runs 2 and 5) or N = 5 (`gettext` runs 3 and 6). This is the pattern 2026-11-13 recorded.
+- **The channel is busy and shared.** Between 19:43:40 and 20:01:30 the predicate matched 1105 lines. In the stream capture, `imagent` produced 200 and `logd_helper` 56, out of 399 lines. All 37 `dtracehelper` lines in the window are this round's: 24 row-program canaries, 1 `pkgconf` canary in the bare-arg0 form, 10 `bash`, 2 `touch`.
+- **Hypothesis, not established:** a kernel-side rate limit or coalescing of sandbox reports that drops a report when other processes are reporting heavily. Its key, window and budget were not determined, and nothing was changed to test it, because silencing `imagent` would touch the machine.
+
+**B2, the deployed arg0.** Two forms, each separately, with every other input as above:
+
+| Form | Profile, beyond the row profile | `argv[0]` the program saw | Attempts | `pkgconf` canary seen | Exit | stdout | stderr | Violations other than the canary | Scratch after | Process left |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `sandbox-exec -f <p> /bin/bash -c 'exec -a "$1" "$2" --version' bash pkg-config /usr/local/Cellar/pkgconf/3.0.7/bin/pkgconf` | `(allow process-exec (literal "/bin/bash"))` | `pkg-config` (the deployed form) | 10 (cap) | **1** (run 9) | 0 in all | `3.0.7` in all | empty | none by `pkgconf`. `bash` itself, before its exec: `deny(1) file-write-data /dev/dtracehelper` and `deny(1) file-write-data /dev/tty`, in 10 of 10 | empty | none |
+| `sandbox-exec -f <p> /usr/local/bin/pkg-config --version` (the placed symlink) | none: the row profile unchanged, exec literal only the canonical `.../pkgconf` | `/usr/local/bin/pkg-config` (the path, basename `pkg-config`) | 5 | **3** (runs 3-5) | 0 in all | `3.0.7` in all | empty | none | empty | none |
+
+- **Why `exec -a`:** `sandbox-exec` passes its argv through, so `argv[0]` is the program string, and no system tool sets `argv[0]` without an interpreter. So the bare leaf form needs a shell inside the sandbox, which costs one `process-exec` literal for `/bin/bash`, and nothing else was widened. `bash` here is non-interactive with no `BASH_ENV`, so it reads no startup file. The `/dev/tty` attempt is `bash`'s own: it is reported under the process name `bash`, before the exec. The probe as deployed has no shell.
+- **The exec check uses the resolved path, observed.** Exec of the symlink `/usr/local/bin/pkg-config` was admitted by a literal for its canonical target alone: no `process-exec` report, exit 0. So a literal for the placed leaf is not needed. That form does not give the bare `pkg-config`, though.
+- **The output does not differ.** All three forms printed `3.0.7`: canonical (8 runs), bare `pkg-config` (10) and symlink path (5). Every run exited 0, with empty stderr and no violation by `pkgconf` other than the canary.
+- **In the bare-arg0 form the `bash` canary was seen 10 of 10, and the `pkgconf` canary on the same pid after its exec only 1 of 10.** So reporting was live for that pid when `pkgconf` started, and its report was still mostly not emitted. Whether a second report from one pid is more often dropped than a first was not determined.
+
+**Before and after.** `~/Library/Logs/DiagnosticReports`: 61 files at depth 1, 62 recursive, both before (19:43:45) and after (20:02:32). None was newer than the control run's marker. The count differs from 2026-11-13's 22 because of reports from other programs written between the rounds (the newest before this round was `maturin-2026-11-14-190029.ips`), not because of this round. `/private/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress`: absent before and after. `~/Library/mpb-sandbox-control-*`: absent before and after. Homebrew's API cache: unchanged. No row process was running after the round, and the background `log stream` was stopped. Of the 117 scratch directories, the only one with anything in it is the negative control's, which holds its `inside`.
+
+**What this establishes.**
+- **B1 is met cumulatively, and in this round alone for six rows.** Every one of the twelve rows has at least 3 canary-seen runs across 2026-11-13 and 2026-11-14 (3 to 5). In this round alone: `gm4`, Homebrew `htop`, `pkgconf`, `tree`, `wget`, and MacPorts `tree`.
+- **Not met in this round alone:** Homebrew `gettext` and `xz`, MacPorts `htop`, `jq`, `pkgconfig` and `xz`. Each hit the 10-attempt cap with 1 canary seen.
+- **In every canary-seen run, the program's only reported violation was the canary:** no write outside scratch (`~/Library` included), no exec, no network. Across this round's 115 runs of row programs (100 canonical, 10 bare-arg0, 5 symlink-path) and 2026-11-13's 34, no row program had any other reported violation, exited non-zero, wrote to stderr, left a file in scratch or left a process.
+- **B2 is not met at three:** the bare `argv[0] = pkg-config` form had 1 canary-seen run in 10. Its observable behaviour matched the canonical form in all 10: the same output, exit and stderr, nothing in scratch, no process left.
+- **The symlink-path form met three** (3 of 5), with no profile widening. It is evidence for "a program that branches on its invocation name", since `pkgconf` sees the name `pkg-config` there. It is not the exact deployed `argv[0]`.
+
+**What it does not establish.**
+- **Why reports are lost, or how to stop it.** The channel's loss rate varied between rows and between days (from 3 of 3 to 1 of 10), so a fixed attempt cap cannot guarantee three seen runs. A future attempt needs a detection that does not depend on the report reaching the log. One idea, **not tried and not verified on this macOS:** a profile action that makes a denial visible in the exit status (a signal on deny), with `/dev/dtracehelper` allowed explicitly. Whether this OS accepts such a modifier is unknown, the way `(with report)` turned out not to apply to a deny.
+- **B2 in the exact deployed form, at the bar set.** One canary-seen run. A pkgconf branch on `argv[0] == "pkg-config"` that only writes is excluded only to the extent of that run, plus the exit, stderr and scratch observations of the other nine.
+- Everything the 2026-11-13 list says still holds: writes inside scratch, writes by other processes on the program's behalf, the unsandboxed form, one Intel machine and one OS build.
