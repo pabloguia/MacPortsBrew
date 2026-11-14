@@ -49,9 +49,9 @@ pub use destination_check::{
     CheckAnswer, CheckFailure, DestinationCheck, ProbeSkipCause, UncheckedCause, UncheckedEntry,
 };
 pub use destination_facts::{
-    normalise, CheckBasis, DependencyRecord, DestinationFacts, DestinationProbe, DestinationQuery,
+    normalise, CheckBasis, DependencyRecord, DestinationFacts, DestinationQuery,
     InstallationRecord, IntegrityBasis, IntegrityFacts, LinkageFacts, OwnershipFacts, PrefixClass,
-    PrefixTable, ProbeObservation,
+    PrefixTable,
 };
 pub use error::{DomainError, ErrorId};
 pub use executable::{

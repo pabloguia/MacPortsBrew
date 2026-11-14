@@ -11,11 +11,11 @@ use crate::filesystem::FilesystemScope;
 use crate::homebrew::HomebrewAdapter;
 use crate::macports::MacPortsAdapter;
 use crate::prefixes;
-use crate::process::{CommandSpec, Invocation, PlanReadRefusal, ProcessRunner};
+use crate::process::{run_curated_probe, CommandSpec, Invocation, PlanReadRefusal, ProcessRunner};
 use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::{
-    DestinationFacts, DestinationProbe, DestinationQuery, ExecutableName, InstalledPackage,
-    PackageIdentity, PrefixClass, PrefixTable, ProbeObservation, UncheckedCause,
+    CheckAnswer, DestinationFacts, DestinationQuery, ExecutableName, InstalledPackage,
+    PackageIdentity, PrefixClass, PrefixTable, UncheckedCause,
 };
 use macportsbrew_domain::{
     DomainError, ErrorId, PlanCommand, ProviderConfiguration, ProviderId, ProviderRead,
@@ -335,13 +335,14 @@ pub struct DestinationSites<'c, 'r> {
     /// unprobed prefix being executed, and here the contradiction of a live runner
     /// and `Elsewhere` resolves towards not looking, as the lock probe's does.
     live: bool,
-    /// The state root the staged probe sweeps and scratches under.
-    _state: &'c crate::persistence::StateDir,
+    /// The state root a probe sweeps and scratches under.
+    state: &'c crate::persistence::StateDir,
 }
 
 /// The destination sites `ctx` describes. Safe only after the execution gate has
-/// passed the plan. `_lock` is the proof this run holds the lock, which is what
-/// makes the staged probe's sweep of leftovers safe; it is not kept.
+/// passed the plan. `_lock` is the proof this run holds the lock when the sites
+/// are built; it is not kept, and each probe is handed the lock again
+/// ([`DestinationSites::liveness_probe`]), which re-checks it per call.
 pub fn destination_sites<'c, 'r>(
     ctx: &'c RegistryContext<'r>,
     state: &'c crate::persistence::StateDir,
@@ -350,7 +351,7 @@ pub fn destination_sites<'c, 'r>(
     DestinationSites {
         ctx,
         live: !ctx.runner.is_replay() && ctx.filesystem.is_this_machine(),
-        _state: state,
+        state,
     }
 }
 
@@ -464,18 +465,61 @@ impl DestinationSites<'_, '_> {
     }
 }
 
-impl DestinationProbe for DestinationSites<'_, '_> {
-    /// No program starts in this build. The admission is staged, because it
-    /// touches the frozen process module (`docs/passes/16-liveness-design.md`,
-    /// Staging), and until it is applied every probe is `NOT_OBSERVED`: the source
-    /// is kept and the run says so.
-    fn liveness_probe(
+impl DestinationSites<'_, '_> {
+    /// `LIVENESS_PROBE`: `argv` on the placed `leaf` of `package`, through the
+    /// admission in `process/probe.rs`, under `lock` (work order 16 part H-3).
+    ///
+    /// **The one route to a curated probe.** It takes the run lock, so nothing
+    /// that holds an adapter, a read site or a dry run can start a package's
+    /// program; the admission re-checks the lock is still this run's and this
+    /// state root's. `provider` selects the adapter only: the row key, the
+    /// prefix, the runner and the scope are the adapter's own (condition 4).
+    /// Not live, or not detected, is `NOT_OBSERVED` before anything is built.
+    #[must_use]
+    pub fn liveness_probe(
         &self,
-        _package: &str,
-        _leaf: &ExecutableName,
-        _argv: &[String],
-    ) -> ProbeObservation {
-        ProbeObservation::NotRun(UncheckedCause::NotObserved)
+        provider: &ProviderId,
+        package: &str,
+        leaf: &ExecutableName,
+        argv: &[String],
+        lock: &crate::persistence::run_lock::RunLock,
+    ) -> CheckAnswer {
+        let not_observed = CheckAnswer::Unchecked(UncheckedCause::NotObserved);
+        if !self.observes(provider) {
+            return not_observed;
+        }
+        let Some(site) = detected_prefix(self.ctx, provider) else {
+            return not_observed;
+        };
+        // `observes` is true only on this machine with a live runner, so the scope
+        // is the context's own; the prefix is the one detection found, never a
+        // fallback candidate.
+        let filesystem = self.ctx.filesystem;
+        let prefix = site.prefix().to_path_buf();
+        let leaf = leaf.as_str();
+        match provider.as_str() {
+            crate::homebrew::PROVIDER_ID => {
+                let tags = (self.ctx.platform_tags)(provider.as_str());
+                let owner = HomebrewAdapter::new(
+                    self.ctx.runner,
+                    prefix,
+                    self.ctx.home.clone(),
+                    tags,
+                    filesystem,
+                );
+                run_curated_probe(&owner, self.state, lock, package, leaf, argv)
+            }
+            crate::macports::PROVIDER_ID => {
+                let owner = MacPortsAdapter::new(
+                    self.ctx.runner,
+                    prefix,
+                    self.ctx.home.clone(),
+                    filesystem,
+                );
+                run_curated_probe(&owner, self.state, lock, package, leaf, argv)
+            }
+            _ => not_observed,
+        }
     }
 }
 
@@ -977,7 +1021,7 @@ mod tests {
         let sites = DestinationSites {
             ctx: &ctx,
             live: true,
-            _state: &state,
+            state: &state,
         };
         let table = sites.linkage_prefixes(&one).expect("live");
         assert_eq!(

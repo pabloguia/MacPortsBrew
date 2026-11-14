@@ -73,6 +73,16 @@ command-line interfaces" clause is about the upstream relationship rather than
 local state (F-28). What binds is `FilesystemScope`: under `Elsewhere` the
 answer is `None`, because the recording is the machine (INV-15).
 
+## The curated probe's owner answers (work order 16 H-3)
+
+`homebrew/probe_owner.rs` and `macports/probe_owner.rs` implement
+`process::ProbeOwner`, and the admission's conditions 1, 4 and 6-8 are only as
+good as their answers. Review them as if frozen: every answer comes from the
+adapter's own fields (its id, scope, runner and detected prefix), the owner rule
+is the one `EXECUTABLES_OWNED_BY_DESTINATION` reads, and nothing there takes a
+prefix, a table or a provider from a caller. `registry::DestinationSites::liveness_probe`
+is the only place either is built for a probe, and it takes the run lock.
+
 ## Resolve executables from the detected prefix, not from `PATH`
 
 `PATH` is attacker-influenced and user-reordered. Where correctness matters, the

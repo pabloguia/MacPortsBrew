@@ -88,10 +88,9 @@ use macportsbrew_application::{
 };
 use macportsbrew_domain::{
     redact_home, CheckAnswer, CheckBasis, CommandEnd, ConcurrentProviderActivity, DestinationFacts,
-    DestinationProbe, DomainError, ErrorId, ExecutableName, HomeRedaction, InterruptedRun,
-    MachineRead, MigrationPlan, PlanCommand, ProbeObservation, ProviderConfiguration, ProviderId,
-    ProviderLockProbe, ProviderRead, ResolutionState, RunStart, Snapshot, UncheckedCause,
-    VerificationCheck,
+    DomainError, ErrorId, ExecutableName, HomeRedaction, InterruptedRun, MachineRead,
+    MigrationPlan, PlanCommand, ProviderConfiguration, ProviderId, ProviderLockProbe, ProviderRead,
+    ResolutionState, RunStart, Snapshot, UncheckedCause, VerificationCheck,
 };
 use serde::Serialize;
 use std::cell::RefCell;
@@ -348,8 +347,23 @@ impl RunReport {
 /// part H), as [`ResolutionSite`] answers `RESOLVES_TO`. It is asked only what
 /// `next_destination_question` hands the loop, and decides nothing else.
 pub trait DestinationSite {
-    /// The answer to `question`.
+    /// The answer to `question`, for every question but [`Question::Probe`], which
+    /// is [`DestinationSite::answer_probe`]'s and is `NOT_OBSERVED` here.
     fn answer(&self, question: &Question) -> CheckAnswer;
+
+    /// `LIVENESS_PROBE` on `leaf` with `argv`, under `lock`: the run lock the
+    /// mutating loop holds, or `None` from the read-only loop, which holds none.
+    /// The default starts nothing, so a site written later runs no package's
+    /// program unless it says so; `None` is `NOT_OBSERVED` on every site.
+    fn answer_probe(
+        &self,
+        leaf: &ExecutableName,
+        argv: &[String],
+        lock: Option<&RunLock>,
+    ) -> CheckAnswer {
+        let _ = (leaf, argv, lock);
+        CheckAnswer::Unchecked(UncheckedCause::NotObserved)
+    }
 
     /// The neutral basis of what held, for `--json`, sorted. A site that observed
     /// nothing has none.
@@ -361,6 +375,15 @@ pub trait DestinationSite {
 impl<T: DestinationSite + ?Sized> DestinationSite for &T {
     fn answer(&self, question: &Question) -> CheckAnswer {
         (**self).answer(question)
+    }
+
+    fn answer_probe(
+        &self,
+        leaf: &ExecutableName,
+        argv: &[String],
+        lock: Option<&RunLock>,
+    ) -> CheckAnswer {
+        (**self).answer_probe(leaf, argv, lock)
     }
 
     fn bases(&self) -> Vec<CheckBasis> {
@@ -405,12 +428,8 @@ impl DestinationSite for MachineDestinationSite<'_, '_, '_> {
             }
             Question::Integrity => self.reads.integrity(provider, package),
             Question::Linkage => self.reads.linkage(provider, package),
-            Question::Probe { leaf, argv } => {
-                let ProbeObservation::NotRun(cause) =
-                    self.reads.liveness_probe(package, leaf, argv);
-                return CheckAnswer::Unchecked(cause);
-            }
-            Question::Done => DestinationFacts::NotObserved,
+            // A probe is asked through `answer_probe`, with the lock.
+            Question::Probe { .. } | Question::Done => DestinationFacts::NotObserved,
         };
         let answer = answer_from_facts(self.planned, &facts);
         if answer == CheckAnswer::Holds {
@@ -419,6 +438,23 @@ impl DestinationSite for MachineDestinationSite<'_, '_, '_> {
             }
         }
         answer
+    }
+
+    /// Through the registry's one route to a probe, which re-checks `lock` per
+    /// call before the admission. No lock, or no destination package, starts
+    /// nothing.
+    fn answer_probe(
+        &self,
+        leaf: &ExecutableName,
+        argv: &[String],
+        lock: Option<&RunLock>,
+    ) -> CheckAnswer {
+        let plan = self.planned.plan();
+        let (Some(lock), Some(package)) = (lock, plan.destination_package.as_deref()) else {
+            return CheckAnswer::Unchecked(UncheckedCause::NotObserved);
+        };
+        self.reads
+            .liveness_probe(&plan.destination, package, leaf, argv, lock)
     }
 
     fn bases(&self) -> Vec<CheckBasis> {
@@ -439,11 +475,13 @@ impl DestinationSite for NothingObserved {
 }
 
 /// Asks `site` what `next_destination_question` says to ask, until it says
-/// nothing more. Sequencing only.
+/// nothing more, handing a probe the run's `lock` (`None` from the read-only
+/// loop). Sequencing only.
 fn destination_answers(
     plan: &MigrationPlan,
     position: usize,
     site: &dyn DestinationSite,
+    lock: Option<&RunLock>,
 ) -> Vec<DestinationAnswer> {
     let mut answers = Vec::new();
     loop {
@@ -451,7 +489,10 @@ fn destination_answers(
         if question == Question::Done {
             return answers;
         }
-        let answer = site.answer(&question);
+        let answer = match &question {
+            Question::Probe { leaf, argv } => site.answer_probe(leaf, argv, lock),
+            _ => site.answer(&question),
+        };
         answers.push(DestinationAnswer { question, answer });
     }
 }
@@ -546,6 +587,8 @@ pub fn run_with_sites<S: ReadSite, R: ResolutionSite, D: DestinationSite>(
                 position,
                 &site,
                 &destination,
+                // The read-only loop holds no lock, so no probe starts from it.
+                None,
                 reread,
                 home,
                 &mut refusal,
@@ -944,6 +987,7 @@ pub fn run_with_mutations<S: ReadSite, D: DestinationSite, M: MutationSite>(
                 position,
                 &site,
                 &answering,
+                Some(&lock),
                 io.reread,
                 home,
                 &mut refusal,
@@ -1239,12 +1283,15 @@ fn state_changed(fact: macportsbrew_application::StateFact) -> RunReport {
 /// configuration re-read and re-checked, then the step's commands read, then
 /// `certify_destination` with the re-check's token. A failed re-read or
 /// re-check halts before any read. Sequencing only; every judgement is the
-/// application's.
+/// application's. `lock` is the run's, handed to a probe; the read-only loop
+/// passes `None`.
+#[allow(clippy::too_many_arguments)]
 fn certify(
     planned: &PlannedRun,
     position: usize,
     site: &dyn ReadSite,
     destination: &dyn DestinationSite,
+    lock: Option<&RunLock>,
     reread: Reread<'_>,
     home: &HomeRedaction,
     refusal: &mut Option<RenderedRefusal>,
@@ -1279,7 +1326,7 @@ fn certify(
     // A read that did not establish what it must already decides the step, and
     // nothing the site would run is run on the way to saying so.
     let answers = if reads_let_the_site_be_asked(planned, position, &reads) {
-        destination_answers(planned.plan(), position, destination)
+        destination_answers(planned.plan(), position, destination, lock)
     } else {
         Vec::new()
     };

@@ -209,28 +209,6 @@ pub struct LinkageFacts {
     pub env_shebang_on_list: bool,
 }
 
-/// What a probe observed. This slice runs none: only `NotRun` can come back,
-/// until the admission lands (`docs/passes/16-liveness-design.md`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProbeObservation {
-    /// No program was started, and why.
-    NotRun(UncheckedCause),
-}
-
-/// What runs a curated probe. **Not a supertrait of `ProviderRead`:** any holder
-/// of that trait could otherwise start a third-party program past the gate, the
-/// consent and the run lock (the design note). Obtained only from the registry's
-/// destination sites.
-pub trait DestinationProbe {
-    /// Runs `argv` on the placed `leaf` of `package`.
-    fn liveness_probe(
-        &self,
-        package: &str,
-        leaf: &ExecutableName,
-        argv: &[String],
-    ) -> ProbeObservation;
-}
-
 /// Which side a path lies on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrefixClass {

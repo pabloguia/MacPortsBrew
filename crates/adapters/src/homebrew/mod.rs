@@ -32,6 +32,7 @@
 pub mod destination;
 pub mod json;
 pub mod keg;
+mod probe_owner;
 
 use crate::argv::is_head_and_one_name;
 use crate::filesystem::FilesystemScope;
