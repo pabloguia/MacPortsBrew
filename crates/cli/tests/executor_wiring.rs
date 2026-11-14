@@ -181,6 +181,20 @@ fn snapshot(hb: &[&str], mp: &[&str]) -> Snapshot {
 struct AllHold;
 
 impl DestinationSite for AllHold {
+    /// The probe as every other question, as before H-3 routed it apart: this
+    /// stub starts no program, whatever it answers.
+    fn answer_probe(
+        &self,
+        leaf: &ExecutableName,
+        argv: &[String],
+        _: Option<&RunLock>,
+    ) -> CheckAnswer {
+        self.answer(&Question::Probe {
+            leaf: leaf.clone(),
+            argv: argv.to_vec(),
+        })
+    }
+
     fn answer(&self, _: &Question) -> CheckAnswer {
         CheckAnswer::Holds
     }
@@ -1625,6 +1639,20 @@ fn stored(scratch: &Scratch) -> macportsbrew_domain::RunRecord {
 struct LinkageFails;
 
 impl DestinationSite for LinkageFails {
+    /// The probe as every other question, as before H-3 routed it apart: this
+    /// stub starts no program, whatever it answers.
+    fn answer_probe(
+        &self,
+        leaf: &ExecutableName,
+        argv: &[String],
+        _: Option<&RunLock>,
+    ) -> CheckAnswer {
+        self.answer(&Question::Probe {
+            leaf: leaf.clone(),
+            argv: argv.to_vec(),
+        })
+    }
+
     fn answer(&self, question: &Question) -> CheckAnswer {
         if *question == Question::Linkage {
             CheckAnswer::Fails(macportsbrew_domain::CheckFailure::LinksAnotherProvider)
@@ -2223,6 +2251,20 @@ fn a_run_with_something_unchecked_and_every_step_done_ends_its_own_way() {
 struct UncheckedOnTheReread(RefCell<usize>);
 
 impl DestinationSite for UncheckedOnTheReread {
+    /// The probe as every other question, as before H-3 routed it apart: this
+    /// stub starts no program, whatever it answers.
+    fn answer_probe(
+        &self,
+        leaf: &ExecutableName,
+        argv: &[String],
+        _: Option<&RunLock>,
+    ) -> CheckAnswer {
+        self.answer(&Question::Probe {
+            leaf: leaf.clone(),
+            argv: argv.to_vec(),
+        })
+    }
+
     fn answer(&self, question: &Question) -> CheckAnswer {
         if matches!(question, Question::Owned { .. }) {
             *self.0.borrow_mut() += 1;
@@ -2263,6 +2305,20 @@ fn invariant_01_unchecked_ownership_on_the_reread_stops_the_removal() {
 struct Counting(RefCell<usize>);
 
 impl DestinationSite for Counting {
+    /// The probe as every other question, as before H-3 routed it apart: this
+    /// stub starts no program, whatever it answers.
+    fn answer_probe(
+        &self,
+        leaf: &ExecutableName,
+        argv: &[String],
+        _: Option<&RunLock>,
+    ) -> CheckAnswer {
+        self.answer(&Question::Probe {
+            leaf: leaf.clone(),
+            argv: argv.to_vec(),
+        })
+    }
+
     fn answer(&self, _: &Question) -> CheckAnswer {
         *self.0.borrow_mut() += 1;
         CheckAnswer::Holds

@@ -71,6 +71,7 @@ pub mod destination;
 pub mod names;
 pub mod parse;
 pub mod portfile;
+mod probe_owner;
 pub mod service;
 
 use crate::argv::{is_head_and_one_name, strip_head};

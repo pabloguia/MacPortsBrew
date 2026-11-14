@@ -94,6 +94,12 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         parse_one_owner(&invocation.stdout)
     }
 
+    /// [`Self::owner_read`], for the curated probe's condition 8 (`probe_owner.rs`):
+    /// the same read, the same strict parse, one path per call.
+    pub(super) fn registered_owner(&self, path: &Path) -> Result<Option<String>, UncheckedCause> {
+        self.owner_read(path)
+    }
+
     /// The rows of `port -q installed <name>`, fresh.
     fn installed_rows(&self, name: &str) -> Result<Vec<InstalledRow>, UncheckedCause> {
         if !crate::process::is_port_name(name) {
@@ -123,15 +129,26 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         leaf: &ExecutableName,
         held: Option<&InstalledPackage>,
     ) -> OwnershipFacts {
-        let entry = match destination_reads::placed_entry(&self.prefix, leaf.as_str()) {
-            Ok(Some(entry)) => entry,
-            Ok(None) => return OwnershipFacts::NoEntry,
-            Err(cause) => return OwnershipFacts::CouldNotTell(cause),
-        };
+        match destination_reads::placed_entry(&self.prefix, leaf.as_str()) {
+            Ok(Some(entry)) => self.entry_ownership(pkg, &entry, held),
+            Ok(None) => OwnershipFacts::NoEntry,
+            Err(cause) => OwnershipFacts::CouldNotTell(cause),
+        }
+    }
+
+    /// The owner rule on one placed `entry`: what `ownership` answers for it, and
+    /// what the curated probe's admission asks of the very file it is about to
+    /// run (conditions 6 and 7, `docs/passes/16-liveness-design.md`).
+    pub(super) fn entry_ownership(
+        &self,
+        pkg: &PackageIdentity,
+        entry: &Path,
+        held: Option<&InstalledPackage>,
+    ) -> OwnershipFacts {
         // Existence is a filesystem read: an empty answer means several things,
         // and a dangling registered link would pass (R-26 finding 20). Any other
         // errno proves nothing about the entry.
-        let real = match std::fs::canonicalize(&entry) {
+        let real = match std::fs::canonicalize(entry) {
             Ok(real) => real,
             Err(error) if destination_reads::is_gone(&error) => return OwnershipFacts::NoEntry,
             Err(_) => return OwnershipFacts::CouldNotTell(UncheckedCause::StatFailed),
@@ -140,7 +157,7 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
             return OwnershipFacts::CouldNotTell(UncheckedCause::StatFailed);
         };
         let not_named = OwnershipFacts::CouldNotTell(UncheckedCause::OwnerNotNamed);
-        let owner = match self.owner_read(&entry) {
+        let owner = match self.owner_read(entry) {
             Ok(Some(owner)) => owner,
             Ok(None) => return not_named,
             Err(cause) => return OwnershipFacts::CouldNotTell(cause),

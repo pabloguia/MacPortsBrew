@@ -185,7 +185,7 @@ before reporting done. **`crates/adapters/src/process/`** — the only subproces
 site; argv only, no shell, sanitised environment, so command injection is
 prevented structurally. **`crates/application/src/planner.rs`** — step ordering
 *is* INV-01; reordering is a safety change, not a refactor. **`crates/cli/src/executor/`, `application/src/executor.rs` and `execution_gate.rs`,
-`domain/src/verification.rs`, `registry::plan_read_spec`** — gate first, dispatch guard, read sites only, what certifies a step.
+`domain/src/verification.rs`, `registry::plan_read_spec`, `registry::DestinationSites::liveness_probe`, `{homebrew,macports}/probe_owner.rs`** — gate first, dispatch guard, read sites only, what certifies a step, the one route to a curated probe and the owner answers its admission rests on.
 **`crates/policy/src/rules/mod.rs`** — the priority constants and `all()` are a
 total order the engine depends on. **`scripts/*.sh` and `.claude/hooks/*.sh`** —
 the gates; weakening one is invisible until something it would have caught

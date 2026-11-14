@@ -12,8 +12,7 @@ use macportsbrew_adapters::persistence::StateDir;
 use macportsbrew_adapters::process::{CommandSpec, Invocation, ProcessRunner};
 use macportsbrew_adapters::registry::{destination_sites, RegistryContext};
 use macportsbrew_domain::{
-    DestinationFacts, DestinationProbe, DomainError, ExecutableName, ProbeObservation, ProviderId,
-    UncheckedCause,
+    CheckAnswer, DestinationFacts, DomainError, ExecutableName, ProviderId, UncheckedCause,
 };
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -169,27 +168,67 @@ fn invariant_15_a_provider_not_detected_observes_nothing() {
     std::fs::remove_dir_all(&base).ok();
 }
 
+/// The probe's one route, holding a real lock: under a replay, or a filesystem that
+/// is not this machine, it answers `NOT_OBSERVED` for either provider and asks the
+/// runner nothing, which panics if asked (INV-15; "What H-3 owes", H.md).
 #[test]
 fn invariant_15_a_replay_never_runs_a_probe() {
     let (base, state) = state("probe");
     let lock = acquire(&state, std::fs::metadata(&base).unwrap().uid()).unwrap();
-    let runner = NeverRun { replay: true };
+    let leaf = ExecutableName::parse("xz").unwrap();
+    let argv = ["--version".to_owned()];
+    for (replay, filesystem) in [
+        (true, FilesystemScope::Elsewhere),
+        (true, FilesystemScope::ThisMachine),
+        (false, FilesystemScope::Elsewhere),
+    ] {
+        let runner = NeverRun { replay };
+        let ctx = RegistryContext {
+            runner: &runner,
+            home: None,
+            platform_tags: Box::new(|_| Vec::new()),
+            filesystem,
+            prefix_override: Some(vec![(ProviderId::new("homebrew"), "/usr/local".into())]),
+        };
+        let sites = destination_sites(&ctx, &state, &lock);
+        for id in ["homebrew", "macports"] {
+            assert_eq!(
+                sites.liveness_probe(&ProviderId::new(id), "xz", &leaf, &argv, &lock),
+                CheckAnswer::Unchecked(UncheckedCause::NotObserved),
+                "{id} {replay} {filesystem:?}"
+            );
+        }
+    }
+    drop(lock);
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// Live, on this host, with a runner that has not said it may start a probe: the
+/// admission's condition 1 refuses before anything is read, whichever provider is
+/// installed here, and a provider this build does not know is never built. The
+/// runner panics if asked to run anything.
+#[test]
+fn a_live_runner_that_may_not_run_probes_never_starts_one() {
+    let (base, state) = state("probe-live");
+    let lock = acquire(&state, std::fs::metadata(&base).unwrap().uid()).unwrap();
+    let leaf = ExecutableName::parse("xz").unwrap();
+    let argv = ["--version".to_owned()];
+    let runner = NeverRun { replay: false };
     let ctx = RegistryContext {
         runner: &runner,
         home: None,
         platform_tags: Box::new(|_| Vec::new()),
-        filesystem: FilesystemScope::Elsewhere,
+        filesystem: FilesystemScope::ThisMachine,
         prefix_override: None,
     };
     let sites = destination_sites(&ctx, &state, &lock);
-    assert_eq!(
-        sites.liveness_probe(
-            "xz",
-            &ExecutableName::parse("xz").unwrap(),
-            &["--version".to_owned()]
-        ),
-        ProbeObservation::NotRun(UncheckedCause::NotObserved)
-    );
+    for id in ["homebrew", "macports", "no-such-provider"] {
+        assert_eq!(
+            sites.liveness_probe(&ProviderId::new(id), "xz", &leaf, &argv, &lock),
+            CheckAnswer::Unchecked(UncheckedCause::NotObserved),
+            "{id}"
+        );
+    }
     drop(lock);
     std::fs::remove_dir_all(&base).ok();
 }

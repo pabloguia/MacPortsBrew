@@ -386,6 +386,7 @@ Line numbers of `docs/spec/` below are at `9b8d68d`.
 - `ripgrep` or `gnupg` is installed on a machine available to this project: replace the `cited` rows, and settle `gpg`.
 - Part I builds shims (Finding 17); an arm64 machine is available (Findings 12, 19).
 - `man dyld`'s fallback text changes (E-6): Intel `/usr/local/lib` is why it matters.
+- macOS changes how the sandbox reports a denial, or the `(with report)` modifier's semantics: the 2026-11-13 round depends on it.
 
 ## Re-qualification of rows 1-13 (2026-11-04, work order 16 H-2)
 
@@ -400,3 +401,83 @@ Each row in the form it will run: the canonical path with `arg0` set to the plac
 `observed_version` is in the owner rule's shape: `pkgconf` holds two kegs here (3.0.6, 3.0.7) and 3.0.7 is linked. `~/Library`, **searched by name and not exhaustively:** nothing naming a row's program was newer than the run's marker, to depth 8 everywhere but `Containers`, `Group Containers`, `Mobile Documents`, `CloudStorage` and `Developer` (not searched), and to depth 3 of `Caches`. A walk of the whole of it did not finish in over an hour and was stopped, so a write under another name, or in those directories, is not excluded; the sandbox round would have denied such a write, and the program exited 0; whether one was attempted was not recorded. No crash report named one, and `xcrun_db` and the Command Line Tools marker were unchanged. **The same limits as above:** one Intel machine, and a sample. Row `gettext` (Homebrew) lands, but its keg holds Java classes (R-27, Ruling on Java classes), so the probe is not reached for it.
 
 Rows 14-15 (`rg`) did not land and cited rows were rejected (SE-113). The `evidence` field did not land. Rows are excluded from `policyReadOn` (DP-057), so Finding 25's staleness sentence is superseded.
+
+## Attempted writes, recorded (2026-11-13, work order 16 H-3)
+
+The gap above: under the sandbox round a write outside scratch would have been denied, but whether one was *attempted* was not recorded. This round records it, by making every denial a sandbox violation report and reading those reports from the unified log. Machine: the same one, now macOS 26.7.3 (25G342), x86_64, local time UTC-3 (all timestamps below are local, as `log show` prints them). Homebrew 7.0.11-143-g874c46a, MacPorts 2.12.6.
+
+**Versions, checked first (read-only).** All twelve match `observed_version`, so no row was skipped:
+
+```
+$ HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1 brew list --versions gettext htop pkgconf tree wget xz
+==> Downloading Homebrew API data
+✔︎ JSON API packages.tahoe.jws.json
+gettext 1.0 / htop 3.5.3 / pkgconf 3.0.6 3.0.7 / tree 2.3.2 / wget 1.25.0 / xz 5.8.3
+$ readlink /usr/local/opt/<formula>     → ../Cellar/<formula>/<the version above>; pkgconf → 3.0.7
+$ port -q installed htop jq m4 pkgconfig tree xz
+  htop @3.5.2_0 (active) / jq @1.8.2_0 (active) / m4 @1.4.21_0 (active) / pkgconfig @0.29.2_0 (active) / tree @2.3.2_0 (active) / xz @5.8.3_0 (active)
+```
+
+Side effect, recorded because it is a finding: **`brew list --versions` downloaded the API data despite `HOMEBREW_NO_AUTO_UPDATE=1`.** This is the cold-cache case R-15 already records (`R-15-homebrew-brew-env.md`): that variable does not keep a read offline.
+
+**The form run.** Exactly the re-qualification's: the canonical path (`realpath` of the placed leaf: `/usr/local/Cellar/<formula>/<version>/bin/<name>`, with `pkgconf` for the leaf `pkg-config`; `/opt/local/bin/<leaf>` for MacPorts, already canonical); one fresh scratch directory per run, `<session scratch>/h3/scratch/<label> run` (a space in the name), mode `0700`, as `HOME`, `TMPDIR` and working directory; `env -i` with exactly `PATH=<destination bin>:/usr/bin:/bin:/usr/sbin:/sbin LANG=C LC_ALL=C TERM=dumb NO_COLOR=1 HOME=<scratch> TMPDIR=<scratch> PYTHONDONTWRITEBYTECODE=1` (the design note's set, `CFFIXED_USER_HOME` not set); stdin `/dev/null`; stdout and stderr to files outside the scratch, opened by the shell before `sandbox-exec`; argv `--version`. Under `sandbox-exec`, `arg0` is the canonical path, as in the earlier sandbox round. No program without a row was run, and never `httpd`.
+
+**The profile, verbatim** (`@PROGRAM@` and `@SCRATCH@` replaced per run with the canonical path and the run's scratch directory; for example `(allow process-exec (literal "/usr/local/Cellar/htop/3.5.3/bin/htop"))`):
+
+```
+(version 1)
+(allow default)
+(deny network*)
+(deny process-exec*)
+(allow process-exec (literal "@PROGRAM@"))
+(deny file-write*)
+(allow file-write* (subpath "@SCRATCH@"))
+```
+
+A `deny` is reported by default. `(with report)` is not accepted on a deny on this macOS: `sandbox-exec: report modifier does not apply to deny action`, exit 65, so it was removed.
+
+**The log predicate** (with `/usr/bin/log`, since zsh has a `log` builtin): `log show --start "<start>" --end "<end>" --predicate 'sender == "Sandbox" OR subsystem == "com.apple.sandbox.reporting"' --style compact`. The reports appear as `kernel[0:<tid>] [com.apple.sandbox.reporting:violation] Sandbox: <process>(<pid>) deny(1) <operation> <path>`. The window holds other processes' reports too (`imagent`, `dasd`, `apsd`, `sharingd`, `findmybeaconingd`, `logd`), so they were filtered to the row's process name.
+
+**The positive control worked.** The same profile with `@PROGRAM@ = /usr/bin/touch`, a fresh scratch, and the argument `~/Library/mpb-sandbox-control-9063b78c7e63` (random, absent before):
+
+```
+touch exit 1, stderr: touch: ~/Library/mpb-sandbox-control-9063b78c7e63: Operation not permitted
+2026-11-13 19:40:51.573 E  kernel[0:89a3e] [com.apple.sandbox.reporting:violation] Sandbox: touch(85978) deny(1) file-write-data /dev/dtracehelper
+2026-11-13 19:40:51.576 E  kernel[0:89a3e] [com.apple.sandbox.reporting:violation] Sandbox: touch(85978) deny(1) file-write-create ~/Library/mpb-sandbox-control-9063b78c7e63
+```
+
+The file was not created. A negative control, `touch` of a file inside its own scratch, exited 0, created the file, and produced no report for that path (only the `/dev/dtracehelper` line). So a write inside scratch is not a violation, and an attempted write under `~/Library` is one.
+
+**`/dev/dtracehelper` is a canary.** Every program under this profile, `/usr/bin/touch` included, produces `deny(1) file-write-data /dev/dtracehelper` at start-up (the dynamic loader's DTrace helper, not the program's code; attributed by its appearance for `touch`, not by a citation). Its presence in a run's window shows that reporting was live for that process.
+
+**Reporting is lossy, observed.** 34 runs of row programs; the canary appeared for 27. Missing: Homebrew `gettext` in the first and second passes and in one of four repeats, MacPorts `gm4` in both passes, MacPorts `jq` in the second pass and in one repeat. In the first pass `gettext` (pid 89146) is in the log (`map_with_linking_np: [89146(gettext)]`), and on its kernel thread the only sandbox line is `2 duplicate reports for Sandbox: imagent(576) deny(1) mach-lookup com.apple.contactsd.persistence`. So the process ran, the canary must have been denied (the profile is the same), and its report was not in the log. The cause was not determined. **So no report does not prove no attempt.** The runs below count only where the canary was seen, and even then a later report from the same process could have been lost in the same way.
+
+| Row (provider, package, executable) | Runs | Canary seen | Exit | stderr | Violations other than the canary | Scratch after | Process left |
+|---|---|---|---|---|---|---|---|
+| homebrew, gettext, gettext | 7 | 4 | 0 in all | empty in all | none | empty | none |
+| homebrew, htop, htop | 2 | 2 | 0 | empty | none | empty | none |
+| homebrew, pkgconf, pkg-config | 2 | 2 | 0 | empty | none | empty | none |
+| homebrew, tree, tree | 2 | 2 | 0 | empty | none | empty | none |
+| homebrew, wget, wget | 2 | 2 | 0 | empty | none | empty | none |
+| homebrew, xz, xz | 2 | 2 | 0 | empty | none | empty | none |
+| macports, htop, htop | 2 | 2 | 0 | empty | none | empty | none |
+| macports, jq, jq | 6 | 4 | 0 | empty | none | empty | none |
+| macports, m4, gm4 | 3 | 1 | 0 | empty | none | empty | none |
+| macports, pkgconfig, pkg-config | 2 | 2 | 0 | empty | none | empty | none |
+| macports, tree, tree | 2 | 2 | 0 | empty | none | empty | none |
+| macports, xz, xz | 2 | 2 | 0 | empty | none | empty | none |
+
+Every run printed the version line `observed_version` describes. Each row's violation list, wherever one was reported, is exactly `file-write-data /dev/dtracehelper`: no `file-write*` under `~/Library` or anywhere else, no `process-exec`, no `network*`. Windows: first pass 19:42:37-19:43:13, second pass 19:44:44-19:45:19, single reruns of `gettext` and `gm4` 19:43:55-19:44:02, repeats of `gettext` and `jq` 19:46:00-19:46:28, all on 2026-11-13. "Process left" compares `ps -axo pid=,command=` before and after each run, by the program's path.
+
+**Before and after.** `/private/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress` was absent before and after; it was present after the 2026-11-04 sweep and is gone now, by no action of this round. `~/Library/Logs/DiagnosticReports`: 22 files before, 22 after, none newer than 19:40. `~/Library/mpb-sandbox-control-*`: absent after.
+
+A slip, recorded: the first attempt at the twelve ran under zsh, which does not word-split an unquoted variable. Each call became `sandbox-exec -f <profile> --version`, which printed its usage (`illegal option -- -`) and exited 64. No row program started, so those twelve calls are not counted above.
+
+**What this establishes.** In the sandboxed form, with the canary seen, none of the twelve programs had a reported attempt to write outside its scratch: not under `~/Library` (so `Containers`, `Group Containers`, `Mobile Documents`, `CloudStorage`, `Developer` and `Caches` too, which the name search left out), not into either provider's prefix, not anywhere else. Every row had at least one such run. None had a reported exec or network attempt either. Combined with the empty scratch afterwards, no run left a file in its scratch, and none had a reported write outside it.
+
+**What it does not establish.**
+- **Absence is bounded by a lossy channel.** 7 of 34 canaries were lost, so an attempt in a run where the canary was seen could still have been lost. Repetition makes a consistent attempt unlikely to go unseen; it does not exclude it.
+- **A write inside scratch is not a violation.** The empty scratch afterwards excludes a file left there, not one created and then removed.
+- **Writes done by another process are not this process's `file-write`.** The profile allows by default `user-preference-write`, `mach-lookup` and IPC, so a write that a daemon (for example `cfprefsd` or `ReportCrash`) performs for the program would not be a violation here. No crash report appeared. Whether any row reached such a service was not recorded.
+- **The sandboxed form is not the deployed form.** The probe as designed runs without a sandbox, and with `arg0` set to the placed leaf (`pkg-config`, not `.../pkgconf`). A program that checks whether it is sandboxed, or that branches on `arg0`, could act differently there. The plain-run rounds of R-28 (the sweep and the re-qualification) cover that form only through what they observed afterwards: exit 0, nothing on stderr, nothing in scratch, no process left, no crash report, `xcrun_db` and the Command Line Tools marker unchanged, nothing in either prefix (E-7), and a name search of `~/Library` that left out the directories listed above. So for the unsandboxed form, a write under another name, or into those directories, is still excluded only by inference from this round: the same binaries, the same arguments and environment, and no reported attempt. It is not excluded by observation.
+- One Intel machine, one OS build, the installed versions listed above. arm64 is not covered.

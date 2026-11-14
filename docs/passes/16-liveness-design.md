@@ -59,6 +59,8 @@ anyone could call. And **the probe is not a method of `ProviderRead`:** any hold
 that trait (`capture.rs`, a future `doctor`) could then start a third-party program with
 one call, past the gate, the consent and the run lock.
 
+*(Not as built: H-1 built this trait and H-3 removed it; see "As built" below.)*
+
 ```rust
 // domain: a trait of its own, not a supertrait of ProviderRead
 pub trait DestinationProbe {
@@ -221,7 +223,10 @@ conditions, the post-admission checks, the site checks and the answer table are 
 - **Who judges the answer.** `run_curated_probe` returns `CheckAnswer` itself, through an
   exhaustive table over the run's ending; there is no `ProbeObservation` and no application
   judge for the probe. The `DestinationProbe` trait above is not built: the call reaches the
-  module through H-3's `DestinationSites` method, as the round-6 amendment says.
+  module through H-3's `DestinationSites` method, as the round-6 amendment says. (H-1 had
+  built it in `domain` with a `ProbeObservation` return; **H-3 removed both**, since its one
+  implementor became `DestinationSites::liveness_probe`, which takes the run lock a domain
+  trait could never name. `docs/passes/16-plans/H.md`, "As built (H-3)".)
 - **The owner rule is a crate-internal trait, `ProbeOwner`,** re-exported with
   `run_curated_probe` as `pub(crate)` from `process/mod.rs`. The admission asks it
   `entry_owner(package, leaf, placed)` on the path the admission built, and

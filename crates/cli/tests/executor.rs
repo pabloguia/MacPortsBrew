@@ -2071,8 +2071,168 @@ fn invariant_15_the_machine_site_under_a_replay_answers_every_question_not_obser
                 "{question:?}"
             );
         }
+        // The probe's own route, with the lock and without it.
+        let argv = ["--version".to_owned()];
+        for held in [Some(&lock), None] {
+            assert_eq!(
+                site.answer_probe(&leaf, &argv, held),
+                CheckAnswer::Unchecked(UncheckedCause::NotObserved),
+                "{}",
+                held.is_some()
+            );
+        }
         assert!(site.bases().is_empty());
     }
     drop(lock);
     std::fs::remove_dir_all(&base).ok();
+}
+
+/// Live, on this machine, with a runner that says it may start a probe and panics
+/// if it is asked anything: with no lock, the machine site starts nothing and asks
+/// nothing, which is what the read-only loop passes ("What H-3 owes", H.md).
+#[test]
+fn without_the_lock_the_machine_site_starts_no_probe() {
+    use macportsbrew::executor::MachineDestinationSite;
+    use macportsbrew_adapters::filesystem::FilesystemScope;
+    use macportsbrew_adapters::persistence::{run_lock, StateDir};
+    use macportsbrew_adapters::process::{CommandSpec, Invocation, ProbeRun, ProcessRunner};
+    use macportsbrew_adapters::registry::{destination_sites, RegistryContext};
+    use macportsbrew_domain::{DomainError, ExecutableName};
+    use std::os::unix::fs::MetadataExt;
+
+    struct Panicking;
+
+    impl ProcessRunner for Panicking {
+        fn run(&self, _spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            panic!("a site with no lock ran a program");
+        }
+
+        fn is_replay(&self) -> bool {
+            false
+        }
+
+        fn run_probe(&self, _spec: &CommandSpec) -> ProbeRun {
+            panic!("a site with no lock started a probe");
+        }
+
+        fn may_run_probes(&self) -> bool {
+            true
+        }
+    }
+
+    let (snap, package, to) = install_needed(HB);
+    let run = planned(&snap, package, to, false);
+    let base = std::env::temp_dir().join(format!("mpb-site-nolock-{}", std::process::id()));
+    std::fs::remove_dir_all(&base).ok();
+    std::fs::create_dir_all(&base).unwrap();
+    let state = StateDir::resolve(None, Some(base.join("state").to_str().unwrap())).unwrap();
+    state.ensure().unwrap();
+    // Building the sites takes the lock as proof; the probe is then asked without it.
+    let lock = run_lock::acquire(&state, std::fs::metadata(&base).unwrap().uid()).unwrap();
+    let runner = Panicking;
+    let ctx = RegistryContext {
+        runner: &runner,
+        home: None,
+        platform_tags: Box::new(|_| Vec::new()),
+        filesystem: FilesystemScope::ThisMachine,
+        prefix_override: None,
+    };
+    let site = MachineDestinationSite::new(&run, destination_sites(&ctx, &state, &lock));
+    let leaf = ExecutableName::parse("gsed").unwrap();
+    assert_eq!(
+        site.answer_probe(&leaf, &["--version".to_owned()], None),
+        CheckAnswer::Unchecked(UncheckedCause::NotObserved)
+    );
+    drop(lock);
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// Who may hand a probe a lock: `answer_probe` is named only in the shell, as the
+/// trait's method, its forwarding, the machine site's and the loop's one call;
+/// the read-only loop passes `None` to `certify` and the mutating loop the lock it
+/// holds. A new caller elsewhere fails here.
+#[test]
+fn only_the_mutating_loop_hands_a_probe_the_lock() {
+    let crates = root().join("crates");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&crates).expect("crates") {
+        let src = entry.expect("an entry").path().join("src");
+        if !src.is_dir() {
+            continue;
+        }
+        for (file, word) in words(&src) {
+            if word == "answer_probe" {
+                let name = file.rsplit("crates/").next().unwrap_or(&file).to_owned();
+                found.push(name);
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    assert_eq!(
+        found,
+        ["cli/src/executor/mod.rs".to_owned()],
+        "the shell alone"
+    );
+    // The route behind it is `pub`, and so is taking a lock: no other module may
+    // call it, or a probe would start past the loop (security review L2). Every
+    // `.liveness_probe(` call in code, across the crates: the shell's one call on
+    // the sites, and the gate's and the planner's on the policy table.
+    let mut calls = Vec::new();
+    let mut pending = vec![crates.clone()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).expect("a directory") {
+            let path = entry.expect("an entry").path();
+            let name = path.to_string_lossy().into_owned();
+            if path.is_dir() {
+                if !name.ends_with("/target") && !name.ends_with("/tests") {
+                    pending.push(path);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") && name.contains("/src/") {
+                let text = std::fs::read_to_string(&path).expect("a source");
+                for line in text.lines() {
+                    let code = line.trim_start();
+                    if !code.starts_with("//") && code.contains(".liveness_probe(") {
+                        let file = name.rsplit("crates/").next().unwrap_or(&name).to_owned();
+                        calls.push(format!("{file}: {}", code.trim_end()));
+                    }
+                }
+            }
+        }
+    }
+    calls.sort();
+    assert_eq!(
+        calls,
+        [
+            "application/src/execution_gate.rs: .liveness_probe(provider, package, executable)",
+            "application/src/planner.rs: match policy.liveness_probe(request.to.as_str(), &dest_name, e.as_str()) {",
+            "cli/src/executor/mod.rs: .liveness_probe(&plan.destination, package, leaf, argv, lock)",
+            "policy/src/data.rs: data.liveness_probe(provider, package, leaf)",
+        ],
+        "the shell's call on the sites, and the policy table's readers (its own test among them)"
+    );
+    let text =
+        std::fs::read_to_string(root().join("crates/cli/src/executor/mod.rs")).expect("the shell");
+    let in_code = text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .filter(|line| line.contains("answer_probe"))
+        .count();
+    assert_eq!(
+        in_code, 5,
+        "the trait's, the forwarding (two), the machine site's, the loop's call"
+    );
+    let read_only = &text[text.find("pub fn run_with_sites").unwrap()..];
+    let read_only = &read_only[..read_only.find("\n}\n").unwrap()];
+    assert!(
+        read_only.contains("&destination,\n                // The read-only loop holds no lock, so no probe starts from it.\n                None,"),
+        "{read_only}"
+    );
+    assert!(!read_only.contains("Some(&lock)"), "{read_only}");
+    let mutating = &text[text.find("pub fn run_with_mutations").unwrap()..];
+    let mutating = &mutating[..mutating.find("\n}\n").unwrap()];
+    assert!(
+        mutating.contains("&answering,\n                Some(&lock),"),
+        "{mutating}"
+    );
 }

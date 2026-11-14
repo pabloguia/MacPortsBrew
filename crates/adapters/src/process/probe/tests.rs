@@ -1568,3 +1568,462 @@ fn the_reader_fails_closed() {
         assert!(parse_table(&text).is_err(), "{text}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// The adapters' owner answers (work order 16 H-3): conditions 7 and 8 as each
+// `ProbeOwner` answers them, on a real tree. Here, in this exempt test-only
+// file, because the trees need links and the stop gate exempts this file alone.
+// ---------------------------------------------------------------------------
+
+mod homebrew_owner {
+    //! Conditions 7 and 8 on a real tree in a scratch directory: the path rule
+    //! is what decides, so the tree is the subject and nothing is installed.
+    use crate::filesystem::FilesystemScope;
+    use crate::homebrew::{HomebrewAdapter, PROVIDER_ID};
+    use crate::process::{CommandSpec, ExitStatus, Invocation};
+    use crate::process::{ProbeOwner, ProcessRunner};
+    use macportsbrew_domain::DomainError;
+    use macportsbrew_domain::{ExecutableName, OwnershipFacts, UncheckedCause};
+    use std::collections::BTreeMap;
+    use std::os::unix::fs::symlink;
+    use std::path::Path;
+    use std::path::PathBuf;
+
+    /// Answers `--cellar` with the scratch tree's Cellar, and nothing else.
+    struct CellarOnly(PathBuf);
+
+    impl ProcessRunner for CellarOnly {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            // The adapter asks the Cellar here and nothing else: `cellar` is the
+            // only read the path rule needs, and the analysis is set below.
+            Ok(Invocation {
+                program: spec.program_name(),
+                argv: vec!["--cellar".into()],
+                environment: BTreeMap::new(),
+                status: ExitStatus::Exited { code: 0 },
+                stdout: format!("{}\n", self.0.display()),
+                stderr: String::new(),
+                truncated: false,
+                duration_ms: 0,
+            })
+        }
+
+        fn is_replay(&self) -> bool {
+            false
+        }
+    }
+
+    struct Tree(PathBuf);
+
+    impl Tree {
+        fn new(tag: &str) -> Self {
+            let root =
+                std::env::temp_dir().join(format!("mpb-hb-owner-{}-{tag}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).unwrap();
+            Self(std::fs::canonicalize(&root).unwrap())
+        }
+
+        fn file(&self, relative: &str) -> PathBuf {
+            let path = self.0.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, b"x").unwrap();
+            path
+        }
+
+        fn link(&self, relative: &str, target: &str) -> PathBuf {
+            let path = self.0.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            symlink(target, &path).unwrap();
+            path
+        }
+    }
+
+    impl Drop for Tree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A prefix with `xz` 5.8.3 (and its `lzcat` link), another keg, a cask, a
+    /// file under `var/` and one under the Homebrew repository.
+    fn tree(tag: &str) -> Tree {
+        let tree = Tree::new(tag);
+        tree.file("Cellar/xz/5.8.3/bin/xz");
+        tree.link("Cellar/xz/5.8.3/bin/lzcat", "xz");
+        tree.link("bin/xz", "../Cellar/xz/5.8.3/bin/xz");
+        tree.link("bin/lzcat", "../Cellar/xz/5.8.3/bin/lzcat");
+        tree.file("Cellar/other/1.0/bin/other");
+        tree.link("bin/other", "../Cellar/other/1.0/bin/other");
+        tree.file("Caskroom/acme/1.0/acme");
+        tree.link("bin/acme", "../Caskroom/acme/1.0/acme");
+        tree.file("var/run/thing");
+        tree.link("bin/thing", "../var/run/thing");
+        tree.file("Homebrew/bin/brew");
+        tree.link("bin/brew", "../Homebrew/bin/brew");
+        tree
+    }
+
+    fn adapter<'r>(runner: &'r CellarOnly, prefix: &Path) -> HomebrewAdapter<'r> {
+        let adapter = HomebrewAdapter::new(
+            runner,
+            prefix.to_path_buf(),
+            None,
+            Vec::new(),
+            FilesystemScope::ThisMachine,
+        );
+        adapter.with_linked_kegs_for_test(&[("xz", "5.8.3"), ("other", "1.0")])
+    }
+
+    fn leaf(name: &str) -> ExecutableName {
+        ExecutableName::parse(name).unwrap()
+    }
+
+    #[test]
+    fn the_answers_about_itself_are_its_own_fields() {
+        let tree = tree("self");
+        let runner = CellarOnly(tree.0.join("Cellar"));
+        let adapter = adapter(&runner, &tree.0);
+        assert_eq!(ProbeOwner::provider(&adapter), PROVIDER_ID);
+        assert_eq!(ProbeOwner::prefix(&adapter), tree.0.as_path());
+        assert!(ProbeOwner::is_this_machine(&adapter));
+        assert!(!ProbeOwner::runner(&adapter).may_run_probes());
+    }
+
+    #[test]
+    fn the_entry_and_its_target_are_the_packages_through_one_link_or_two() {
+        let tree = tree("own");
+        let runner = CellarOnly(tree.0.join("Cellar"));
+        let adapter = adapter(&runner, &tree.0);
+        for name in ["xz", "lzcat"] {
+            let placed = tree.0.join("bin").join(name);
+            let canonical = std::fs::canonicalize(&placed).unwrap();
+            assert_eq!(canonical, tree.0.join("Cellar/xz/5.8.3/bin/xz"), "{name}");
+            assert!(
+                matches!(
+                    adapter.entry_owner("xz", &leaf(name), &placed),
+                    OwnershipFacts::Owner { ref name, ref version, .. }
+                        if name == "xz" && version == "5.8.3"
+                ),
+                "{name}"
+            );
+            assert_eq!(
+                adapter.target_is_packages("xz", &placed, &canonical),
+                Ok(true),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_link_into_another_keg_is_not_the_packages() {
+        let tree = tree("other");
+        let runner = CellarOnly(tree.0.join("Cellar"));
+        let adapter = adapter(&runner, &tree.0);
+        let placed = tree.0.join("bin/other");
+        let canonical = std::fs::canonicalize(&placed).unwrap();
+        assert!(matches!(
+            adapter.entry_owner("xz", &leaf("other"), &placed),
+            OwnershipFacts::Owner { ref name, .. } if name == "other"
+        ));
+        assert_eq!(
+            adapter.target_is_packages("xz", &placed, &canonical),
+            Ok(false)
+        );
+    }
+
+    /// Under the prefix and not in a keg: the admission's own floor would pass
+    /// each, so the owner rule is what refuses them.
+    #[test]
+    fn a_target_under_the_caskroom_var_or_the_repository_is_nobodys() {
+        let tree = tree("outside");
+        let runner = CellarOnly(tree.0.join("Cellar"));
+        let adapter = adapter(&runner, &tree.0);
+        for name in ["acme", "thing", "brew"] {
+            let placed = tree.0.join("bin").join(name);
+            let canonical = std::fs::canonicalize(&placed).unwrap();
+            assert!(canonical.starts_with(&tree.0), "{name}");
+            assert_eq!(
+                adapter.target_is_packages(name, &placed, &canonical),
+                Ok(false),
+                "{name}"
+            );
+            assert!(
+                !matches!(
+                    adapter.entry_owner(name, &leaf(name), &placed),
+                    OwnershipFacts::Owner { .. }
+                ),
+                "{name}"
+            );
+        }
+    }
+
+    /// A Cellar that cannot be read proves nothing: never a `true`.
+    #[test]
+    fn a_cellar_that_does_not_resolve_is_a_failed_read() {
+        let tree = tree("nocellar");
+        let runner = CellarOnly(tree.0.join("no-such-cellar"));
+        let adapter = adapter(&runner, &tree.0);
+        let placed = tree.0.join("bin/xz");
+        let canonical = std::fs::canonicalize(&placed).unwrap();
+        assert_eq!(
+            adapter.target_is_packages("xz", &placed, &canonical),
+            Err(UncheckedCause::ReadFailed)
+        );
+    }
+    /// The runner as the registry hands it, `&dyn ProcessRunner`, reaches the
+    /// production runner's answer through this adapter's `runner()`: a wrapper that
+    /// forgot to forward would answer "may not" for ever, and every probe would be
+    /// `NOT_OBSERVED`. Asked, not run: nothing starts.
+    #[test]
+    fn the_production_runner_is_reached_through_the_adapter() {
+        use crate::process::SystemRunner;
+        for (system, expected) in [
+            (SystemRunner::new(), true),
+            (SystemRunner::recording(), false),
+        ] {
+            let runner: &dyn ProcessRunner = &system;
+            let adapter = HomebrewAdapter::new(
+                runner,
+                PathBuf::from("/nonexistent-prefix"),
+                None,
+                Vec::new(),
+                FilesystemScope::ThisMachine,
+            );
+            assert_eq!(ProbeOwner::runner(&adapter).may_run_probes(), expected);
+        }
+    }
+}
+
+mod macports_owner {
+    //! Conditions 7 and 8 on a real tree in a scratch directory, with the
+    //! registry's answers given per path: the query is what decides, and each of
+    //! the two paths is asked on its own.
+    use crate::filesystem::FilesystemScope;
+    use crate::macports::{MacPortsAdapter, PROVIDER_ID};
+    use crate::process::{
+        CommandSpec, ExitStatus, Invocation, RecordedInvocation, Recording, RecordingProvenance,
+        ReplayRunner,
+    };
+    use crate::process::{ProbeOwner, ProcessRunner};
+    use macportsbrew_domain::DomainError;
+    use macportsbrew_domain::{ExecutableName, OwnershipFacts, UncheckedCause};
+    use std::collections::BTreeMap;
+    use std::os::unix::fs::symlink;
+    use std::path::Path;
+    use std::path::PathBuf;
+
+    /// A recording synthesised in-test (not a machine capture): `-q provides
+    /// <path>` from `owners` (`Some(name)`: that port; `None`: a failed read), an
+    /// empty answer for every other path the test names, and `-q installed xz` as
+    /// one active row. Flagged live, so the adapter's own guard does not refuse.
+    struct Registry(ReplayRunner);
+
+    impl ProcessRunner for Registry {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            self.0.run(spec)
+        }
+
+        fn is_replay(&self) -> bool {
+            false
+        }
+    }
+
+    fn answer(argv: Vec<String>, code: i32, stdout: String) -> RecordedInvocation {
+        RecordedInvocation {
+            invocation: Invocation {
+                program: "port".into(),
+                argv,
+                environment: BTreeMap::new(),
+                status: ExitStatus::Exited { code },
+                stdout,
+                stderr: String::new(),
+                truncated: false,
+                duration_ms: 0,
+            },
+        }
+    }
+
+    fn provides(path: &Path) -> Vec<String> {
+        vec!["-q".into(), "provides".into(), path.display().to_string()]
+    }
+
+    struct Tree(PathBuf);
+
+    impl Drop for Tree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// `bin/xz`, `bin/lzcat -> xz`, `bin/other -> ../libexec/other` and
+    /// `bin/nobody -> ../share/nobody`.
+    fn tree(tag: &str) -> Tree {
+        let root = std::env::temp_dir().join(format!("mpb-mp-owner-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in ["bin", "libexec", "share"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        let root = std::fs::canonicalize(&root).unwrap();
+        std::fs::write(root.join("bin/xz"), b"x").unwrap();
+        symlink("xz", root.join("bin/lzcat")).unwrap();
+        std::fs::write(root.join("libexec/other"), b"x").unwrap();
+        symlink("../libexec/other", root.join("bin/other")).unwrap();
+        std::fs::write(root.join("share/nobody"), b"x").unwrap();
+        symlink("../share/nobody", root.join("bin/nobody")).unwrap();
+        Tree(root)
+    }
+
+    fn registry(root: &Path, extra: &[(&str, Option<&'static str>)]) -> Registry {
+        let mut owners: BTreeMap<PathBuf, Option<&'static str>> = [
+            ("bin/xz", Some("xz")),
+            ("bin/lzcat", Some("xz")),
+            ("bin/other", Some("xz")),
+            ("libexec/other", Some("other")),
+            ("bin/nobody", Some("xz")),
+            ("share/nobody", Some("")),
+        ]
+        .into_iter()
+        .map(|(path, owner)| (root.join(path), owner))
+        .collect();
+        for (path, owner) in extra {
+            owners.insert(root.join(path), *owner);
+        }
+        let mut invocations: Vec<RecordedInvocation> = owners
+            .iter()
+            .map(|(path, owner)| match owner {
+                Some("") => answer(provides(path), 0, String::new()),
+                Some(name) => answer(provides(path), 0, format!("{name}\n")),
+                None => answer(provides(path), 1, String::new()),
+            })
+            .collect();
+        invocations.push(answer(
+            vec!["-q".into(), "installed".into(), "xz".into()],
+            0,
+            "  xz @5.8.3_0 (active)\n".into(),
+        ));
+        Registry(ReplayRunner::new(Recording {
+            schema_version: 1,
+            provenance: RecordingProvenance {
+                macos: "26.7.3".into(),
+                architecture: "x86_64".into(),
+                provider_versions: Vec::new(),
+                captured_at: "2026-11-13T00:00:00Z".into(),
+                captured_by: "crates/adapters/src/macports/probe_owner.rs".into(),
+                origin: "synthesised".into(),
+                note: Some("built in-test for one case; not a machine capture".into()),
+            },
+            invocations,
+        }))
+    }
+
+    fn port_adapter<'r>(runner: &'r Registry, prefix: &Path) -> MacPortsAdapter<&'r Registry> {
+        MacPortsAdapter::new(
+            runner,
+            prefix.to_path_buf(),
+            None,
+            FilesystemScope::ThisMachine,
+        )
+    }
+
+    fn leaf(name: &str) -> ExecutableName {
+        ExecutableName::parse(name).unwrap()
+    }
+
+    #[test]
+    fn the_answers_about_itself_are_its_own_fields() {
+        let tree = tree("self");
+        let runner = registry(&tree.0, &[]);
+        let adapter = port_adapter(&runner, &tree.0);
+        assert_eq!(ProbeOwner::provider(&adapter), PROVIDER_ID);
+        assert_eq!(ProbeOwner::prefix(&adapter), tree.0.as_path());
+        assert!(ProbeOwner::is_this_machine(&adapter));
+        assert!(!ProbeOwner::runner(&adapter).may_run_probes());
+    }
+
+    #[test]
+    fn the_entry_and_its_target_are_the_packages_directly_or_through_a_link() {
+        let tree = tree("own");
+        let runner = registry(&tree.0, &[]);
+        let adapter = port_adapter(&runner, &tree.0);
+        for name in ["xz", "lzcat"] {
+            let placed = tree.0.join("bin").join(name);
+            let canonical = std::fs::canonicalize(&placed).unwrap();
+            assert!(
+                matches!(
+                    adapter.entry_owner("xz", &leaf(name), &placed),
+                    OwnershipFacts::Owner { ref name, ref version, .. }
+                        if name == "xz" && version == "5.8.3_0"
+                ),
+                "{name}"
+            );
+            assert_eq!(
+                adapter.target_is_packages("xz", &placed, &canonical),
+                Ok(true),
+                "{name}"
+            );
+        }
+    }
+
+    /// The entry is registered to the package and what it resolves to is another
+    /// port's: both are asked, so the target decides.
+    #[test]
+    fn a_link_into_another_port_is_not_the_packages() {
+        let tree = tree("other");
+        let runner = registry(&tree.0, &[]);
+        let adapter = port_adapter(&runner, &tree.0);
+        let placed = tree.0.join("bin/other");
+        let canonical = std::fs::canonicalize(&placed).unwrap();
+        assert!(matches!(
+            adapter.entry_owner("xz", &leaf("other"), &placed),
+            OwnershipFacts::Owner { ref name, .. } if name == "other"
+        ));
+        assert_eq!(
+            adapter.target_is_packages("xz", &placed, &canonical),
+            Ok(false)
+        );
+    }
+
+    /// An empty answer is not the package's (R-26 E-3), and a failed read is not
+    /// "not owned" (R-26 E-8): neither is ever a `true`.
+    #[test]
+    fn an_empty_answer_is_no_and_a_failed_read_is_an_error() {
+        let tree = tree("empty");
+        let runner = registry(&tree.0, &[]);
+        let adapter = port_adapter(&runner, &tree.0);
+        let placed = tree.0.join("bin/nobody");
+        let canonical = std::fs::canonicalize(&placed).unwrap();
+        assert_eq!(
+            adapter.target_is_packages("xz", &placed, &canonical),
+            Ok(false)
+        );
+        let runner = registry(&tree.0, &[("bin/xz", None)]);
+        let adapter = port_adapter(&runner, &tree.0);
+        let placed = tree.0.join("bin/xz");
+        assert_eq!(
+            adapter.target_is_packages("xz", &placed, &placed),
+            Err(UncheckedCause::ReadFailed)
+        );
+    }
+    /// The runner as the registry hands it, `&dyn ProcessRunner`, reaches the
+    /// production runner's answer through this adapter's `runner()`: a wrapper that
+    /// forgot to forward would answer "may not" for ever, and every probe would be
+    /// `NOT_OBSERVED`. Asked, not run: nothing starts.
+    #[test]
+    fn the_production_runner_is_reached_through_the_adapter() {
+        use crate::process::SystemRunner;
+        for (system, expected) in [
+            (SystemRunner::new(), true),
+            (SystemRunner::recording(), false),
+        ] {
+            let runner: &dyn ProcessRunner = &system;
+            let adapter = MacPortsAdapter::new(
+                runner,
+                PathBuf::from("/nonexistent-prefix"),
+                None,
+                FilesystemScope::ThisMachine,
+            );
+            assert_eq!(ProbeOwner::runner(&adapter).may_run_probes(), expected);
+        }
+    }
+}

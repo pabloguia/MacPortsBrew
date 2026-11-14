@@ -97,11 +97,22 @@ impl HomebrewAdapter<'_> {
         leaf: &ExecutableName,
         held: Option<&InstalledPackage>,
     ) -> OwnershipFacts {
-        let entry = match destination_reads::placed_entry(&self.prefix, leaf.as_str()) {
-            Ok(Some(entry)) => entry,
-            Ok(None) => return OwnershipFacts::NoEntry,
-            Err(cause) => return OwnershipFacts::CouldNotTell(cause),
-        };
+        match destination_reads::placed_entry(&self.prefix, leaf.as_str()) {
+            Ok(Some(entry)) => self.entry_ownership(pkg, &entry, held),
+            Ok(None) => OwnershipFacts::NoEntry,
+            Err(cause) => OwnershipFacts::CouldNotTell(cause),
+        }
+    }
+
+    /// The owner rule on one placed `entry`: what `ownership` answers for it, and
+    /// what the curated probe's admission asks of the very file it is about to
+    /// run (conditions 6 and 7, `docs/passes/16-liveness-design.md`).
+    pub(super) fn entry_ownership(
+        &self,
+        pkg: &PackageIdentity,
+        entry: &Path,
+        held: Option<&InstalledPackage>,
+    ) -> OwnershipFacts {
         let Ok(cellar) = self.cellar() else {
             return OwnershipFacts::CouldNotTell(UncheckedCause::ReadFailed);
         };
@@ -110,7 +121,7 @@ impl HomebrewAdapter<'_> {
         };
         // A link to nothing is no entry on either provider (R-26 finding 22). Any
         // other errno proves nothing about the entry.
-        let real = match std::fs::canonicalize(&entry) {
+        let real = match std::fs::canonicalize(entry) {
             Ok(real) => real,
             Err(error) if destination_reads::is_gone(&error) => return OwnershipFacts::NoEntry,
             Err(_) => return OwnershipFacts::CouldNotTell(UncheckedCause::StatFailed),
@@ -118,7 +129,7 @@ impl HomebrewAdapter<'_> {
         let Some((name, version)) = keg_of(&real, &real_cellar) else {
             // `Keg.for` says no, and `Keg#unlink`'s one-hop rule may say yes: the
             // two disagree on `npm` and `npx`. The source is kept (R-26 finding 14).
-            let first = destination_reads::first_hop(&entry);
+            let first = destination_reads::first_hop(entry);
             let in_keg = first
                 .as_deref()
                 .and_then(|hop| keg_of(hop, &cellar).or_else(|| keg_of(hop, &real_cellar)));
