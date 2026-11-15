@@ -45,6 +45,19 @@ pub fn row_version(row: &InstalledRow) -> String {
     }
 }
 
+/// The version of the one active row, `None` if there is none. MacPorts
+/// activates one image of a port at a time, so two active rows are output this
+/// reader does not understand: a failed read, never the first of them
+/// (work order 16 H-4, security review L-1).
+fn active_row_version(rows: &[InstalledRow]) -> Result<Option<String>, UncheckedCause> {
+    let mut active = rows.iter().filter(|row| row.active);
+    let first = active.next();
+    if active.next().is_some() {
+        return Err(UncheckedCause::ReadFailed);
+    }
+    Ok(first.map(row_version))
+}
+
 /// A snapshot row's version in the shape an owner answer has: the row keeps the
 /// revision apart, and `port -q installed` prints them together.
 #[must_use]
@@ -103,13 +116,10 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
     /// The active version of `name`, from a fresh `port -q installed <name>`
     /// (`installed_rows`, which `scripts/test-gates.sh` pins as a private
     /// function): for the curated probe's condition 8 (`probe_owner.rs`, work
-    /// order 16 H-4 L1). No active row is `None`.
+    /// order 16 H-4 L1). No active row is `None`; more than one is a failed
+    /// read ([`active_row_version`]).
     pub(super) fn active_version(&self, name: &str) -> Result<Option<String>, UncheckedCause> {
-        Ok(self
-            .installed_rows(name)?
-            .iter()
-            .find(|row| row.active)
-            .map(row_version))
+        active_row_version(&self.installed_rows(name)?)
     }
 
     /// The rows of `port -q installed <name>`, fresh.
@@ -199,7 +209,10 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
             Ok(rows) => rows,
             Err(cause) => return OwnershipFacts::CouldNotTell(cause),
         };
-        let active = rows.iter().find(|row| row.active).map(row_version);
+        let active = match active_row_version(&rows) {
+            Ok(active) => active,
+            Err(cause) => return OwnershipFacts::CouldNotTell(cause),
+        };
         // `provides` is active only, so the owner is the active image, within the
         // window between the two reads (R-26 finding 5). It names no version of
         // its own, so an absent active row fails on the comparison above it.

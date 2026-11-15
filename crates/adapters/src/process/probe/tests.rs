@@ -1939,6 +1939,104 @@ mod homebrew_owner {
             Err(UncheckedCause::ProbeVersionNotQualified)
         );
     }
+
+    /// A runner over a scratch tree that, while answering the inventory read
+    /// (`info --json=v2 --installed`), relinks `bin/xz` from the 5.8.3 keg to
+    /// the 5.8.4 keg, as a `brew link` in another process would. On the real
+    /// owner that read is the one runner call between the entry's resolution
+    /// (condition 7, which reads `--cellar` first) and `admit`'s own: no
+    /// analysis is preset, so `entry_ownership` makes it. The inventory text is
+    /// composed in the shape the adapter's own `json.rs` tests parse.
+    struct RelinksOnTheInventoryRead {
+        root: PathBuf,
+        relinked: std::cell::Cell<bool>,
+    }
+
+    impl ProcessRunner for RelinksOnTheInventoryRead {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            let argv: Vec<&str> = spec.argv.iter().map(String::as_str).collect();
+            let stdout = match argv.as_slice() {
+                ["--cellar"] => format!("{}\n", self.root.join("Cellar").display()),
+                ["--caskroom"] => format!("{}\n", self.root.join("Caskroom").display()),
+                ["--cache"] => format!("{}\n", self.root.join("cache").display()),
+                ["list", "--pinned"] => String::new(),
+                ["info", "--json=v2", "--installed"] => {
+                    let placed = self.root.join("bin/xz");
+                    std::fs::remove_file(&placed).unwrap();
+                    symlink("../Cellar/xz/5.8.4/bin/xz", &placed).unwrap();
+                    self.relinked.set(true);
+                    concat!(
+                        r#"{"formulae": [{"name": "xz", "versions": {"stable": "5.8.4"}, "#,
+                        r#""bottle": {}, "service": null, "linked_keg": "5.8.3", "#,
+                        r#""installed": [{"version": "5.8.3"}, {"version": "5.8.4"}]}], "#,
+                        r#""casks": []}"#
+                    )
+                    .to_owned()
+                }
+                other => panic!("an unexpected read: {other:?}"),
+            };
+            Ok(Invocation {
+                program: spec.program_name(),
+                argv: spec.argv.clone(),
+                environment: BTreeMap::new(),
+                status: ExitStatus::Exited { code: 0 },
+                stdout,
+                stderr: String::new(),
+                truncated: false,
+                duration_ms: 0,
+            })
+        }
+
+        fn is_replay(&self) -> bool {
+            false
+        }
+
+        fn run_probe(&self, _spec: &CommandSpec) -> crate::process::ProbeRun {
+            panic!("an admission started a program");
+        }
+
+        fn may_run_probes(&self) -> bool {
+            true
+        }
+    }
+
+    /// Work order 16 H-4, L1, on the real Homebrew owner: `bin/xz` is relinked
+    /// to another version's keg between condition 6's resolution, at the row's
+    /// version, and the program's. The target's own version is not the row's,
+    /// so the admission refuses it as changed. A fresh tree each call.
+    pub(super) fn admit_relinked_during_admission(tag: &str) -> Result<(), UncheckedCause> {
+        let tree = admissible_tree(tag);
+        let newer = tree.0.join("Cellar/xz/5.8.4/bin/xz");
+        std::fs::create_dir_all(newer.parent().unwrap()).unwrap();
+        super::write_executable(&newer, super::ADMISSIBLE);
+        let runner = RelinksOnTheInventoryRead {
+            root: tree.0.clone(),
+            relinked: std::cell::Cell::new(false),
+        };
+        let adapter = HomebrewAdapter::new(
+            &runner,
+            tree.0.clone(),
+            None,
+            Vec::new(),
+            FilesystemScope::ThisMachine,
+        );
+        let table = [super::row(PROVIDER_ID, "xz", "xz", &["--version"], "5.8.3")];
+        let answer =
+            super::AdmittedProbe::admit(&table, &adapter, "xz", "xz", &super::flag()).map(|_| ());
+        assert!(
+            runner.relinked.get(),
+            "the relink happened during the admission"
+        );
+        answer
+    }
+
+    #[test]
+    fn a_relink_to_another_versions_keg_during_the_admission_is_refused() {
+        assert_eq!(
+            admit_relinked_during_admission("relink"),
+            Err(UncheckedCause::ProbeTargetChanged)
+        );
+    }
 }
 
 mod macports_owner {
@@ -2232,27 +2330,46 @@ mod macports_owner {
         );
     }
 
-    /// [`MayProbe`], whose registry activates another version of `xz` after
-    /// its first `-q installed xz` answer: every later one names `5.8.3_0`
-    /// inactive and `5.8.4_0` active, in the row shapes the captured
-    /// recordings hold (`openssl3 @3.1.5_0` inactive, R-26's `(active)` row).
-    struct ActivatesAfterFirstRead {
+    /// `-q installed xz` once another version is activated: `5.8.3_0` inactive
+    /// and `5.8.4_0` active, in the row shapes the captured recordings hold
+    /// (`openssl3 @3.1.5_0` inactive, R-26's `(active)` row).
+    const ACTIVATED: &str = "  xz @5.8.3_0\n  xz @5.8.4_0 (active)\n";
+    /// Two rows both marked `(active)`, each in the captured row shape: output
+    /// MacPorts does not give for one port, and so a failed read.
+    const TWO_ACTIVE: &str = "  xz @5.8.3_0 (active)\n  xz @5.8.4_0 (active)\n";
+
+    /// [`MayProbe`], whose `-q installed xz` answers are `first` (the
+    /// registry's own when `None`) and then `later` for every read after it.
+    struct InstalledSays {
         inner: MayProbe,
         installed_reads: std::cell::Cell<usize>,
+        first: Option<&'static str>,
+        later: &'static str,
     }
 
-    impl ProcessRunner for ActivatesAfterFirstRead {
+    impl InstalledSays {
+        fn over(tree: &Tree, first: Option<&'static str>, later: &'static str) -> Self {
+            Self {
+                inner: MayProbe(registry(&tree.0, &[])),
+                installed_reads: std::cell::Cell::new(0),
+                first,
+                later,
+            }
+        }
+    }
+
+    impl ProcessRunner for InstalledSays {
         fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
             if spec.argv.as_slice() == ["-q", "installed", "xz"] {
                 let reads = self.installed_reads.get() + 1;
                 self.installed_reads.set(reads);
-                if reads > 1 {
-                    return Ok(answer(
-                        spec.argv.clone(),
-                        0,
-                        "  xz @5.8.3_0\n  xz @5.8.4_0 (active)\n".into(),
-                    )
-                    .invocation);
+                let text = if reads == 1 {
+                    self.first
+                } else {
+                    Some(self.later)
+                };
+                if let Some(text) = text {
+                    return Ok(answer(spec.argv.clone(), 0, text.into()).invocation);
                 }
             }
             self.inner.run(spec)
@@ -2275,15 +2392,11 @@ mod macports_owner {
     /// fresh `-q installed` read, never the entry's earlier answer, so an
     /// activation between condition 6's read and condition 8's is refused,
     /// though the entry, its target and the registry's owner are unchanged.
-    #[test]
-    fn an_activation_between_the_two_version_reads_is_refused() {
-        let tree = admissible_tree("activate");
-        let runner = ActivatesAfterFirstRead {
-            inner: MayProbe(registry(&tree.0, &[])),
-            installed_reads: std::cell::Cell::new(0),
-        };
+    /// `xz` through the admission, its `-q installed xz` answered by `runner`;
+    /// the number of those reads made.
+    fn admit_over(tree: &Tree, runner: &InstalledSays) -> (Result<(), UncheckedCause>, usize) {
         let adapter =
-            MacPortsAdapter::new(&runner, tree.0.clone(), None, FilesystemScope::ThisMachine);
+            MacPortsAdapter::new(runner, tree.0.clone(), None, FilesystemScope::ThisMachine);
         let table = [super::row(
             PROVIDER_ID,
             "xz",
@@ -2291,11 +2404,59 @@ mod macports_owner {
             &["--version"],
             "5.8.3_0",
         )];
+        let answer =
+            super::AdmittedProbe::admit(&table, &adapter, "xz", "xz", &super::flag()).map(|_| ());
+        (answer, runner.installed_reads.get())
+    }
+
+    /// Work order 16 H-4, L1, on the real MacPorts owner: another version is
+    /// activated between condition 6's `-q installed` read and condition 8's,
+    /// the entry, its target and the registry's owner unchanged. A fresh tree
+    /// each call.
+    pub(super) fn admit_activated_during_admission(tag: &str) -> Result<(), UncheckedCause> {
+        let tree = admissible_tree(tag);
+        let runner = InstalledSays::over(&tree, None, ACTIVATED);
+        let (answer, reads) = admit_over(&tree, &runner);
+        assert_eq!(reads, 2, "condition 6's read, then 8's");
+        answer
+    }
+
+    /// Condition 8's version is a fresh `-q installed` read, never the
+    /// entry's earlier answer, so the activation is refused.
+    #[test]
+    fn an_activation_between_the_two_version_reads_is_refused() {
         assert_eq!(
-            super::AdmittedProbe::admit(&table, &adapter, "xz", "xz", &super::flag()).map(|_| ()),
+            admit_activated_during_admission("activate"),
             Err(UncheckedCause::ProbeTargetChanged)
         );
-        assert_eq!(runner.installed_reads.get(), 2, "condition 6's, then 8's");
+    }
+
+    /// Two `(active)` rows are a failed read wherever the active row is taken,
+    /// never the first of them (security review L-1): the entry's owner rule
+    /// cannot tell, and the target's version is an error.
+    #[test]
+    fn two_active_rows_are_a_failed_read_never_the_first() {
+        let tree = admissible_tree("two-active");
+        let runner = InstalledSays::over(&tree, Some(TWO_ACTIVE), TWO_ACTIVE);
+        let adapter =
+            MacPortsAdapter::new(&runner, tree.0.clone(), None, FilesystemScope::ThisMachine);
+        let placed = tree.0.join("bin/xz");
+        assert_eq!(
+            adapter.entry_owner("xz", &leaf("xz"), &placed),
+            OwnershipFacts::CouldNotTell(UncheckedCause::ReadFailed)
+        );
+        assert_eq!(
+            adapter.target_version("xz", &placed, &placed),
+            Err(UncheckedCause::ReadFailed)
+        );
+        // Through the admission: at condition 7 when the entry's read sees
+        // them, and at condition 8 when only the target's does.
+        let (answer, _) = admit_over(&tree, &runner);
+        assert_eq!(answer, Err(UncheckedCause::ProbeEntryNotThePackages));
+        let runner = InstalledSays::over(&tree, None, TWO_ACTIVE);
+        let (answer, reads) = admit_over(&tree, &runner);
+        assert_eq!(answer, Err(UncheckedCause::ProbeTargetNotThePackages));
+        assert_eq!(reads, 2);
     }
 }
 
@@ -2304,8 +2465,13 @@ mod macports_owner {
 /// version is admitted, an entry that is a link into another package is refused
 /// at condition 7, and a version not the row's at condition 6. The mechanism is
 /// each provider's own and declared (a path rule against a registry query); the
-/// answer is not. Each tree is still, so this is a link into another package,
-/// not a relink during admission: condition 8 is a defence against a race only.
+/// answer is not. Those trees are still, so that is a link into another
+/// package, not a relink during admission: condition 8 is a defence against a
+/// race only, and its row is the last one (L1). There, on each provider, the
+/// version that runs changes between condition 6's resolution and the
+/// program's, each in its own form (Homebrew: `bin/xz` relinked to another
+/// version's keg; MacPorts: another version activated), and both owners refuse
+/// it as `PROBE_TARGET_CHANGED`.
 #[test]
 fn invariant_17_both_owners_refuse_a_link_into_another_package_alike() {
     let hb = homebrew_owner::admissible_tree("inv17");
@@ -2337,4 +2503,15 @@ fn invariant_17_both_owners_refuse_a_link_into_another_package_alike() {
             "macports {leaf}"
         );
     }
+    // L1: another version of the package at the target during admission.
+    assert_eq!(
+        homebrew_owner::admit_relinked_during_admission("inv17-l1"),
+        Err(UncheckedCause::ProbeTargetChanged),
+        "homebrew, relinked"
+    );
+    assert_eq!(
+        macports_owner::admit_activated_during_admission("inv17-l1"),
+        Err(UncheckedCause::ProbeTargetChanged),
+        "macports, activated"
+    );
 }
