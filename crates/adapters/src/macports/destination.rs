@@ -100,6 +100,18 @@ impl<R: ProcessRunner> MacPortsAdapter<R> {
         self.owner_read(path)
     }
 
+    /// The active version of `name`, from a fresh `port -q installed <name>`
+    /// (`installed_rows`, which `scripts/test-gates.sh` pins as a private
+    /// function): for the curated probe's condition 8 (`probe_owner.rs`, work
+    /// order 16 H-4 L1). No active row is `None`.
+    pub(super) fn active_version(&self, name: &str) -> Result<Option<String>, UncheckedCause> {
+        Ok(self
+            .installed_rows(name)?
+            .iter()
+            .find(|row| row.active)
+            .map(row_version))
+    }
+
     /// The rows of `port -q installed <name>`, fresh.
     fn installed_rows(&self, name: &str) -> Result<Vec<InstalledRow>, UncheckedCause> {
         if !crate::process::is_port_name(name) {

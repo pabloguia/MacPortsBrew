@@ -523,6 +523,32 @@ this note's observation, not a read the product should make.
     `REMOVE_SOURCE` directly; and the probe must run the resolved path and report what it ran.
     On a read changing between calls (an empty answer after a non-empty one), the outcome is a halt.
 
+## Does a MacPorts activation give the file a new identity? (2026-11-15)
+
+Asked for work order 16 H-4 L1, whose admission brackets the version read with two `lstat`s of
+the canonical target and relies on an activation in between changing what `lstat` returns.
+Observed read-only on this machine (x86_64, macOS 26.7.3, MacPorts 2.12.6), with `stat -f`,
+`tar -tvjf` on the image and `sqlite3` on the registry opened `mode=ro&immutable=1`:
+
+| What | Inode | Birth | `ctime` | `mtime` |
+|---|---|---|---|---|
+| `/opt/local/var/macports/software/xz/xz-5.8.3_0.darwin_25.x86_64.tbz2` | 275282276 | 15:52:09 | 15:52:10 | 15:52:10 |
+| `/opt/local/bin/xz` (the active `xz` 5.8.3_0's file) | 275283516 | 15:51:56 | 15:52:11 | 15:51:56 |
+
+All 2026-09-07. The archive lists `./opt/local/bin/xz` with mode `-rwxr-xr-x`, 84944 bytes,
+dated 15:51; the registry's `ports` row for `xz` 5.8.3_0 is `installed`, dated 15:52:10. So the
+file under the prefix was written after the image archive existed and after the registry
+recorded the install (its `ctime` is a second later, and its inode was allocated after the
+archive's), with the archived `mtime` restored: **activation extracts the image into the prefix,
+and the file it places is a new file.** An activation between the two `lstat`s therefore changes
+the inode and the `ctime` the admission compares.
+
+**Not observed, because it needs a mutation:** a deactivation and re-activation of an image
+already extracted once, and an activation of a second version of a port with the first still
+installed. Both are inferred to extract again, as the one activation observed did; if MacPorts
+ever placed a file by a hard link or a rename that kept its inode, the `ctime` would still
+change. The residual is declared in SE-113.
+
 ## Cannot determine
 
 - **`port -q provides` on a `select`-managed link.** Inference: empty, exit 0 (finding 2, E-7).

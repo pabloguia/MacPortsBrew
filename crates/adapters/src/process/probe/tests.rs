@@ -164,7 +164,11 @@ struct Owner {
     provider: &'static str,
     this_machine: bool,
     entry: OwnershipFacts,
-    target: Result<bool, UncheckedCause>,
+    /// `target_version`'s answer (L1).
+    target: Result<Option<String>, UncheckedCause>,
+    /// Run inside `target_version`, before it answers: what a relink, an
+    /// activation or a rewrite between the two `lstat`s would do.
+    during_target: Option<Box<dyn Fn()>>,
     entry_asked: RefCell<Vec<PathBuf>>,
     target_asked: RefCell<Vec<(PathBuf, PathBuf)>>,
 }
@@ -184,7 +188,8 @@ impl Owner {
             provider: PROVIDER,
             this_machine: true,
             entry: owned(PACKAGE, VERSION),
-            target: Ok(true),
+            target: Ok(Some(VERSION.to_owned())),
+            during_target: None,
             entry_asked: RefCell::new(Vec::new()),
             target_asked: RefCell::new(Vec::new()),
         }
@@ -222,16 +227,19 @@ impl ProbeOwner for Owner {
         self.entry_asked.borrow_mut().push(placed.to_path_buf());
         self.entry.clone()
     }
-    fn target_is_packages(
+    fn target_version(
         &self,
         _package: &str,
         placed: &Path,
         canonical: &Path,
-    ) -> Result<bool, UncheckedCause> {
+    ) -> Result<Option<String>, UncheckedCause> {
         self.target_asked
             .borrow_mut()
             .push((placed.to_path_buf(), canonical.to_path_buf()));
-        self.target
+        if let Some(during) = &self.during_target {
+            during();
+        }
+        self.target.clone()
     }
 }
 
@@ -454,7 +462,8 @@ fn condition_7_the_placed_entry_is_the_packages_by_the_owner_rule_now() {
 #[test]
 fn condition_8_what_it_resolves_to_is_the_packages_and_under_the_prefix() {
     let fx = Fixture::new("c8", ADMISSIBLE);
-    for target in [Ok(false), Err(UncheckedCause::ReadFailed)] {
+    // Not the package's, and a read that failed: neither is ever a yes.
+    for target in [Ok(None), Err(UncheckedCause::ReadFailed)] {
         let mut owner = Owner::of(&fx);
         owner.target = target;
         let answer = probe(&fx, &owner, &the_row(), LEAF, &flag());
@@ -486,6 +495,55 @@ fn condition_8_what_it_resolves_to_is_the_packages_and_under_the_prefix() {
         Path::new("/opt/local2/bin/x"),
         Path::new("/opt/local")
     ));
+}
+
+/// The admission alone, which starts nothing: L1's refusals are all before
+/// condition 11, and its control is admitted without a spawn.
+fn admit_only(owner: &Owner) -> Result<(), UncheckedCause> {
+    AdmittedProbe::admit(&the_row(), owner, PACKAGE, LEAF, &flag()).map(|_| ())
+}
+
+/// Work order 16 H-4, L1, by the test double: the target's own version and
+/// identity, which no real owner on a still tree can answer apart from the
+/// entry's. Condition 6 has passed on the entry each time.
+#[test]
+fn condition_8_the_target_is_the_rows_version_on_the_file_lstat_described() {
+    let fx = Fixture::new("l1", ADMISSIBLE);
+    // Another version of the same package where the entry resolved to the
+    // row's: a relink between the two resolutions.
+    for version in ["1.0_1", "1.0", "2.0_0", ""] {
+        let mut owner = Owner::of(&fx);
+        owner.target = Ok(Some(version.to_owned()));
+        assert_eq!(
+            admit_only(&owner),
+            Err(UncheckedCause::ProbeTargetChanged),
+            "{version:?}"
+        );
+        assert_eq!(owner.started(), 0);
+    }
+    // The file changed while its version was read, its inode kept (a mode
+    // change, which condition 11's handle check does not see) or not (a new
+    // file, as an activation extracts one): the identity taken before the
+    // read is not the one after it.
+    let canonical = fx.canonical.clone();
+    let mut owner = Owner::of(&fx);
+    owner.during_target = Some(Box::new(move || {
+        std::fs::set_permissions(&canonical, std::fs::Permissions::from_mode(0o700)).expect("mode");
+    }));
+    assert_eq!(admit_only(&owner), Err(UncheckedCause::ProbeTargetChanged));
+    let canonical = fx.canonical.clone();
+    let mut owner = Owner::of(&fx);
+    owner.during_target = Some(Box::new(move || {
+        let fresh = canonical.with_extension("new");
+        write_executable(&fresh, ADMISSIBLE);
+        std::fs::rename(&fresh, &canonical).expect("replace");
+    }));
+    assert_eq!(admit_only(&owner), Err(UncheckedCause::ProbeTargetChanged));
+    // The control: the file the last case left, still, at the row's version,
+    // is admitted.
+    let owner = Owner::of(&fx);
+    assert_eq!(admit_only(&owner), Ok(()));
+    assert_eq!(owner.target_asked.borrow().len(), 1, "asked once");
 }
 
 #[test]
@@ -1708,11 +1766,29 @@ mod homebrew_owner {
                 "{name}"
             );
             assert_eq!(
-                adapter.target_is_packages("xz", &placed, &canonical),
-                Ok(true),
+                adapter.target_version("xz", &placed, &canonical),
+                Ok(Some("5.8.3".to_owned())),
                 "{name}"
             );
         }
+    }
+
+    /// Work order 16 H-4, L1: the version is the keg `canonical` lies in,
+    /// read from that path and never from `placed`. Here `placed` is itself a
+    /// file of the package's older keg, linked to the newer one, so a version
+    /// read from it would be the older keg's.
+    #[test]
+    fn the_version_is_the_kegs_the_target_lies_in_not_the_entrys() {
+        let tree = tree("version");
+        let placed = tree.link("Cellar/xz/5.8.2/bin/xz", "../../5.8.3/bin/xz");
+        let runner = CellarOnly(tree.0.join("Cellar"));
+        let adapter = adapter(&runner, &tree.0);
+        let canonical = std::fs::canonicalize(&placed).unwrap();
+        assert_eq!(canonical, tree.0.join("Cellar/xz/5.8.3/bin/xz"));
+        assert_eq!(
+            adapter.target_version("xz", &placed, &canonical),
+            Ok(Some("5.8.3".to_owned()))
+        );
     }
 
     #[test]
@@ -1726,10 +1802,7 @@ mod homebrew_owner {
             adapter.entry_owner("xz", &leaf("other"), &placed),
             OwnershipFacts::Owner { ref name, .. } if name == "other"
         ));
-        assert_eq!(
-            adapter.target_is_packages("xz", &placed, &canonical),
-            Ok(false)
-        );
+        assert_eq!(adapter.target_version("xz", &placed, &canonical), Ok(None));
     }
 
     /// Under the prefix and not in a keg: the admission's own floor would pass
@@ -1744,8 +1817,8 @@ mod homebrew_owner {
             let canonical = std::fs::canonicalize(&placed).unwrap();
             assert!(canonical.starts_with(&tree.0), "{name}");
             assert_eq!(
-                adapter.target_is_packages(name, &placed, &canonical),
-                Ok(false),
+                adapter.target_version(name, &placed, &canonical),
+                Ok(None),
                 "{name}"
             );
             assert!(
@@ -1758,7 +1831,7 @@ mod homebrew_owner {
         }
     }
 
-    /// A Cellar that cannot be read proves nothing: never a `true`.
+    /// A Cellar that cannot be read proves nothing: never a version.
     #[test]
     fn a_cellar_that_does_not_resolve_is_a_failed_read() {
         let tree = tree("nocellar");
@@ -1767,7 +1840,7 @@ mod homebrew_owner {
         let placed = tree.0.join("bin/xz");
         let canonical = std::fs::canonicalize(&placed).unwrap();
         assert_eq!(
-            adapter.target_is_packages("xz", &placed, &canonical),
+            adapter.target_version("xz", &placed, &canonical),
             Err(UncheckedCause::ReadFailed)
         );
     }
@@ -2031,8 +2104,8 @@ mod macports_owner {
                 "{name}"
             );
             assert_eq!(
-                adapter.target_is_packages("xz", &placed, &canonical),
-                Ok(true),
+                adapter.target_version("xz", &placed, &canonical),
+                Ok(Some("5.8.3_0".to_owned())),
                 "{name}"
             );
         }
@@ -2051,14 +2124,11 @@ mod macports_owner {
             adapter.entry_owner("xz", &leaf("other"), &placed),
             OwnershipFacts::Owner { ref name, .. } if name == "other"
         ));
-        assert_eq!(
-            adapter.target_is_packages("xz", &placed, &canonical),
-            Ok(false)
-        );
+        assert_eq!(adapter.target_version("xz", &placed, &canonical), Ok(None));
     }
 
     /// An empty answer is not the package's (R-26 E-3), and a failed read is not
-    /// "not owned" (R-26 E-8): neither is ever a `true`.
+    /// "not owned" (R-26 E-8): neither is ever a version.
     #[test]
     fn an_empty_answer_is_no_and_a_failed_read_is_an_error() {
         let tree = tree("empty");
@@ -2066,15 +2136,12 @@ mod macports_owner {
         let adapter = port_adapter(&runner, &tree.0);
         let placed = tree.0.join("bin/nobody");
         let canonical = std::fs::canonicalize(&placed).unwrap();
-        assert_eq!(
-            adapter.target_is_packages("xz", &placed, &canonical),
-            Ok(false)
-        );
+        assert_eq!(adapter.target_version("xz", &placed, &canonical), Ok(None));
         let runner = registry(&tree.0, &[("bin/xz", None)]);
         let adapter = port_adapter(&runner, &tree.0);
         let placed = tree.0.join("bin/xz");
         assert_eq!(
-            adapter.target_is_packages("xz", &placed, &placed),
+            adapter.target_version("xz", &placed, &placed),
             Err(UncheckedCause::ReadFailed)
         );
     }
@@ -2163,6 +2230,72 @@ mod macports_owner {
             admit(&tree, "xz", "5.8.2_0"),
             Err(UncheckedCause::ProbeVersionNotQualified)
         );
+    }
+
+    /// [`MayProbe`], whose registry activates another version of `xz` after
+    /// its first `-q installed xz` answer: every later one names `5.8.3_0`
+    /// inactive and `5.8.4_0` active, in the row shapes the captured
+    /// recordings hold (`openssl3 @3.1.5_0` inactive, R-26's `(active)` row).
+    struct ActivatesAfterFirstRead {
+        inner: MayProbe,
+        installed_reads: std::cell::Cell<usize>,
+    }
+
+    impl ProcessRunner for ActivatesAfterFirstRead {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            if spec.argv.as_slice() == ["-q", "installed", "xz"] {
+                let reads = self.installed_reads.get() + 1;
+                self.installed_reads.set(reads);
+                if reads > 1 {
+                    return Ok(answer(
+                        spec.argv.clone(),
+                        0,
+                        "  xz @5.8.3_0\n  xz @5.8.4_0 (active)\n".into(),
+                    )
+                    .invocation);
+                }
+            }
+            self.inner.run(spec)
+        }
+
+        fn is_replay(&self) -> bool {
+            false
+        }
+
+        fn run_probe(&self, spec: &CommandSpec) -> crate::process::ProbeRun {
+            self.inner.run_probe(spec)
+        }
+
+        fn may_run_probes(&self) -> bool {
+            true
+        }
+    }
+
+    /// Work order 16 H-4, L1, on the real owner: condition 8's version is a
+    /// fresh `-q installed` read, never the entry's earlier answer, so an
+    /// activation between condition 6's read and condition 8's is refused,
+    /// though the entry, its target and the registry's owner are unchanged.
+    #[test]
+    fn an_activation_between_the_two_version_reads_is_refused() {
+        let tree = admissible_tree("activate");
+        let runner = ActivatesAfterFirstRead {
+            inner: MayProbe(registry(&tree.0, &[])),
+            installed_reads: std::cell::Cell::new(0),
+        };
+        let adapter =
+            MacPortsAdapter::new(&runner, tree.0.clone(), None, FilesystemScope::ThisMachine);
+        let table = [super::row(
+            PROVIDER_ID,
+            "xz",
+            "xz",
+            &["--version"],
+            "5.8.3_0",
+        )];
+        assert_eq!(
+            super::AdmittedProbe::admit(&table, &adapter, "xz", "xz", &super::flag()).map(|_| ()),
+            Err(UncheckedCause::ProbeTargetChanged)
+        );
+        assert_eq!(runner.installed_reads.get(), 2, "condition 6's, then 8's");
     }
 }
 

@@ -46,16 +46,21 @@ impl ProbeOwner for HomebrewAdapter<'_> {
 
     /// `canonical` lies in a keg of `package` under the canonical Cellar: not the
     /// Caskroom, not `var/`, not the Homebrew repository, not another keg. The
-    /// path rule needs only the final file, which is what `placed` resolves to.
-    fn target_is_packages(
+    /// path rule needs only the final file, which is what `placed` resolves to,
+    /// and the version is that keg's, read from `canonical`'s path text alone
+    /// and never from `placed` again, so it is bound to the file that runs
+    /// (work order 16 H-4, L1).
+    fn target_version(
         &self,
         package: &str,
         _placed: &Path,
         canonical: &Path,
-    ) -> Result<bool, UncheckedCause> {
+    ) -> Result<Option<String>, UncheckedCause> {
         let cellar = self.cellar().map_err(|_| UncheckedCause::ReadFailed)?;
         let real_cellar = std::fs::canonicalize(cellar).map_err(|_| UncheckedCause::ReadFailed)?;
-        Ok(keg_of(canonical, &real_cellar).is_some_and(|(name, _)| name == package))
+        Ok(keg_of(canonical, &real_cellar)
+            .filter(|(name, _)| name == package)
+            .map(|(_, version)| version))
     }
 }
 
