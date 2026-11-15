@@ -1793,6 +1793,79 @@ mod homebrew_owner {
             assert_eq!(ProbeOwner::runner(&adapter).may_run_probes(), expected);
         }
     }
+
+    /// `CellarOnly`, plus a runner that says it may start a probe, so condition
+    /// 1 is passed on purpose. `admit` starts nothing, and this panics if it did.
+    struct MayProbe(CellarOnly);
+
+    impl ProcessRunner for MayProbe {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            self.0.run(spec)
+        }
+
+        fn is_replay(&self) -> bool {
+            false
+        }
+
+        fn run_probe(&self, _spec: &CommandSpec) -> crate::process::ProbeRun {
+            panic!("an admission started a program");
+        }
+
+        fn may_run_probes(&self) -> bool {
+            true
+        }
+    }
+
+    /// A Mach-O `xz` 5.8.3, and another keg at the same version, both placed:
+    /// conditions 9 and 11 admit a copy of `/usr/bin/true`.
+    fn admissible_tree(tag: &str) -> Tree {
+        let tree = Tree::new(tag);
+        for keg in ["xz", "other"] {
+            let file = tree.0.join(format!("Cellar/{keg}/5.8.3/bin/{keg}"));
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            super::write_executable(&file, super::ADMISSIBLE);
+            tree.link(
+                &format!("bin/{keg}"),
+                &format!("../Cellar/{keg}/5.8.3/bin/{keg}"),
+            );
+        }
+        tree
+    }
+
+    fn admit(tree: &Tree, leaf: &str, version: &str) -> Result<(), UncheckedCause> {
+        let runner = MayProbe(CellarOnly(tree.0.join("Cellar")));
+        let adapter = HomebrewAdapter::new(
+            &runner,
+            tree.0.clone(),
+            None,
+            Vec::new(),
+            FilesystemScope::ThisMachine,
+        )
+        .with_linked_kegs_for_test(&[("xz", "5.8.3"), ("other", "5.8.3")]);
+        let table = [super::row(PROVIDER_ID, "xz", leaf, &["--version"], version)];
+        super::AdmittedProbe::admit(&table, &adapter, "xz", leaf, &super::flag()).map(|_| ())
+    }
+
+    /// Work order 16 part H-4, L3: the real owner through the whole admission.
+    /// It admits the package's own entry at the row's version; it refuses a link
+    /// into another keg at condition 7 (which judges the canonical file, so on a
+    /// still tree condition 8 can never answer otherwise: it is a defence against
+    /// a race only), and a version not the row's at condition 6. The other keg
+    /// is at the row's version, so dropping condition 7's name check reaches
+    /// condition 8 and changes the cause.
+    #[test]
+    fn the_real_owner_through_the_admission() {
+        let tree = admissible_tree("admit");
+        assert_eq!(admit(&tree, "xz", "5.8.3"), Ok(()));
+        assert_eq!(
+            admit(&tree, "other", "5.8.3"),
+            Err(UncheckedCause::ProbeEntryNotThePackages)
+        );
+        assert_eq!(
+            admit(&tree, "xz", "5.8.2"),
+            Err(UncheckedCause::ProbeVersionNotQualified)
+        );
+    }
 }
 
 mod macports_owner {
@@ -2025,5 +2098,70 @@ mod macports_owner {
             );
             assert_eq!(ProbeOwner::runner(&adapter).may_run_probes(), expected);
         }
+    }
+    /// The registry, plus a runner that says it may start a probe, so condition
+    /// 1 is passed on purpose. `admit` starts nothing, and this panics if it did.
+    struct MayProbe(Registry);
+
+    impl ProcessRunner for MayProbe {
+        fn run(&self, spec: &CommandSpec) -> Result<Invocation, DomainError> {
+            self.0.run(spec)
+        }
+
+        fn is_replay(&self) -> bool {
+            false
+        }
+
+        fn run_probe(&self, _spec: &CommandSpec) -> crate::process::ProbeRun {
+            panic!("an admission started a program");
+        }
+
+        fn may_run_probes(&self) -> bool {
+            true
+        }
+    }
+
+    /// A Mach-O `bin/xz`, registered to `xz` @5.8.3_0, and `bin/other`, a link
+    /// to a Mach-O registered to `other`: conditions 9 and 11 admit a copy of
+    /// `/usr/bin/true`.
+    fn admissible_tree(tag: &str) -> Tree {
+        let root = std::env::temp_dir().join(format!("mpb-mp-admit-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for dir in ["bin", "libexec"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        let root = std::fs::canonicalize(&root).unwrap();
+        super::write_executable(&root.join("bin/xz"), super::ADMISSIBLE);
+        super::write_executable(&root.join("libexec/other"), super::ADMISSIBLE);
+        symlink("../libexec/other", root.join("bin/other")).unwrap();
+        Tree(root)
+    }
+
+    fn admit(tree: &Tree, leaf: &str, version: &str) -> Result<(), UncheckedCause> {
+        let runner = MayProbe(registry(&tree.0, &[]));
+        let adapter =
+            MacPortsAdapter::new(&runner, tree.0.clone(), None, FilesystemScope::ThisMachine);
+        let table = [super::row(PROVIDER_ID, "xz", leaf, &["--version"], version)];
+        super::AdmittedProbe::admit(&table, &adapter, "xz", leaf, &super::flag()).map(|_| ())
+    }
+
+    /// Work order 16 part H-4, L3: the real owner through the whole admission,
+    /// as `homebrew_owner::the_real_owner_through_the_admission` does with a path
+    /// rule; here the rule is the registry's query, in the shapes R-26 and R-28
+    /// observed (`provides` naming the port, `installed` its active row). The
+    /// entry linked into another port is refused at condition 7, which asks the
+    /// canonical file, so on a still tree condition 8 cannot answer otherwise.
+    #[test]
+    fn invariant_17_both_owners_refuse_a_relinked_entry_alike() {
+        let tree = admissible_tree("admit");
+        assert_eq!(admit(&tree, "xz", "5.8.3_0"), Ok(()));
+        assert_eq!(
+            admit(&tree, "other", "5.8.3_0"),
+            Err(UncheckedCause::ProbeEntryNotThePackages)
+        );
+        assert_eq!(
+            admit(&tree, "xz", "5.8.2_0"),
+            Err(UncheckedCause::ProbeVersionNotQualified)
+        );
     }
 }

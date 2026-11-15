@@ -359,6 +359,15 @@ H-3 merged as `3277c4d` (PR #72). H-4 closes what "As built (H-3)" items 6 and 7
 
 **Invariant tests this slice names.** INV-15: `invariant_15_a_replay_never_runs_a_probe` and `invariant_15_a_replay_never_runs_a_probe_at_the_spawn_site`, unchanged. INV-06: `invariant_06_a_probe_is_never_admitted_as_root`. INV-10: `invariant_10_a_probe_runs_in_exactly_its_environment`. INV-01: `invariant_01_an_unchecked_destination_hands_the_site_no_removal`. INV-17: the new `invariant_17_both_owners_refuse_a_relinked_entry_alike`. Tripwires unchanged: `the_switch_needs_the_destination_contract_observed`, `only_the_mutating_loop_hands_a_probe_the_lock`. Each must pass again on H/04.
 
+## As built (H-4)
+
+On `wo16/H-6-qualify` (PR #73). Items 1 to 4 of "Plan (H-4)" are built; item 5, H/04, is staged after this merges.
+
+1. **B1, B2** (`647dce4`): `security-reviewer` accepted B1 counted over both rounds, and did not accept B2. Its words: "Remove the Homebrew `pkgconf`/`pkg-config` row in H-4. It may come back when the exact deployed form reaches three canary-seen runs, or when a detection that does not depend on the log exists." Done in `3f2f8ea`; policy `2026.11.04-4`; the table holds eleven rows.
+2. **B3** (`3f2f8ea`): the table's header and `16-liveness-design.md`, "The curated table".
+3. **The route's guard** (`3f2f8ea`): `THIS_BUILD_OBSERVES_LIVENESS_PROBE`, its readers pinned by `the_probe_observer_is_read_only_by_the_gate_and_the_route`; `while_the_probe_is_unobserved_the_route_asks_its_runner_nothing` counts the runner from after the sites are built (building them asks `is_replay` once); `the_unobserved_guard_is_the_routes_first_decision` reads the source, so a guard moved after `observes` fails on a host with no provider installed too. Mutant run: the guard dropped, killed by both.
+4. **L3:** `homebrew_owner::the_real_owner_through_the_admission` and `macports_owner::invariant_17_both_owners_refuse_a_relinked_entry_alike`, each over a tree of copies of `/usr/bin/true`, with a runner that may probe and panics if one is started. Mutant run, applied to `probe.rs` and reverted (`git diff` clean afterwards): condition 7's name check dropped, killed by both; condition 6 dropped, killed by both.
+
 ## The claim and the exit
 
 This check is a bounded static read and cannot prove what dyld loads. It answers `Holds` for what this reader found on this macOS, on this architecture. **Part L's proposal must carry that sentence and R-27's limits.** H-2 is inert: `THIS_BUILD_DISPATCHES_MUTATIONS` is false and the gate refuses every plan.
