@@ -9,7 +9,7 @@ use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::homebrew::destination::keg_of;
 use macportsbrew_adapters::persistence::run_lock::acquire;
 use macportsbrew_adapters::persistence::StateDir;
-use macportsbrew_adapters::process::{CommandSpec, Invocation, ProcessRunner};
+use macportsbrew_adapters::process::{CommandSpec, Invocation, ProbeRun, ProcessRunner};
 use macportsbrew_adapters::registry::{destination_sites, RegistryContext};
 use macportsbrew_domain::{
     CheckAnswer, DestinationFacts, DomainError, ExecutableName, ProviderId, UncheckedCause,
@@ -247,13 +247,24 @@ fn the_placed_entry_answers_for_its_own_keg_and_not_for_the_list_path() {
     assert_eq!((name.as_str(), version.as_str()), ("openssl@3", "3.5.0"));
 }
 
-/// Counts every call a site makes of its runner, whatever it is.
-#[derive(Default)]
+/// Counts every call a site makes of its runner, whatever it is, and how many of
+/// them asked whether it may probe (the admission's condition 1). It never runs
+/// a read or starts a probe: either panics.
 struct Counting {
     calls: std::cell::Cell<u32>,
+    asked_may_probe: std::cell::Cell<u32>,
+    may_probe: bool,
 }
 
 impl Counting {
+    fn saying_it_may_probe(may_probe: bool) -> Self {
+        Self {
+            calls: std::cell::Cell::new(0),
+            asked_may_probe: std::cell::Cell::new(0),
+            may_probe,
+        }
+    }
+
     fn tick(&self) {
         self.calls.set(self.calls.get() + 1);
     }
@@ -262,7 +273,7 @@ impl Counting {
 impl ProcessRunner for Counting {
     fn run(&self, _spec: &CommandSpec) -> Result<Invocation, DomainError> {
         self.tick();
-        panic!("the route ran a read while this build does not observe the probe");
+        panic!("the route ran a read");
     }
 
     fn is_replay(&self) -> bool {
@@ -270,28 +281,46 @@ impl ProcessRunner for Counting {
         false
     }
 
+    fn run_probe(&self, _spec: &CommandSpec) -> ProbeRun {
+        self.tick();
+        panic!("the route started a probe");
+    }
+
     fn may_run_probes(&self) -> bool {
         self.tick();
-        true
+        self.asked_may_probe.set(self.asked_may_probe.get() + 1);
+        self.may_probe
     }
 }
 
-/// Work order 16 part H-4: while this build does not observe `LIVENESS_PROBE`,
-/// the one route to a curated probe answers `NOT_OBSERVED` and asks its runner
-/// nothing, on this machine, live, with the lock and a runner that says it may
-/// probe, for every provider. So flipping the switch alone starts no program.
-/// Written for the constant's current value: once it is true this asserts
-/// nothing, and the flip's own tests take over.
+/// Work order 16 parts H-4 and H-5: [`THIS_BUILD_OBSERVES_LIVENESS_PROBE`]
+/// alone decides whether the one route to a curated probe reaches its runner,
+/// on this machine, live, with the lock, for every provider. Both values are
+/// asserted, so the flip turned this positive rather than deleting it.
+///
+/// - **False (H-4):** with a runner that says it *may* probe, the route answers
+///   `NOT_OBSERVED` and asks it nothing, so flipping the switch alone starts no
+///   program.
+/// - **True (H-5, this build):** the guard is open. With a runner that says it
+///   may *not* probe and panics on any read or probe start, a provider not
+///   detected here (one this build does not know among them) never reaches the
+///   admission; a provider detected on this host does, and its condition 1 asks
+///   `may_run_probes` and refuses, so nothing is read and nothing starts.
+///   **Host-dependent:** on a host with neither provider detected only the
+///   unknown provider is measured; `the_unobserved_guard_is_the_routes_first_decision`
+///   holds the guard's place on every host.
+///
+/// [`THIS_BUILD_OBSERVES_LIVENESS_PROBE`]: macportsbrew_domain::plan::THIS_BUILD_OBSERVES_LIVENESS_PROBE
 #[test]
-fn while_the_probe_is_unobserved_the_route_asks_its_runner_nothing() {
-    if macportsbrew_domain::plan::THIS_BUILD_OBSERVES_LIVENESS_PROBE {
-        return;
-    }
-    let (base, state) = state("probe-unobserved");
+fn the_route_reaches_its_runner_only_while_the_probe_is_observed() {
+    let observed = macportsbrew_domain::plan::THIS_BUILD_OBSERVES_LIVENESS_PROBE;
+    let (base, state) = state("probe-observer");
     let lock = acquire(&state, std::fs::metadata(&base).unwrap().uid()).unwrap();
     let leaf = ExecutableName::parse("xz").unwrap();
     let argv = ["--version".to_owned()];
-    let runner = Counting::default();
+    // Unobserved, the runner says it may probe, so only the guard stops it;
+    // observed, it says it may not, so the admission stops it before any read.
+    let runner = Counting::saying_it_may_probe(!observed);
     let ctx = RegistryContext {
         runner: &runner,
         home: None,
@@ -302,19 +331,32 @@ fn while_the_probe_is_unobserved_the_route_asks_its_runner_nothing() {
     // Building the sites asks the runner whether it replays; the route is what
     // is measured.
     let sites = destination_sites(&ctx, &state, &lock);
-    let built = runner.calls.get();
     for id in ["homebrew", "macports", "no-such-provider"] {
+        let provider = ProviderId::new(id);
+        let (calls, asked) = (runner.calls.get(), runner.asked_may_probe.get());
         assert_eq!(
-            sites.liveness_probe(&ProviderId::new(id), "xz", &leaf, &argv, &lock),
+            sites.liveness_probe(&provider, "xz", &leaf, &argv, &lock),
             CheckAnswer::Unchecked(UncheckedCause::NotObserved),
             "{id}"
         );
+        let reached = observed && sites.observes(&provider);
+        assert_eq!(
+            runner.asked_may_probe.get() - asked,
+            u32::from(reached),
+            "{id}: the admission's condition 1 asked iff the route was open to it"
+        );
+        // Unobserved, the guard answers before detection, which asks whether the
+        // runner replays, so the runner is asked nothing at all. Observed,
+        // detection may ask that, and the panicking `run` and `run_probe` are
+        // what show nothing was read or started.
+        if !observed {
+            assert_eq!(
+                runner.calls.get(),
+                calls,
+                "{id}: the route asked its runner"
+            );
+        }
     }
-    assert_eq!(
-        runner.calls.get(),
-        built,
-        "the route asked its runner something"
-    );
     drop(lock);
     std::fs::remove_dir_all(&base).ok();
 }

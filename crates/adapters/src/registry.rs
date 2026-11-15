@@ -480,8 +480,9 @@ impl DestinationSites<'_, '_> {
     /// **And not observed by this build** is `NOT_OBSERVED` before anything at
     /// all, the first statement (H-4): while
     /// [`THIS_BUILD_OBSERVES_LIVENESS_PROBE`] is false the route starts nothing,
-    /// whatever the switch says, so the observer and the switch are two
-    /// barriers.
+    /// whatever the switch says. It is true since H-5, so the guard is open and
+    /// the switch is the one barrier: the mutating loop, this route's only
+    /// caller, is not entered while this build dispatches no mutations.
     #[must_use]
     pub fn liveness_probe(
         &self,
