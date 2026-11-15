@@ -7,14 +7,16 @@ Plan written 2026-11-15, at `4875d89`, for `prompts/16-complete-mutating-product
 before any code; their review is the approval (§4). Every line cited below was
 re-read at `4875d89`.
 
-**Timing.** Part H is `in review` (PR #73) when this is written, with H-stage-2
-and H-5 still to come (`docs/passes/16-progress.md:31`). §5 runs S..L one at a
-time, each after the previous merges, and the ledger's K row depends on H. So
-this plan is drafted early and **no K slice opens before H's row reads
-`merged`**; on H's merge the session re-reads every citation marked *(H)*
-below and records any drift in the Reviews table. Whether K-0 itself, being
-docs only, may merge before H does is a question for the plan review, not taken
-here.
+**Timing.** H-4 (PR #73) is merged (`4875d89`); H-stage-2 and H-5 are not
+(`docs/passes/16-progress.md:31`). §5 runs S..L one at a time, each after the
+previous merges, and the ledger's K row depends on H. **Decided: K-0 stays
+unmerged until H's ledger row reads `merged`** (the dependency column, §4.1),
+and no other K slice opens before then. At that point the session re-reads
+every citation marked *(H)* below and records any drift in the Reviews table.
+
+The plan was revised after both reviews of `9c9d859`; each finding's
+resolution is in the Reviews table, and the sections it changed carry
+*(rev. SG-n / SR-n)*.
 
 ## The ruling, and the blocking contract
 
@@ -141,12 +143,14 @@ into `machine.command_line_tools` (`crates/domain/src/machine.rs:121-131`,
 
 Each is made here, with its reason, and lands in SE-114 (new, one topic: the
 removal opt-in and its confirmation) or, for DP-050, as a propagation bullet
-under SE-109 with R-29.
+under SE-109 with R-29. **SE-114 is written in K-3 and amended in the same pull
+request by every later slice that changes what it says** (K-4, K-5, K-6, K-7;
+*rev. SG-M4*).
 
-**D1. `--retain-source` is an accepted no-op, with a deprecation notice, for the
-v0.2.x line**, and is removed in the first release after v0.2.0 by its own SE
-entry. Given with `--remove-source` it is a usage error (exit 2, before
-anything is built). The notice goes to stderr only
+**D1. `--retain-source` is an accepted no-op, with a deprecation notice,
+throughout the v0.2.x line** (*rev. SG-L3*); removing it is a later release's
+change, with its own SE entry. Given with `--remove-source` it is a usage error
+(exit 2, before anything is built). The notice goes to stderr only
 (`cli.retain_source_deprecated`); the plan, its `--json` and its digest are
 byte-identical with and without the flag. *Reason:* the tool itself tells
 people to type it (`locales/en.toml:324`, `:464`), 06 and three wiki pages
@@ -169,12 +173,17 @@ the command line's default, and the field descriptions say so
 renamed, retyped, or given another meaning. Additive, each noted in the
 CHANGELOG:
 - `plan.v2`: `sourceOwnership` (`TOP_LEVEL` | `DEPENDENCY` | `ORPHAN` |
-  `UNKNOWN`, optional; absent means the strictest level, as for `enteredBy`);
-  and at the document root, beside `warnings`, `confirmation` (`PLAN` |
-  `REMOVAL` | `ADVANCED_REMOVAL`), derived when the document is written and
-  never stored on the plan, like `warnings`.
+  `UNKNOWN`), **written explicitly by every plan this build produces,
+  `TOP_LEVEL` included**, and absent only in a document from before the field,
+  where it means the strictest level; E's digest keeps `TOP_LEVEL` distinct
+  from absence, as it does `DEFAULT_VIEW` (*rev. SG-M2*). At the document root,
+  beside `warnings`: `confirmation` (`PLAN` | `REMOVAL` | `ADVANCED_REMOVAL`),
+  **optional**, derived when the document is written and never stored on the
+  plan, like `warnings`; absent in every document from before the field, so a
+  consumer must not read its absence as `PLAN` (*rev. SG-L7*).
 - `migrate.v2`: the same `confirmation`, and `removalDigest` (D5) when the
-  level is `REMOVAL`. `restore.v2`: `confirmation`.
+  level is `REMOVAL`; the new gate refusals (D5) in its `gateRefusals` list
+  (*rev. SG-M4*). `restore.v2`: `confirmation`.
 - `plan.v1`, `migrate.v1`, `restore.v1` and `history.v1`–`v3` are superseded or
   only read; their `retainSource` means the same, and they are not edited.
 - 06's synopsis (`:31-35`) is a Tier 3 MUST: changed with SE-114.
@@ -189,20 +198,36 @@ interaction SE-107 noted (`docs/spec-evolution.md:8731-8732`: a removal
 arise, because K makes removal opt-in for `migrate`, not refused. Since the
 default now keeps the source, 04's "cheap case" (`04:242-247`) becomes the
 common one. Restore's execution stays unbuilt (`cli/src/app/restore.rs:288`);
-K renders its level and wires nothing.
+K renders its level and wires nothing. **A removing restore has no script
+route** until restore execution is designed: `restore` takes no
+`--plan-digest` today, and K adds none; SE-114 says so (*rev. SG-L8*).
 
-**D5. Three confirmation levels, ordered by inclusion.**
+**D5. Two new confirmation levels above today's, ordered by inclusion.**
+`PLAN` is today's level, the one an install gets; **K defines the two above
+it**, `REMOVAL` and `ADVANCED_REMOVAL`, and 06's paragraph says it the same way
+(*rev. SG-L1*).
 
 | Level | When (derived from the plan) | A person at a terminal | `--yes --plan-digest` |
 |---|---|---|---|
-| `PLAN` | no removal | Q0 `run plan <c0>` (today's) | `--plan-digest <d>` (today's) |
-| `REMOVAL` | a removal, `enteredBy: DEFAULT_VIEW`, `sourceOwnership` `TOP_LEVEL` | Q0, then Q1 `remove source <c1>` | `--plan-digest <d>` **and** `--removal-digest <r>` |
-| `ADVANCED_REMOVAL` | a removal, and `enteredBy` `ADVANCED`, `NAMED` or absent, or `sourceOwnership` `UNKNOWN` or absent | Q0, Q1, then Q2 `confirm advanced removal <c2>` | **refused**: exit 2 (`USAGE`), stdout empty, nothing run |
+| `PLAN` (today's) | no removal | Q0 `run plan <c0>` | `--plan-digest <d>` |
+| `REMOVAL` | a removal, and exactly `enteredBy: Some(DEFAULT_VIEW)` with `sourceOwnership: Some(TOP_LEVEL)` | Q0, then Q1 `remove source <c1>` | `--plan-digest <d>` **and** `--removal-digest <r>` |
+| `ADVANCED_REMOVAL` | a removal, and **every other pair**: `ADVANCED`, `NAMED` or absent `enteredBy`; `DEPENDENCY`, `ORPHAN`, `UNKNOWN` or absent `sourceOwnership` | Q0, Q1, then Q2 `confirm advanced removal <c2>` | **refused**: exit 2 (`USAGE`), stdout empty, nothing run |
 
-- **"A removal"** is `!retain_source` **or** any `REMOVE_SOURCE` step: either
-  signal raises the level. The gate also refuses a plan where the two disagree
-  (`RETENTION_DISAGREES_WITH_STEPS`), since `history.retainSource` would then
-  lie. The planner never builds one.
+- **The derivation is total** (*rev. SG-M2, SR-L1*): one exhaustive `match`
+  over `(Option<EntryMode>, Option<Ownership>)` with no wildcard arm, so a new
+  variant of either enum fails to compile until it is placed. Only
+  `(Some(DefaultView), Some(TopLevel))` is `REMOVAL`.
+- **"A removal"** is `!retain_source` **or** any `REMOVE_SOURCE`,
+  `VERIFY_REMOVAL` or `CLEANUP_REVIEW` step: any signal raises the level.
+- **Two new gate refusals**, both defence in depth, since the planner builds
+  neither: `RETENTION_DISAGREES_WITH_STEPS` when `retain_source` is false with
+  no `REMOVE_SOURCE`, or true with a `REMOVE_SOURCE`, `VERIFY_REMOVAL` or
+  `CLEANUP_REVIEW` step (*rev. SR-L5*), since `history.retainSource` would then
+  lie; and `ENTRY_DISAGREES_WITH_OWNERSHIP` for the pairs the planner's rule
+  (`planner.rs:523`, `ownership.rs:43-45`) cannot produce: `DEFAULT_VIEW` with
+  `DEPENDENCY` or `ORPHAN`, and `ADVANCED` or `NAMED` with `TOP_LEVEL` (*rev.
+  SG-M2*). Both are documented in `migrate.v2.md`'s `gateRefusals` and the
+  CHANGELOG in K-4, and listed in `every_gate_refusal`.
 - **"Stronger" is a checkable property:** whatever confirms a level also
   confirms every lower one, and something that confirms the lower one does not
   confirm it. Each interactive level asks every question of the level below
@@ -212,11 +237,13 @@ K renders its level and wires nothing.
 - **The questions** are asked in `confirm_the_plan` (`migrate.rs:343-373`), all
   before the state directory is touched, never inside the loop. Q1 lists each
   `REMOVE_SOURCE` step: package and provider, escaped as every rendered
-  provider value is (`crates/cli/tests/hostile_text.rs`). Q2 re-shows
-  `advanced.warning` and why the row is outside the default view (`NAMED`,
-  `ADVANCED`, unknown intent, or a plan without the field). The phrases are
-  ASCII and never translated, as `run plan` is; nothing provider-derived is in
-  a phrase.
+  provider value is (`crates/cli/tests/hostile_text.rs`). Q2 says why the row
+  needs it: for `NAMED` and `ADVANCED`, `advanced.warning` and
+  `plan.entered_by_named`; **for unknown intent, its own key,
+  `confirm.removal_intent_unknown`, and no `advanced.warning`**, because the
+  row is in the default view (*rev. SG-L2*); for a plan without the fields,
+  `confirm.removal_entry_unrecorded`. The phrases are ASCII and never
+  translated, as `run plan` is; nothing provider-derived is in a phrase.
 - **The script route, `REMOVAL`.** `removalDigest` is SHA-256 over a second
   domain string (`macportsbrew-removal-digest/1 <version>\n`) and the same plan
   bytes, so it never equals `planDigest`. `migrate` prints it beside
@@ -229,9 +256,11 @@ K renders its level and wires nothing.
   one that pipes `.planDigest` back — can never remove anything.
 - **`ADVANCED_REMOVAL` has no script route.** *Reason:* INV-13 asks for an
   explicitly entered advanced mode, and an echoed value cannot show that a
-  person saw `advanced.warning`. Exit 2, like a missing terminal
-  (`plan_tie.rs:195-198`), because the route is structurally unable to confirm
-  it. Reversible: a later SE entry may add one.
+  person saw the warning. The refusal sits **at the tie point**
+  (`migrate.rs:624-627`), in every build, before anything is printed: exit 2,
+  like a missing terminal (`plan_tie.rs:195-198`), because the route is
+  structurally unable to confirm it (*rev. SR-L2*). Reversible: a later SE
+  entry may add one.
 - **`UNKNOWN` ownership: changed for removal, kept for the view.** C's choice
   stands for what the default view lists and for `enteredBy` (an `UNKNOWN` row
   is `DEFAULT_VIEW`, no warning). For a removal it is the strictest level.
@@ -241,36 +270,84 @@ K renders its level and wires nothing.
   the plan carries the source row's ownership as `sourceOwnership`; E's digest
   and `plan_still_holds` then cover it, so an ownership that moves between
   showing and running refuses the run, as a moved `enteredBy` does
-  (`a_plan_whose_entry_moved_under_the_lock_is_refused`).
+  (`a_plan_whose_entry_moved_under_the_lock_is_refused`). **K-3 records this in
+  SE-109's part C bullet and in the ledger's K row**, beside C's "a choice K
+  confirms or changes" (*rev. SG-L8*).
 - **Where the level is enforced.** `ShownPlan` gains the level it was confirmed
-  at; `confirm_shown` and `tie` mint `PLAN`, `confirm_removal` and
-  `tie_removal` raise it to `REMOVAL`, `confirm_advanced_removal` to
-  `ADVANCED_REMOVAL`, all in `plan_tie.rs`, with the word scans extended to
-  their callers. The run loop's check at `executor/mod.rs:900` becomes
-  `ShownPlan::admits(plan)`: covers **and** level at least
+  at. `confirm_shown` and `tie` mint `PLAN`; `confirm_removal` and `tie_removal`
+  **consume the `PLAN` witness by value** and return `REMOVAL`;
+  `confirm_advanced_removal` consumes the `REMOVAL` witness by value and
+  returns `ADVANCED_REMOVAL` (*rev. SR-L2*), so no question can be minted
+  without the one below it. All live in `plan_tie.rs`, with the word scans
+  extended to their callers. The run loop's check at `executor/mod.rs:900`
+  becomes `ShownPlan::admits(plan)`: covers **and** level at least
   `confirmation_level(plan)`, derived again from the plan about to run. The
   decision is the application's (SE-092); the shell only asks.
+- **06's "until then no plan executes"** (`:230-231`) is kept by K-5 while the
+  switch is false; K-5 adds the levels' definition beside it, and only the flip
+  (part L's proposal) may remove it (*rev. SR-I3*).
 
-**D6. The dispatch requires a removal witness.** DP-048's three conditions
-become one opaque value, `RemovalCleared`, minted only by
-`application::executor::clear_removal(run, position, records, reverified,
-locks)`, which requires: the step at `position` is a `REMOVE_SOURCE`; its
-guarding `VERIFY_DESTINATION` is recorded `Verified` and
-`destination_contract_complete` holds for that step (the six checks: active,
-newly present when the plan adds, integrity, ownership, linkage, liveness —
-`execution_gate.rs:705-740`; H made `Verified` require all four `Holds`);
-`reverified: DestinationReverified`, which `destination_still_verified` now
-returns instead of `()` and which names that step and verify position; and
-`locks: ProviderLocksClear`, which `provider_locks_clear` now returns instead
-of `()`. None of the three is `Clone`, `Default` or constructible outside
-`application` (the compile-time idiom of `plan_tie.rs:46-66`).
-`mutation_dispatch` (`executor/mod.rs:1359`) takes `Option<RemovalCleared>`
-and an application function refuses a removal command without a witness for
-that step, or a witness on any other step. The shell's order is unchanged
-(re-read first, lock sample last, SE-107 M1); it now cannot reach dispatch out
-of that order, because the second token is minted only after the first and the
-witness needs both. *Reason:* "only when all of these hold" stops being a
-property of statement order that a refactor can break silently.
+**D6. The dispatch requires a removal witness per command** (*rev. SG-M1,
+SR-M1, SR-M2, SR-I1, SR-I2*).
+
+- **What is required, and who decides it.** `application::executor` decides
+  that a command needs a witness from `plan.steps[position].kind ==
+  StepKind::RemoveSource` — not from `reverify.is_some()`, not from argv. Any
+  other mutating step that uninstalls would be refused by the gate until it is
+  defined: today only `ADD_DESTINATION` and `REMOVE_SOURCE` are dispatched
+  (`executor.rs:1040-1051`; `CLEANUP_REVIEW` and `SET_PRIMARY` never are), and
+  K-6 adds a test that pins that set.
+- **One function picks the guarding `VERIFY_DESTINATION`.** Today
+  `reverify_for` takes the nearest one before the removal (`.rposition`,
+  `executor.rs:672-674`) while `destination_record_before` takes the first
+  (`.position`, `:1144-1146`). One function, `guarding_verify(plan, position)`,
+  serves both, so the step re-read and the step whose record is checked cannot
+  differ.
+- **The chain, minted per command, each consuming the one before** (the order
+  of SE-107 M1 is kept: slow reads first, cheap confirmations freshest at
+  dispatch):
+  1. `destination_still_verified(...) -> Result<DestinationReverified,
+     Precondition>` (today `Result<(), _>`, `executor.rs:1742-1788`), naming
+     the step, command index and guarding verify position.
+  2. `dependents_still_absent(run, position, reverified, inventory) ->
+     Result<DependentsRechecked, Precondition>` (D9), consuming (1).
+  3. The run lock still current (`executor/mod.rs:1098`) and the source's
+     configuration re-check (`:1110-1129`), which yields the source's
+     `ConfigurationRechecked`, as today.
+  4. `clear_removal(run, position, records, dependents, &source_checked,
+     sample) -> Result<RemovalCleared, Precondition>`, consuming (2) and
+     borrowing (3): it checks the guarding verify step is recorded `Verified`
+     and `destination_contract_complete` holds for it (the six checks — active,
+     newly present when the plan adds, integrity, ownership, linkage, liveness
+     — `execution_gate.rs:705-740`; H made `Verified` require all four
+     `Holds`), that every resolution held, and judges **this** command's
+     provider-lock sample through `provider_locks_clear`. So the lock sample
+     cannot be judged for a removal before the re-read and the dependents
+     check exist. `provider_locks_clear` itself is unchanged for the four
+     run-level samples (`executor/mod.rs:913-947`), which have no re-read.
+  5. `mutation_dispatch` (`executor/mod.rs:1359`) takes `Option<RemovalCleared>`
+     **by value**, and an application function checks it `covers(step,
+     program, argv)` the way `ConsentGiven::covers` does
+     (`application/src/consent.rs:133`); a removal command without one, or a
+     witness on any other step or command, is `PreconditionFailed`.
+  None of the four tokens is `Clone`, `Default` or constructible outside
+  `application` (the compile-time idiom of `plan_tie.rs:46-66`).
+- **What is held by type, and what by test** (*rev. SR-M1*). By type: no
+  removal command is handed over without a `RemovalCleared` for that command;
+  it cannot be minted without the destination judgement and the dependents
+  judgement for that command, and the source's re-check token; and the lock
+  sample for a removal is judged only inside `clear_removal`. **Not by type:**
+  that the `StepRead`s `destination_still_verified` judged were *fresh* — the
+  shell builds them (`executor/mod.rs:1065-1069`), so the token proves the
+  judgement, not that the reads were made just then — and that the run lock
+  was checked between. Those are held by a test of the per-command boundary
+  order, named in SE-114:
+  `invariant_01_each_removal_command_passes_its_boundaries_in_order`
+  — `DestinationReverified < DependentsRechecked < StillCurrent <
+  ConfigurationRechecked (source) < ProviderLocksSampled < Dispatched`
+  (`Boundary`, `executor/mod.rs:701-736`; `DependentsRechecked` is new) — and
+  by the mutants below, one of which judges the re-verify on the verify step's
+  earlier reads.
 
 **D7. DP-050: name the cost now; block on absence only if R-29 proves it.**
 `destination_source_build` takes its reason from the availability: a known
@@ -284,11 +361,21 @@ source-build `ADD_DESTINATION` on a machine whose snapshot says so becomes
 `restore` too (not a special case), and never when the destination already
 holds the package. `CommandLineTools::Unknown` stays non-blocking with text
 that says it could not be told. If R-29 shows neither proves it, nothing
-blocks and the risk text says why. `doctor`'s `command_line_tools` finding
-exists (`doctor.rs:575-594`), so no new check is added unless R-29 changes what
-`Installed` means (a selected Xcode is not the Command Line Tools,
-`docs/research/R-27-no-cross-provider-linkage.md:5`), in which case the wording
-changes under `/add-doctor-check`'s procedure.
+blocks and the risk text says why.
+- **A filesystem read** (*rev. SG-L5, SR-L4*), if R-29 needs one, goes through
+  the machine reader that `--replay` records and replays
+  (`crates/adapters/src/system/machine.rs`), so a recording that lacks it
+  answers `Unknown` — non-blocking — and
+  `invariant_15_the_toolchain_answer_is_the_snapshots_under_replay` covers
+  that route. If the recorder cannot carry such a read, the read is not built,
+  and recapturing with it becomes an owner capture item.
+- **`doctor` already reports absence** (*rev. SG-L4*): `doctor.rs:575-594`,
+  tested by `command_line_tools_missing_or_unknown_are_both_warnings_and_are_distinguishable`
+  (`crates/application/tests/doctor_findings.rs:184`). K-7 records "already
+  met" in SE-109's DP-050 propagation bullet. No new check is added unless R-29
+  changes what `Installed` means (a selected Xcode is not the Command Line
+  Tools, `docs/research/R-27-no-cross-provider-linkage.md:5`); then the wording
+  changes under `/add-doctor-check`'s procedure.
 
 **D8. Coexistence is the default outcome (INV-18).** A plan without
 `--remove-source` ends after `VERIFY_RESOLUTION` with `RECORD_HISTORY`; the
@@ -297,6 +384,27 @@ A consequence, recorded: every default live `migrate` now consults history
 (`migrate.rs:291`, `:517`), so a default re-run is recognised as done
 (INV-16), and `migrate.v2.md:217-220` changes from "only by
 `--retain-source`" to "unless `--remove-source`".
+
+**D9. Reverse dependents are re-read before each removal command: option (a)**
+(*rev. SG-M3*). INV-04's check is today the planner's, over the capture
+(`planner.rs:687-696`, `reverse_dependency_count` from the inventory,
+`application/src/analysis.rs:474`), repeated under the lock by the re-plan
+(`invariant_04_a_dependent_that_appeared_under_the_lock_refuses_the_run`). An
+`ADD_DESTINATION` can take minutes — a source build longer — and a package
+installed into the source meanwhile, depending on the one being removed, is
+not seen. **(a) is reasonable here:** the reverse dependents come from the
+source adapter's own inventory read, which capture already runs (no new
+program, subcommand or allowlist row; §3 item 3 holds), so the shell gains one
+seam, `reread_dependents(provider)`, returning the source's fresh inventory,
+and the application judges it (`dependents_still_absent`, D6 step 2): any
+reverse dependent of the source package inside the source provider is
+`Precondition::DependentsAppeared`, the command is not handed over, and the run
+ends `PARTIAL_SUCCESS` with the source kept (INV-03). It sits with the
+destination re-read, before the cheap confirmations. *Cost, stated in SE-114:*
+one inventory read of the source provider per removal command, inside the
+window DP-048 accepts; the residual between that read and the provider's
+uninstall is the same residual, now named for dependents too in 04
+(`:482-491`).
 
 ## The DP-050 research note (R-29)
 
@@ -313,7 +421,7 @@ or absent` to the checklist and writes the note (`provider-researcher`).
 the Command Line Tools location, prove the build tools present — and does its
 non-zero exit prove them absent?
 
-**Read-only observations it makes:**
+**What the note may run — an allowlist, nothing else** (*rev. SR-L3*):
 
 1. `/usr/bin/xcode-select -p`, exit status and stdout (already permitted, and
    in every recording, `R-28:40`).
@@ -322,20 +430,24 @@ non-zero exit prove them absent?
    confirm, not a fact).
 3. `stat` of `/Library/Developer/CommandLineTools`, `usr/bin/clang`,
    `usr/bin/make` and `SDKs/` under it, and of the selected Xcode's
-   `Contents/Developer/usr/bin` — stat only; nothing is executed.
-4. The Command Line Tools package receipt, read as a file
-   (`/Library/Apple/System/Library/Receipts/` or `/var/db/receipts/`), or by
-   `pkgutil --pkg-info`, a read-only verb.
-5. Documentation, dated: `man xcode-select` (local, already quoted at
-   `R-27:368`), Apple's "Installing the command-line tools", Homebrew's
-   installation requirements (`F-1-homebrew-support-tiers.md:206`: the
-   Command Line Tools or Xcode), and MacPorts' install guide on what a source
-   build needs.
+   `Contents/Developer/usr/bin` — stat only; nothing found is executed.
+4. `pkgutil --pkg-info`, `--pkgs` and `--files`, read-only verbs, for the
+   Command Line Tools receipt. **Research only** (*rev. SG-L6*): `pkgutil` is
+   not on the product's allowlist, which is frozen (§3 item 3), so nothing K
+   builds may depend on it; if the answer needs it, K-7 builds only the risk
+   text.
+5. `man xcode-select` (local, already quoted at `R-27:368`), and documentation
+   fetches, each dated: Apple's "Installing the command-line tools", Homebrew's
+   installation requirements (`F-1-homebrew-support-tiers.md:206`: the Command
+   Line Tools or Xcode), and MacPorts' install guide on what a source build
+   needs.
 
-**Never run:** `xcode-select --install`, `-s`, `--switch`, `--reset`; any
-elevation; `xcrun`; any `/usr/bin` developer shim (`clang`, `cc`, `make`,
-`git`, `python3`), because R-27 finding 24 shows a lookup can raise the install
-dialog; any `brew` or `port` mutation; no deletion or rename of anything.
+**Never:** any other program under `/usr/bin` (no `xcrun`, no developer shim —
+`clang`, `cc`, `make`, `git`, `python3` — since R-27 finding 24 shows a lookup
+can raise the install dialog); `xcode-select --install`, `-s`, `--switch`,
+`--reset`; any elevation; any `brew` or `port` mutation; setting
+`DEVELOPER_DIR`, `SDKROOT`, `TOOLCHAINS` or any `xcrun_*` variable; deleting
+or renaming anything.
 
 **What this machine cannot show:** absence. It has both, and producing absence
 is a mutation. So the absent case comes from documentation, or is an owner
@@ -346,30 +458,34 @@ only on what the note can support.
 
 | Slice | Branch | What | Depends on |
 |---|---|---|---|
-| K-0 | `wo16/K-0-plan` | This plan and its reviews. Docs only | H merged |
-| K-1 | `wo16/K-1-toolchain-note` | R-29: the note and its checklist entry. Docs only, `provider-researcher`, read-only | K-0 |
+| K-0 | `wo16/K-0-plan` | This plan and its reviews. Docs only. Stays unmerged until H's row is `merged` | H merged |
+| K-1 | `wo16/K-1-toolchain-note` | R-29: the note and its checklist entry. Docs only, `provider-researcher`, the allowlist above | K-0 |
 | K-2 | `wo16/K-2-source-fate` | D2: `SourceFate` replaces `PlanRequest.retain_source`, every site mapped explicitly, **no behaviour change** (the CLI still maps an absent flag to `Remove`) | K-0 |
-| K-3 | `wo16/K-3-opt-in` | D1, D3 (`retainSource` text), D4, D8: `--remove-source` on `plan` and `migrate`, the default `Keep`, `--retain-source` the no-op with its notice and the conflict; 06's synopsis; 04's restore paragraph; catalogue `en` and `pt-BR` (`plan.dry_run_only`, `migrate.by_hand`, `doctor.provider_prefix_is_not_absolute`, `history.show_retain_source`, `plan.source_kept`, `cli.retain_source_deprecated`); documented samples regenerated; wiki's three pages; SE-114 first half | K-2 |
-| K-4 | `wo16/K-4-levels` | D5's application and domain half: `sourceOwnership`, `ConfirmationLevel`, `confirmation_level`, the gate's `RETENTION_DISAGREES_WITH_STEPS`, `ShownPlan`'s level and `admits`, `tie_removal` and the removal digest, the run loop's check | K-3 |
-| K-5 | `wo16/K-5-confirm` | D5's command-line half: Q1 and Q2, `--removal-digest`, `confirmation` and `removalDigest` in the documents, the schemas, 06's advanced-mode MUST and its confirmation paragraph, C's invariant test completed; SE-114 second half | K-4 |
-| K-6 | `wo16/K-6-witness` | D6: `DestinationReverified`, `ProviderLocksClear`, `RemovalCleared`, `clear_removal`, `mutation_dispatch`'s parameter; 04's "Not yet met" (`:493-497`) for the opt-in and the dispatch conditions becomes met | K-5 |
-| K-7 | `wo16/K-7-source-build` | D7, on R-29's answer: the risk's reason, the toolchain block if supported, `doctor`'s wording if changed; 04's source-build sentence (`:262-268`); SE-109 propagation bullet | K-1, K-6 |
+| K-3 | `wo16/K-3-opt-in` | D1, D3 (`retainSource` text), D4, D8: `--remove-source` on `plan` and `migrate`, the default `Keep`, `--retain-source` the no-op with its notice and the conflict; 06's synopsis; 04's restore paragraph; catalogue `en` and `pt-BR` (`plan.dry_run_only`, `migrate.by_hand`, `doctor.provider_prefix_is_not_absolute`, `history.show_retain_source`, `plan.source_kept`, `cli.retain_source_deprecated`); documented samples regenerated; wiki's three pages; SE-114 written; the `UNKNOWN` decision in SE-109's part C bullet and the ledger | K-2 |
+| K-4 | `wo16/K-4-levels` | D5's application and domain half: `sourceOwnership`, `ConfirmationLevel`, `confirmation_level`, the two gate refusals documented in `migrate.v2.md` and the CHANGELOG, `ShownPlan`'s level, `admits`, the consuming mints, `tie_removal` and the removal digest, the run loop's check; **SE-114 amended in this PR** | K-3 |
+| K-5 | `wo16/K-5-confirm` | D5's command-line half: Q1 and Q2 and their keys, `--removal-digest`, the tie-point refusal of `ADVANCED_REMOVAL`, `confirmation` and `removalDigest` in the documents, the schemas, 06's advanced-mode MUST and its confirmation paragraph (keeping "until then no plan executes"), C's invariant test completed; SE-114 amended | K-4 |
+| K-6 | `wo16/K-6-witness` | D6 and D9: `guarding_verify`, the four tokens, `reread_dependents`, `DependentsRechecked`, `clear_removal`, `mutation_dispatch`'s parameter, the boundary-order test; 04's "Not yet met" (`:493-497`) for the opt-in and the dispatch conditions becomes met, and the residual names dependents; **SE-114 amended in this PR** | K-5 |
+| K-7 | `wo16/K-7-source-build` | D7, on R-29's answer: the risk's reason, the toolchain block if supported, `doctor`'s wording if changed; 04's source-build sentence (`:262-268`); SE-109 propagation bullet ("already met" for `doctor`) | K-1, K-6 |
 | K-8 | `wo16/K-8-close` | `the_switch_needs_removal_opt_in` turned positive; ledger, `16-report.md`'s K section, CHANGELOG; `docs-auditor` | K-7 |
 
 Until K-5 merges a `--remove-source` plan is confirmed by Q0 alone. Nothing
-runs: the switch is off (`grep -n THIS_BUILD_DISPATCHES_MUTATIONS`), and 06's
-"until then no plan executes" (`:230-231`) stays true until K-5 replaces it.
+runs: the switch is off (`grep -n THIS_BUILD_DISPATCHES_MUTATIONS`).
 
 ## Tests, per invariant, by name
 
 New tests are marked *new*; the rest are extended.
 
 - **INV-01.** *new* `invariant_01_a_removal_dispatches_only_with_its_witness`
-  (application: no witness, a witness for another step, a witness from a
-  re-read of another verify position — each refused; both directions);
+  (application: no witness, a witness for another step or command, a witness
+  from a re-read of another verify position — each refused; both directions);
   *new* `invariant_01_a_removal_witness_needs_every_check_of_the_contract`
   (a `Verified` record on a step the contract check fails, and a
-  `VerifiedWithUnchecked`, mint nothing); extended
+  `VerifiedWithUnchecked`, mint nothing); *new*
+  `invariant_01_each_removal_command_passes_its_boundaries_in_order` (D6;
+  named in SE-114); *new*
+  `invariant_01_the_record_checked_and_the_step_reread_are_the_same_step` (a
+  plan with two `VERIFY_DESTINATION` steps); *new*
+  `invariant_01_only_add_and_remove_are_ever_dispatched`; extended
   `invariant_01_no_removal_dispatches_unless_the_lock_probe_answered_immediately_before_it`
   and `invariant_01_a_destination_that_is_not_there_stops_the_removal`
   (`crates/cli/tests/executor_wiring.rs`) to assert through the witness;
@@ -379,8 +495,9 @@ New tests are marked *new*; the rest are extended.
   (a `PLAN` witness on a `REMOVAL` plan, a `REMOVAL` witness on an
   `ADVANCED_REMOVAL` plan: `PLAN_NOT_SHOWN`, before the probe and the lock);
   *new* `invariant_02_a_removal_needs_its_own_echoed_digest`;
-  *new* `invariant_02_a_script_cannot_confirm_an_advanced_removal`;
-  extended `invariant_02_a_declined_plan_question_exits_6_before_anything_runs`
+  *new* `invariant_02_a_script_cannot_confirm_an_advanced_removal` (exit 2,
+  stdout empty, at the tie point, in this build); extended
+  `invariant_02_a_declined_plan_question_exits_6_before_anything_runs`
   (`plan_tie.rs:215`) to Q1 and Q2.
 - **INV-03.** *new* `invariant_03_a_removal_without_its_witness_ends_partial_with_the_source_kept`;
   extended `invariant_03_a_removal_whose_destination_was_not_reverified_ends_partial`.
@@ -388,13 +505,20 @@ New tests are marked *new*; the rest are extended.
   (`crates/application/tests/invariants.rs`): dependents block a `Remove`
   plan and do not block a `Keep` plan; extended
   `invariant_04_a_dependent_that_appeared_under_the_lock_refuses_the_run` to a
-  removing run.
+  removing run; *new*
+  `invariant_04_a_dependent_that_appeared_before_the_removal_stops_it` (D9: a
+  dependent present in the fresh inventory read and absent from the capture
+  under the lock; the command is not handed over, `PARTIAL_SUCCESS`, source
+  kept; both directions).
 - **INV-13 (C's blocking half).** `invariant_13_a_named_dependency_warns_and_needs_the_stronger_confirmation`
   (`invariants.rs:2034-2064`) loses its "pending" doc comment and asserts: a
   `NAMED` removal is `ADVANCED_REMOVAL`, strictly above a `DEFAULT_VIEW`
   removal, strictly above an install; a `NAMED` plan that keeps the source is
   `PLAN`; and the run refuses it with a `REMOVAL` witness. *new*
-  `invariant_13_an_absent_entry_or_unknown_ownership_removal_is_the_strictest`.
+  `invariant_13_every_entry_and_ownership_pair_but_one_is_the_strictest`
+  (every pair of the two `Option`s, absences included; only
+  `(DEFAULT_VIEW, TOP_LEVEL)` is `REMOVAL`); *new*
+  `invariant_13_an_inconsistent_entry_and_ownership_is_refused`.
 - **INV-16.** Extended `invariant_16_*` recognition tests: a default (`Keep`)
   re-run is recognised as done; a `--remove-source` run consults no history.
 - **INV-17.** *new* `invariant_17_confirmation_levels_are_direction_neutral`;
@@ -408,7 +532,8 @@ New tests are marked *new*; the rest are extended.
   over the committed recordings and snapshots); policy's
   `invariant_18_coexistence_is_a_first_class_outcome` unchanged.
 - **INV-15.** *new* `invariant_15_the_toolchain_answer_is_the_snapshots_under_replay`
-  if K-7 builds the block (the recordings carry `xcode-select -p`).
+  if K-7 builds the block (the recordings carry `xcode-select -p`; a recording
+  without a read K-7 adds answers `Unknown`).
 - **Tripwire.** `the_switch_needs_removal_opt_in`
   (`crates/cli/tests/history_preconditions.rs:2530-2546`) becomes positive and
   held whatever the switch: the CLI's default plans keep the source in both
@@ -433,38 +558,51 @@ the worktree is removed afterwards.
   dependency block applied to a `Keep` plan; (7) history consulted only under
   `--remove-source`; (8) the deprecation notice on stdout, or missing; (9) the
   plan's bytes differ with and without `--retain-source`.
-- **K-4:** (10) the level from `retain_source` alone, ignoring a
-  `REMOVE_SOURCE` step; (11) absent `enteredBy` treated as `DEFAULT_VIEW`; (12)
-  `UNKNOWN` or absent `sourceOwnership` treated as `TOP_LEVEL`; (13) `ADVANCED`
-  treated as `DEFAULT_VIEW`; (14) `admits` checks coverage only; (15) `admits`
-  with `>` or `==` for `>=`; (16) `tie` mints `REMOVAL`; (17) any minting
-  reaches `ADVANCED_REMOVAL` without Q2; (18) the removal digest's domain equal
-  to the plan digest's; (19) the gate accepts a retention that disagrees with
-  the steps; (20) `sourceOwnership` left out of `plan_still_holds`' comparison
-  (it is plan equality today; the mutant skips the field).
+- **K-4:** (10) the level from `retain_source` alone, ignoring a removal step;
+  (11) absent `enteredBy` treated as `DEFAULT_VIEW`; (12) `UNKNOWN`,
+  `DEPENDENCY`, `ORPHAN` or absent `sourceOwnership` treated as `TOP_LEVEL`,
+  one mutant each (*rev. SG-M2*); (13) `ADVANCED` treated as `DEFAULT_VIEW`;
+  (14) `admits` checks coverage only; (15) `admits` with `>` or `==` for `>=`;
+  (16) `tie` mints `REMOVAL`; (17) any minting reaches `ADVANCED_REMOVAL`
+  without Q2; (18) the removal digest's domain equal to the plan digest's;
+  (19) the gate accepts a retention that disagrees with the steps, including a
+  `VERIFY_REMOVAL` or `CLEANUP_REVIEW` under `retainSource: true`; (20)
+  `sourceOwnership` left out of `plan_still_holds`' comparison; (20a) the gate
+  accepts `DEFAULT_VIEW` with `DEPENDENCY`; (20b) `TOP_LEVEL` serialised as
+  absence; (20c) `confirm_removal` or `tie_removal` minted without a `PLAN`
+  witness ("Q1 minted without Q0", *rev. SR-L2*).
 - **K-5:** (21) Q1 skipped; (22) Q1 reuses Q0's code; (23) Q2 skipped for
   `NAMED`, for unknown ownership, or for an absent field; (24) the plan phrase
   accepted for Q1; (25) `--removal-digest` accepted without `--remove-source`
   or `--plan-digest`; (26) the document's `confirmation` always `PLAN`; (27)
   `removalDigest` printed for an `ADVANCED_REMOVAL` plan; (28) a provider value
-  unescaped in Q1.
+  unescaped in Q1; (28a) `tie_removal` accepted on an `ADVANCED_REMOVAL` plan
+  (*rev. SR-L2*); (28b) `advanced.warning` shown for unknown intent.
 - **K-6:** (29) the shell's re-read branch skipped; (30) the lock sample
-  skipped before a removal; (31) a witness minted from a `VerifiedWithUnchecked`
-  record; (32) a witness minted without `destination_contract_complete`; (33)
-  a witness accepted for another step; (34) a witness from a re-read of another
-  verify position; (35) `mutation_dispatch` ignores a missing witness. Plus the
-  compile-time proof that none of the three tokens is `Clone` or `Default`.
+  skipped before a removal; (30a) the lock sample moved before the re-read
+  (*rev. SG-M1, SR-M1*); (30b) the re-verify judged on the verify step's
+  earlier reads (*rev. SR-M1*); (31) a witness minted from a
+  `VerifiedWithUnchecked` record; (32) a witness minted without
+  `destination_contract_complete`; (33) a witness accepted for another step or
+  command; (34) a witness from a re-read of another verify position; (34a)
+  `guarding_verify` uses the first verify step for one use and the nearest for
+  the other; (35) `mutation_dispatch` ignores a missing witness; (35a) the
+  witness requirement keyed on `reverify.is_some()` instead of the step's kind
+  (*rev. SR-M2*); (35b) one witness reused for a step's second command; (35c)
+  the dependents re-read skipped, or a dependent ignored. Plus the
+  compile-time proof that none of the four tokens is `Clone` or `Default`.
 - **K-7:** (36) a known source build rendered with the unknown text; (37)
   `Missing` not blocking (if built); (38) `Unknown` blocking; (39) the block
   toward one provider only; (40) a destination already holding the package
-  blocked by the toolchain.
+  blocked by the toolchain; (41) a recording without the read answering
+  anything but `Unknown`.
 
 ## Security notes for the reviewers
 
 - K adds no program, no subcommand, no allowlist row and no dependency
-  (`sha2` exists, ADR-0007). The frozen paths (§3 item 3) are untouched, and no
-  guarded file changes; if a slice finds it must change one, it stops and uses
-  the staging procedure.
+  (`sha2` exists, ADR-0007); D9 re-uses capture's own inventory read. The
+  frozen paths (§3 item 3) are untouched, and no guarded file changes; if a
+  slice finds it must change one, it stops and uses the staging procedure.
 - Nothing provider-derived enters a confirmation phrase; Q1 and Q2 render it
   escaped, and the new templates join `hostile_text.rs`.
 - `ShownPlan` and the new tokens stay out of reach of a plan read from a file
@@ -477,9 +615,12 @@ the worktree is removed afterwards.
 
 ## What is not claimed
 
-- No restore execution, and no confirmation wired into `restore` (D4).
+- No restore execution, no confirmation wired into `restore`, and no script
+  route for a removing restore (D4).
 - No history field for the level a run was confirmed at.
 - The script route proves printing, not reading (SE-111), for both digests.
+- That the reads a re-verify judged were fresh is held by the boundary-order
+  test, not by type (D6).
 - The residual window between the last re-check and the provider's uninstall
   stays accepted and declared (`04:482-491`); K bounds it as DP-048 says, it
   does not close it.
@@ -494,9 +635,10 @@ the worktree is removed afterwards.
 Nothing blocks K. Two items may appear:
 
 - **A capture on a machine without a developer directory**, if R-29 cannot
-  settle what `xcode-select -p` answers there from documentation: run
-  `scripts/capture-fixture.sh` on such a disposable machine and commit the
-  recording. K-7 then builds only the risk text until it exists.
+  settle what `xcode-select -p` answers there from documentation, or if a
+  filesystem read K-7 needs must be recorded: run `scripts/capture-fixture.sh`
+  on such a disposable machine and commit the recording. K-7 then builds only
+  the risk text until it exists.
 - **Informational:** `v0.1.0` is not tagged. If it is tagged after K-3, the
   first release already ships opt-in removal, and SE-109's compatibility
   sentence ("if v0.1.0 ships before part K") no longer applies; SE-114 says so.
@@ -505,3 +647,5 @@ Nothing blocks K. Two items may appear:
 
 | Reviewer | Commit reviewed | Findings | Resolution |
 |---|---|---|---|
+| spec-guardian | `9c9d859` | **approve with changes.** M1 D6's order not held by type: the lock sample must consume the re-read's token; one witness per command; a mutant moving the lock sample first. M2 the level derivation not total: `REMOVAL` only for `(Some(DEFAULT_VIEW), Some(TOP_LEVEL))`, exhaustive match; gate refuses an inconsistent pair; mutant 12 to `DEPENDENCY`/`ORPHAN`; `TOP_LEVEL` written explicitly, distinct from absence in the digest. M3 dependents appearing between the lock and the removal: (a) re-read or (b) declare. M4 SE-114 amended in K-4 and K-6's own PRs; `RETENTION_DISAGREES_WITH_STEPS` in `migrate.v2.md` and the CHANGELOG in K-4. M5 K-0's timing. L1 say `PLAN` is today's level and K defines two. L2 `UNKNOWN`'s own key, no `advanced.warning`. L3 one phrasing for `--retain-source`'s life. L4 name `doctor`'s absence test; "already met" in SE-109. L5 a filesystem read needs replay coverage or an owner capture. L6 `pkgutil` research-only. L7 `confirmation` optional or justified. L8 a removing restore has no script route (SE-114); cross-reference C's `UNKNOWN` decision from SE-109 and the ledger | M1: D6 chain, `clear_removal` consumes the dependents token (which consumes `DestinationReverified`), borrows the source's `ConfigurationRechecked` and judges the removal's lock sample; per-command witness; mutant 30a. Deviation, stated: `provider_locks_clear` keeps its signature for the four run-level samples, which have no re-read; for a removal it is called only inside `clear_removal`. M2: D5's table and total-derivation bullet, `ENTRY_DISAGREES_WITH_OWNERSHIP`, mutants 12/20a/20b, D3. M3: **(a)**, D9 — the dependents come from capture's existing inventory read, so no allowlist growth; new INV-04 test. M4: D's preamble, D3, slices K-4/K-6. M5: Timing paragraph. L1: D5 heading and lead. L2: D5 questions bullet, mutant 28b. L3: D1 "throughout the v0.2.x line". L4: D7. L5: D7 filesystem-read bullet, Needs the owner. L6: R-29 item 4. L7: D3. L8: D4, D5 `UNKNOWN` bullet, K-3 row |
+| security-reviewer | `9c9d859` | **approve with changes.** M1 as SG-M1, and `destination_still_verified` judges caller-built reads, so the token proves the judgement, not freshness: an explicit per-command boundary-order test named in SE-114; mutants "lock sample before re-read" and "re-verify on earlier reads"; say what is by type and what by test. M2 the witness requirement decided from the step's kind in `application`, not `reverify.is_some()` or argv; a future dispatched uninstalling step covered or refused. L1 as SG-M2. L2 the higher mints consume the lower `ShownPlan` by value; the `ADVANCED_REMOVAL` digest refusal at the tie point, every build, stdout empty; mutants "Q1 without Q0" and "`tie_removal` on `ADVANCED_REMOVAL`". L3 R-29 by allowlist; no developer variables set. L4 a CLT `stat` through the recorded machine reader; missing in a recording is `Unknown`; INV-15 covers it. L5 the retention refusal also for `VERIFY_REMOVAL`/`CLEANUP_REVIEW` under `retainSource: true`. I1 one function picks the guarding verify step. I2 `RemovalCleared` per command, consumed by value like `ConsentGiven::covers`. I3 K-5 keeps 06's "until then no plan executes" while the switch is false | M1: D6 "What is held by type, and what by test", `invariant_01_each_removal_command_passes_its_boundaries_in_order`, mutants 30a/30b. M2: D6 first bullet, `invariant_01_only_add_and_remove_are_ever_dispatched`, mutant 35a. L1: as SG-M2. L2: D5 enforcement and script bullets, mutants 20c/28a. L3: R-29 allowlist and "Never". L4: D7 filesystem-read bullet, mutant 41. L5: D5 gate bullet, mutant 19. I1: D6 `guarding_verify` (today `.rposition` vs `.position`), test and mutant 34a. I2: D6 step 5, mutant 35b. I3: D5 last bullet; the sentence "until K-5 replaces it" removed |
