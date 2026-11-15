@@ -3693,7 +3693,7 @@ fn a_read_that_did_not_pass_lets_nothing_be_asked() {
 fn a_probe_passes_the_gate_only_for_the_tables_row() {
     // Here, in the unit test build, the table is the shipped one plus a fixture row
     // (`TEST_PROBE_EXECUTABLE`); a row the table does not hold is refused, here and
-    // in the shipped build, where the twelve of `liveness-probes.toml` are all there is.
+    // in the shipped build, where the eleven of `liveness-probes.toml` are all there is.
     let refused_for = |executable: &str| {
         let plan = with_probes(consolidation_run().plan());
         let verify = position(&plan, StepKind::VerifyDestination);

@@ -345,3 +345,56 @@ fn the_unobserved_guard_is_the_routes_first_decision() {
     );
     assert_eq!(statements.next(), Some("return not_observed;"));
 }
+
+/// The guard holds only if the route it sits on is the one route: outside the
+/// process module that defines it, `run_curated_probe(` is called from the
+/// registry alone, and there only inside `liveness_probe`, after the guard
+/// (spec-guardian, H-4). A second caller would start a probe past the barrier.
+#[test]
+fn the_curated_probe_is_reached_only_through_the_guarded_route() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut callers = Vec::new();
+    let mut stack = vec![src.clone()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            let rel = path
+                .strip_prefix(&src)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            if path.is_dir() {
+                if rel != "process" {
+                    stack.push(path);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                for (n, line) in text.lines().enumerate() {
+                    if line.contains("run_curated_probe(") {
+                        callers.push((rel.clone(), n));
+                    }
+                }
+            }
+        }
+    }
+    let registry = include_str!("../src/registry.rs");
+    let start = registry.find("pub fn liveness_probe(").expect("the route");
+    let guard = start
+        + registry[start..]
+            .find("if !THIS_BUILD_OBSERVES_LIVENESS_PROBE {")
+            .expect("the guard");
+    let end = start
+        + registry[start..]
+            .find("\n    }\n")
+            .expect("the route's end");
+    assert!(!callers.is_empty(), "the route calls the probe");
+    for (file, line) in &callers {
+        assert_eq!(file, "registry.rs", "{file}:{} calls the probe", line + 1);
+        let offset: usize = registry.lines().take(*line).map(|l| l.len() + 1).sum();
+        assert!(
+            offset > guard && offset < end,
+            "registry.rs:{} calls the probe outside the guarded route",
+            line + 1
+        );
+    }
+}

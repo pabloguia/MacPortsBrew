@@ -1613,7 +1613,7 @@ mod homebrew_owner {
         }
     }
 
-    struct Tree(PathBuf);
+    pub(super) struct Tree(PathBuf);
 
     impl Tree {
         fn new(tag: &str) -> Self {
@@ -1818,7 +1818,7 @@ mod homebrew_owner {
 
     /// A Mach-O `xz` 5.8.3, and another keg at the same version, both placed:
     /// conditions 9 and 11 admit a copy of `/usr/bin/true`.
-    fn admissible_tree(tag: &str) -> Tree {
+    pub(super) fn admissible_tree(tag: &str) -> Tree {
         let tree = Tree::new(tag);
         for keg in ["xz", "other"] {
             let file = tree.0.join(format!("Cellar/{keg}/5.8.3/bin/{keg}"));
@@ -1832,7 +1832,7 @@ mod homebrew_owner {
         tree
     }
 
-    fn admit(tree: &Tree, leaf: &str, version: &str) -> Result<(), UncheckedCause> {
+    pub(super) fn admit(tree: &Tree, leaf: &str, version: &str) -> Result<(), UncheckedCause> {
         let runner = MayProbe(CellarOnly(tree.0.join("Cellar")));
         let adapter = HomebrewAdapter::new(
             &runner,
@@ -1921,7 +1921,7 @@ mod macports_owner {
         vec!["-q".into(), "provides".into(), path.display().to_string()]
     }
 
-    struct Tree(PathBuf);
+    pub(super) struct Tree(PathBuf);
 
     impl Drop for Tree {
         fn drop(&mut self) {
@@ -2124,7 +2124,7 @@ mod macports_owner {
     /// A Mach-O `bin/xz`, registered to `xz` @5.8.3_0, and `bin/other`, a link
     /// to a Mach-O registered to `other`: conditions 9 and 11 admit a copy of
     /// `/usr/bin/true`.
-    fn admissible_tree(tag: &str) -> Tree {
+    pub(super) fn admissible_tree(tag: &str) -> Tree {
         let root = std::env::temp_dir().join(format!("mpb-mp-admit-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for dir in ["bin", "libexec"] {
@@ -2137,7 +2137,7 @@ mod macports_owner {
         Tree(root)
     }
 
-    fn admit(tree: &Tree, leaf: &str, version: &str) -> Result<(), UncheckedCause> {
+    pub(super) fn admit(tree: &Tree, leaf: &str, version: &str) -> Result<(), UncheckedCause> {
         let runner = MayProbe(registry(&tree.0, &[]));
         let adapter =
             MacPortsAdapter::new(&runner, tree.0.clone(), None, FilesystemScope::ThisMachine);
@@ -2146,13 +2146,13 @@ mod macports_owner {
     }
 
     /// Work order 16 part H-4, L3: the real owner through the whole admission,
-    /// as `homebrew_owner::the_real_owner_through_the_admission` does with a path
-    /// rule; here the rule is the registry's query, in the shapes R-26 and R-28
+    /// as the Homebrew owner's test does with a path rule (both together:
+    /// `invariant_17_both_owners_refuse_a_link_into_another_package_alike`); here the rule is the registry's query, in the shapes R-26 and R-28
     /// observed (`provides` naming the port, `installed` its active row). The
     /// entry linked into another port is refused at condition 7, which asks the
     /// canonical file, so on a still tree condition 8 cannot answer otherwise.
     #[test]
-    fn invariant_17_both_owners_refuse_a_relinked_entry_alike() {
+    fn the_real_owner_through_the_admission() {
         let tree = admissible_tree("admit");
         assert_eq!(admit(&tree, "xz", "5.8.3_0"), Ok(()));
         assert_eq!(
@@ -2162,6 +2162,46 @@ mod macports_owner {
         assert_eq!(
             admit(&tree, "xz", "5.8.2_0"),
             Err(UncheckedCause::ProbeVersionNotQualified)
+        );
+    }
+}
+
+/// Work order 16 part H-4, L3, INV-17: both real owners through the same
+/// admission give the same answer, case by case: their own entry at the row's
+/// version is admitted, an entry that is a link into another package is refused
+/// at condition 7, and a version not the row's at condition 6. The mechanism is
+/// each provider's own and declared (a path rule against a registry query); the
+/// answer is not. Each tree is still, so this is a link into another package,
+/// not a relink during admission: condition 8 is a defence against a race only.
+#[test]
+fn invariant_17_both_owners_refuse_a_link_into_another_package_alike() {
+    let hb = homebrew_owner::admissible_tree("inv17");
+    let mp = macports_owner::admissible_tree("inv17");
+    let cases = [
+        ("xz", "5.8.3", "5.8.3_0", Ok(())),
+        (
+            "other",
+            "5.8.3",
+            "5.8.3_0",
+            Err(UncheckedCause::ProbeEntryNotThePackages),
+        ),
+        (
+            "xz",
+            "5.8.2",
+            "5.8.2_0",
+            Err(UncheckedCause::ProbeVersionNotQualified),
+        ),
+    ];
+    for (leaf, hb_version, mp_version, expected) in cases {
+        assert_eq!(
+            homebrew_owner::admit(&hb, leaf, hb_version),
+            expected,
+            "homebrew {leaf}"
+        );
+        assert_eq!(
+            macports_owner::admit(&mp, leaf, mp_version),
+            expected,
+            "macports {leaf}"
         );
     }
 }

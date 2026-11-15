@@ -11,7 +11,9 @@ documentation on 2026-09-02, re-verified at the start of the Foundation Pass
 the same day, and most recently on 2026-11-14, every group** (two passages
 below were flagged stale or uncertain by the 2026-10-30 run and not yet corrected: the
 version ceiling and `env` before trust, items 5 and 8 of
-`docs/research/tooling/2026-10-30-memory-settings-plugins.md`) — the pages `/tooling-recheck` names; the notes
+`docs/research/tooling/2026-10-30-memory-settings-plugins.md`; the ceiling is
+item 6 of `2026-11-14-memory-settings.md` too, v2.1.319 by then; that run read
+the subagents and skills pages partly, as its note says) — the pages `/tooling-recheck` names; the notes
 are in `docs/research/tooling/`. They are dated third-party facts and change;
 that skill re-verifies them at the start of every pass.
 

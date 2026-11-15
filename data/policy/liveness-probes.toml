@@ -26,7 +26,10 @@
 # 11 admits a Mach-O for this build's architecture, not the one a row was
 # qualified on); and the binary itself, since a version is a label (a MacPorts
 # variant, a Homebrew bottle rebuild or a source build can differ at the same
-# version and revision).
+# version and revision). The count assumes a lost report is no likelier when a
+# program attempts a write; R-28 did not test that. The deployed-arg0 condition
+# bit on one row only: of the twelve, Homebrew's pkgconf is the one whose
+# canonical program name differs from its placed leaf.
 #
 # QUALIFYING A NEW OR CHANGED ROW includes a recorded-attempt round: under the
 # reporting sandbox of R-28's "Attempted writes, recorded", both controls, at

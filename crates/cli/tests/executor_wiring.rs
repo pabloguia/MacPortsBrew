@@ -3091,7 +3091,8 @@ fn plan_digest_is_pinned_for_a_fixed_plan() {
 // went to `2026.10.18-2` with `provider-locks.toml` (G.md, As built). Moved by
 // H-1: `plan.v2` (schema version 2), and a `VERIFY_DESTINATION` that records a
 // liveness skip where it recorded a probe with a `flag`. Moved by H-2: the policy
-// version went to `2026.11.04-1` with `liveness-probes.toml`.
+// version went to `2026.11.04-1` with `liveness-probes.toml`. Moved by H-4:
+// the policy version went to `2026.11.04-4` when a probe row was removed.
 const PINNED_DIGEST: &str =
     "sha256:675c9527c12f665ef32b4397fb4d4e317a6254953029063ab14328559e1168f0";
 
