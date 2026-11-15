@@ -2441,18 +2441,25 @@ mod macports_owner {
         let adapter =
             MacPortsAdapter::new(&runner, tree.0.clone(), None, FilesystemScope::ThisMachine);
         let placed = tree.0.join("bin/xz");
+        // Each answer counted, so a drifted `installed` argv, which the inner
+        // recording answers with an error of its own, cannot keep this green
+        // for the wrong reason (security review of `c770adb`).
         assert_eq!(
             adapter.entry_owner("xz", &leaf("xz"), &placed),
             OwnershipFacts::CouldNotTell(UncheckedCause::ReadFailed)
         );
+        assert_eq!(runner.installed_reads.get(), 1, "the entry's read");
         assert_eq!(
             adapter.target_version("xz", &placed, &placed),
             Err(UncheckedCause::ReadFailed)
         );
+        assert_eq!(runner.installed_reads.get(), 2, "the target's read");
         // Through the admission: at condition 7 when the entry's read sees
         // them, and at condition 8 when only the target's does.
-        let (answer, _) = admit_over(&tree, &runner);
+        let runner = InstalledSays::over(&tree, Some(TWO_ACTIVE), TWO_ACTIVE);
+        let (answer, reads) = admit_over(&tree, &runner);
         assert_eq!(answer, Err(UncheckedCause::ProbeEntryNotThePackages));
+        assert_eq!(reads, 1, "refused on the entry's read, before the target's");
         let runner = InstalledSays::over(&tree, None, TWO_ACTIVE);
         let (answer, reads) = admit_over(&tree, &runner);
         assert_eq!(answer, Err(UncheckedCause::ProbeTargetNotThePackages));
