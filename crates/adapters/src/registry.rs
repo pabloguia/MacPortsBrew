@@ -12,6 +12,7 @@ use crate::homebrew::HomebrewAdapter;
 use crate::macports::MacPortsAdapter;
 use crate::prefixes;
 use crate::process::{run_curated_probe, CommandSpec, Invocation, PlanReadRefusal, ProcessRunner};
+use macportsbrew_domain::plan::THIS_BUILD_OBSERVES_LIVENESS_PROBE;
 use macportsbrew_domain::ProviderEnvironmentContract;
 use macportsbrew_domain::{
     CheckAnswer, DestinationFacts, DestinationQuery, ExecutableName, InstalledPackage,
@@ -475,6 +476,12 @@ impl DestinationSites<'_, '_> {
     /// state root's. `provider` selects the adapter only: the row key, the
     /// prefix, the runner and the scope are the adapter's own (condition 4).
     /// Not live, or not detected, is `NOT_OBSERVED` before anything is built.
+    ///
+    /// **And not observed by this build** is `NOT_OBSERVED` before anything at
+    /// all, the first statement (H-4): while
+    /// [`THIS_BUILD_OBSERVES_LIVENESS_PROBE`] is false the route starts nothing,
+    /// whatever the switch says, so the observer and the switch are two
+    /// barriers.
     #[must_use]
     pub fn liveness_probe(
         &self,
@@ -485,6 +492,9 @@ impl DestinationSites<'_, '_> {
         lock: &crate::persistence::run_lock::RunLock,
     ) -> CheckAnswer {
         let not_observed = CheckAnswer::Unchecked(UncheckedCause::NotObserved);
+        if !THIS_BUILD_OBSERVES_LIVENESS_PROBE {
+            return not_observed;
+        }
         if !self.observes(provider) {
             return not_observed;
         }

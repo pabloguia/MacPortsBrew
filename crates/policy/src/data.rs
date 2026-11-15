@@ -1265,15 +1265,17 @@ mod tests {
             data.liveness_probe(provider, package, leaf)
                 .map(|r| r.observed_version.clone())
         };
-        // One leaf, two programs (R-28 finding 25).
-        assert_eq!(
-            of("homebrew", "pkgconf", "pkg-config").as_deref(),
-            Some("3.0.7")
-        );
+        // One leaf under both providers, a row each, each in its provider's shape.
+        assert_eq!(of("homebrew", "xz", "xz").as_deref(), Some("5.8.3"));
+        assert_eq!(of("macports", "xz", "xz").as_deref(), Some("5.8.3_0"));
+        // One leaf, two programs (R-28 finding 25): MacPorts' `pkg-config` has a
+        // row, and Homebrew's, pkgconf, was removed in H-4 because its deployed
+        // form did not reach three canary-seen runs.
         assert_eq!(
             of("macports", "pkgconfig", "pkg-config").as_deref(),
             Some("0.29.2_0")
         );
+        assert_eq!(of("homebrew", "pkgconf", "pkg-config"), None);
         assert_eq!(of("macports", "pkgconf", "pkg-config"), None);
         // Row 8 of R-28 did not requalify, and `httpd` has no row by any name.
         assert_eq!(of("macports", "gettext", "gettext"), None);

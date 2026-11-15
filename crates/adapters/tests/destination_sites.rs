@@ -246,3 +246,155 @@ fn the_placed_entry_answers_for_its_own_keg_and_not_for_the_list_path() {
     .expect("in a keg");
     assert_eq!((name.as_str(), version.as_str()), ("openssl@3", "3.5.0"));
 }
+
+/// Counts every call a site makes of its runner, whatever it is.
+#[derive(Default)]
+struct Counting {
+    calls: std::cell::Cell<u32>,
+}
+
+impl Counting {
+    fn tick(&self) {
+        self.calls.set(self.calls.get() + 1);
+    }
+}
+
+impl ProcessRunner for Counting {
+    fn run(&self, _spec: &CommandSpec) -> Result<Invocation, DomainError> {
+        self.tick();
+        panic!("the route ran a read while this build does not observe the probe");
+    }
+
+    fn is_replay(&self) -> bool {
+        self.tick();
+        false
+    }
+
+    fn may_run_probes(&self) -> bool {
+        self.tick();
+        true
+    }
+}
+
+/// Work order 16 part H-4: while this build does not observe `LIVENESS_PROBE`,
+/// the one route to a curated probe answers `NOT_OBSERVED` and asks its runner
+/// nothing, on this machine, live, with the lock and a runner that says it may
+/// probe, for every provider. So flipping the switch alone starts no program.
+/// Written for the constant's current value: once it is true this asserts
+/// nothing, and the flip's own tests take over.
+#[test]
+fn while_the_probe_is_unobserved_the_route_asks_its_runner_nothing() {
+    if macportsbrew_domain::plan::THIS_BUILD_OBSERVES_LIVENESS_PROBE {
+        return;
+    }
+    let (base, state) = state("probe-unobserved");
+    let lock = acquire(&state, std::fs::metadata(&base).unwrap().uid()).unwrap();
+    let leaf = ExecutableName::parse("xz").unwrap();
+    let argv = ["--version".to_owned()];
+    let runner = Counting::default();
+    let ctx = RegistryContext {
+        runner: &runner,
+        home: None,
+        platform_tags: Box::new(|_| Vec::new()),
+        filesystem: FilesystemScope::ThisMachine,
+        prefix_override: None,
+    };
+    // Building the sites asks the runner whether it replays; the route is what
+    // is measured.
+    let sites = destination_sites(&ctx, &state, &lock);
+    let built = runner.calls.get();
+    for id in ["homebrew", "macports", "no-such-provider"] {
+        assert_eq!(
+            sites.liveness_probe(&ProviderId::new(id), "xz", &leaf, &argv, &lock),
+            CheckAnswer::Unchecked(UncheckedCause::NotObserved),
+            "{id}"
+        );
+    }
+    assert_eq!(
+        runner.calls.get(),
+        built,
+        "the route asked its runner something"
+    );
+    drop(lock);
+    std::fs::remove_dir_all(&base).ok();
+}
+
+/// The same guard, read from the source: it is the route's first decision,
+/// before `observes` and detection. Detection reads the machine, so on a host
+/// with no provider installed the behavioural test above cannot tell a guard
+/// moved after `observes` from one before it; this can.
+#[test]
+fn the_unobserved_guard_is_the_routes_first_decision() {
+    let source = include_str!("../src/registry.rs");
+    let start = source
+        .find("pub fn liveness_probe(")
+        .expect("the route is `DestinationSites::liveness_probe`");
+    let body = &source[start..];
+    let open = body.find("{\n").expect("the route has a body") + 2;
+    let mut statements = body[open..]
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with("//"));
+    assert_eq!(
+        statements.next(),
+        Some("let not_observed = CheckAnswer::Unchecked(UncheckedCause::NotObserved);")
+    );
+    assert_eq!(
+        statements.next(),
+        Some("if !THIS_BUILD_OBSERVES_LIVENESS_PROBE {")
+    );
+    assert_eq!(statements.next(), Some("return not_observed;"));
+}
+
+/// The guard holds only if the route it sits on is the one route: outside the
+/// process module that defines it, `run_curated_probe(` is called from the
+/// registry alone, and there only inside `liveness_probe`, after the guard
+/// (spec-guardian, H-4). A second caller would start a probe past the barrier.
+#[test]
+fn the_curated_probe_is_reached_only_through_the_guarded_route() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut callers = Vec::new();
+    let mut stack = vec![src.clone()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            let rel = path
+                .strip_prefix(&src)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            if path.is_dir() {
+                if rel != "process" {
+                    stack.push(path);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                for (n, line) in text.lines().enumerate() {
+                    if line.contains("run_curated_probe(") {
+                        callers.push((rel.clone(), n));
+                    }
+                }
+            }
+        }
+    }
+    let registry = include_str!("../src/registry.rs");
+    let start = registry.find("pub fn liveness_probe(").expect("the route");
+    let guard = start
+        + registry[start..]
+            .find("if !THIS_BUILD_OBSERVES_LIVENESS_PROBE {")
+            .expect("the guard");
+    let end = start
+        + registry[start..]
+            .find("\n    }\n")
+            .expect("the route's end");
+    assert!(!callers.is_empty(), "the route calls the probe");
+    for (file, line) in &callers {
+        assert_eq!(file, "registry.rs", "{file}:{} calls the probe", line + 1);
+        let offset: usize = registry.lines().take(*line).map(|l| l.len() + 1).sum();
+        assert!(
+            offset > guard && offset < end,
+            "registry.rs:{} calls the probe outside the guarded route",
+            line + 1
+        );
+    }
+}

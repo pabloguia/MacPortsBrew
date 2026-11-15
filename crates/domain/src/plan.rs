@@ -583,6 +583,19 @@ pub struct MigrationPlan {
 /// flipped constant alone cannot reach a provider.
 pub const THIS_BUILD_DISPATCHES_MUTATIONS: bool = false;
 
+/// Whether this build observes `LIVENESS_PROBE`: whether the one route to a
+/// curated probe may start a program at all (work order 16 part H-4).
+///
+/// **Read in exactly two places in product source:** the application's
+/// `observed_by_this_build`, which the switch's tripwire reads, and the
+/// registry's `DestinationSites::liveness_probe`, which answers `NOT_OBSERVED`
+/// on it before anything is built. So flipping
+/// [`THIS_BUILD_DISPATCHES_MUTATIONS`] alone cannot start a package's program:
+/// the observer and the switch are two barriers until this turns true, which
+/// waits on the staged `16-staged/H/04` and, once it is true, leaves the switch
+/// the only one (`docs/passes/16-plans/H.md`, "Plan (H-4)").
+pub const THIS_BUILD_OBSERVES_LIVENESS_PROBE: bool = false;
+
 /// The current plan schema version.
 pub const PLAN_SCHEMA_VERSION: u32 = 2;
 

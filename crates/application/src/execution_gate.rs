@@ -55,7 +55,9 @@
 use crate::executor::PlannedRun;
 use crate::planner::{elevation_for, package_kind_in, planned_argv, planned_success};
 use crate::provider_commands;
-use macportsbrew_domain::plan::{PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS};
+use macportsbrew_domain::plan::{
+    PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS, THIS_BUILD_OBSERVES_LIVENESS_PROBE,
+};
 use macportsbrew_domain::{
     expectation_for, Elevation, ErrorId, ExecutableName, ExpectationError, MigrationPlan,
     MigrationStep, PackageKind, PrimaryDecision, PrimaryReason, ProviderId, StepKind,
@@ -641,7 +643,9 @@ pub fn is_site_answered(kind: StepKind, check: &VerificationCheck) -> bool {
 #[must_use]
 pub fn observed_by_this_build(check: &VerificationCheck) -> bool {
     match check {
-        // Observed since H-2. The probe's observer is the admitted run, H-3's.
+        // Observed since H-2. The probe's observer is the admitted run, H-3's,
+        // and it counts only once the route may start it (H-4).
+        VerificationCheck::LivenessProbe { .. } => THIS_BUILD_OBSERVES_LIVENESS_PROBE,
         VerificationCheck::ProviderIntegrityCheck
         | VerificationCheck::ExecutablesOwnedByDestination { .. }
         | VerificationCheck::NoCrossProviderLinkage
@@ -650,7 +654,7 @@ pub fn observed_by_this_build(check: &VerificationCheck) -> bool {
         | VerificationCheck::PackageAbsent
         | VerificationCheck::PackageNewlyPresent
         | VerificationCheck::ResolvesTo { .. } => true,
-        VerificationCheck::LivenessProbe { .. } | VerificationCheck::Unknown => false,
+        VerificationCheck::Unknown => false,
     }
 }
 

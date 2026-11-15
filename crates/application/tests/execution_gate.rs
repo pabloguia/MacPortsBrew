@@ -386,6 +386,13 @@ fn a_recognised_check_is_not_thereby_evaluable() {
         evaluable_in_this_build(StepKind::VerifyDestination, &liveness),
         "its answer is judged on the destination's verify step"
     );
+    // H-4: the tripwire's reader and the route's guard read one constant, so the
+    // observer cannot be flipped in one and left closed in the other.
+    assert_eq!(
+        macportsbrew_application::observed_by_this_build(&liveness),
+        macportsbrew_domain::plan::THIS_BUILD_OBSERVES_LIVENESS_PROBE,
+        "the observer is the route's constant"
+    );
     assert!(
         !macportsbrew_application::observed_by_this_build(&liveness),
         "but nothing in this build runs it"
@@ -1237,6 +1244,48 @@ fn the_mutation_constant_is_read_only_by_the_planner_and_the_gate() {
         planner.contains("dry_run_only: !THIS_BUILD_DISPATCHES_MUTATIONS,"),
         "the planner derives dryRunOnly from the constant"
     );
+}
+
+/// `THIS_BUILD_OBSERVES_LIVENESS_PROBE` is read by the gate's
+/// `observed_by_this_build` and by the one route to a probe, the registry's
+/// `liveness_probe` — nowhere else (work order 16 part H-4). A third reader
+/// could open the route without the tripwire seeing it.
+#[test]
+fn the_probe_observer_is_read_only_by_the_gate_and_the_route() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates/")
+        .to_path_buf();
+    let allowed = [
+        "adapters/src/registry.rs",
+        "application/src/execution_gate.rs",
+        "domain/src/plan.rs",
+    ];
+    let mut readers = Vec::new();
+    let mut stack = vec![crates.clone()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("readable") {
+            let path = entry.expect("entry").path();
+            let rel = path.strip_prefix(&crates).expect("under crates/");
+            if path.is_dir() {
+                if rel
+                    .components()
+                    .nth(1)
+                    .is_none_or(|c| c.as_os_str() == "src")
+                {
+                    stack.push(path);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && std::fs::read_to_string(&path)
+                    .expect("utf-8 source")
+                    .contains("THIS_BUILD_OBSERVES_LIVENESS_PROBE")
+            {
+                readers.push(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    readers.sort();
+    assert_eq!(readers, allowed, "the observer's readers");
 }
 
 /// **The switch, pinned** (pass 08 slice 4; work order §2). Flipping it is

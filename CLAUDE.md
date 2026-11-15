@@ -54,12 +54,14 @@ the relevant specification chapter when the Read, Edit or Write tool opens a fil
 under `crates/adapters/**`, `crates/policy/**`, `crates/domain/**`,
 `data/policy/**`, `locales/**` or the executor (`crates/cli/src/executor/**`,
 `crates/application/src/executor*`, `execution_gate.rs`, `verification.rs`) —
-a shell or MCP reader loads nothing, so open a file with Read before changing
-it. Do not restate their content in this file; extend the rule.
+an MCP reader or a shell command other than a single-file `cat` or `head`
+loads nothing, so open a file with Read before changing it. Do not restate their content in this file; extend the rule.
 
 **Verify before you claim.** `/preflight` runs the definition-of-done checks.
 The `Stop` hook runs the mechanical part of it whether you ask or not, and will
-refuse to let the turn end while an objective check fails. That is deliberate:
+refuse to let the turn end while an objective check fails (until eight blocks
+in a row with no tool call between them; `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`
+raises the cap). That is deliberate:
 "give the agent a way to check its work" beats "tell the agent to be careful".
 
 **Observe the machine without touching it.** `--replay

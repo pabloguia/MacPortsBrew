@@ -948,7 +948,7 @@ non-mutating and the command exits 4:
       "blocking": true
     }
   ],
-  "policyVersion": "2026.11.04-3",
+  "policyVersion": "2026.11.04-4",
   "dryRunOnly": true,
   "concurrentProviderActivity": {
     "activity": "UNKNOWABLE",
