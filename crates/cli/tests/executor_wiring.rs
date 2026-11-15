@@ -3093,7 +3093,7 @@ fn plan_digest_is_pinned_for_a_fixed_plan() {
 // liveness skip where it recorded a probe with a `flag`. Moved by H-2: the policy
 // version went to `2026.11.04-1` with `liveness-probes.toml`.
 const PINNED_DIGEST: &str =
-    "sha256:0abdddf9774cfd4311904fc4d132b568d3e044891def319325bcb47f590ff44d";
+    "sha256:675c9527c12f665ef32b4397fb4d4e317a6254953029063ab14328559e1168f0";
 
 #[test]
 fn a_plan_digest_reads_back_as_written_and_nothing_else() {

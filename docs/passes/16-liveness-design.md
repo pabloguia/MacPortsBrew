@@ -180,6 +180,21 @@ reached. Not an `env` script, an interpreter, a daemon or a wrapper passing `arg
 R-28's rows 1-13 are re-qualified this way before the file lands; a row that fails
 does not land.
 
+**Since H-4, qualifying a row also takes a recorded-attempt round** (R-28, "Attempted
+writes, recorded" and "Canary-seen repetitions and the deployed arg0"): under a
+sandbox whose every denial is a reported violation, with a positive and a negative
+control, at least three runs per row in which the loader's `/dev/dtracehelper`
+canary was seen (rounds may be counted together), and in the deployed form, `argv[0]`
+the placed leaf. **A procedure, not a check:** nothing in the build refuses a row added
+without it. "Unqualified" means absent from the table: Homebrew's `pkgconf`/`pkg-config`
+row was removed on 2026-11-14 because its deployed form saw one canary in ten. The
+acceptance (`security-reviewer`, 2026-11-13 and 2026-11-14) is scoped to the table's
+eleven (provider, package, executable, `observed_version`) keys on x86_64 macOS 26.7.3;
+nothing enforces the OS build, the machine's architecture or Rosetta (condition 11 is
+this build's architecture), or the binary behind a version, which is a label. It
+assumes a lost report is no likelier when the program attempts a write; R-28 did not
+test that.
+
 ## What does not change
 
 No new `Command::new` site. No shell. `the_shipped_binary_may_spawn_exactly_six_programs`
