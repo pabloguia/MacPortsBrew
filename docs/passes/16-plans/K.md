@@ -13,15 +13,14 @@ at `4875d89`.
 **Timing.** H-4 (PR #73) is merged (`4875d89`), and H-4 L1 (PR #75) is merged
 as `e41785b`: it was applied directly on the owner's authorisation, so the
 planned H-stage-2 staging (`16-staged/H/04`) never happened (H.md "As built
-(H-4)" item 5). H-5 (PR #76, `wo16/H-8-observe`) is in review and is merged into
-this branch so that the citations below name the code K builds on; `main`'s
-ledger row still reads *in progress* (`docs/passes/16-progress.md:31` at
-`e41785b`). §5 runs S..L one at a time, each after the previous merges, and the
+(H-4)" item 5). H-5 (PR #76) is merged as `26fe181`, and this branch contains
+it; the ledger PR #77 turns H's row (`docs/passes/16-progress.md:31`) to
+*merged*. §5 runs S..L one at a time, each after the previous merges, and the
 ledger's K row depends on H. **Decided: K-0 stays unmerged until H's ledger row
 reads `merged`** (the dependency column, §4.1), and no other K slice opens
 before then. The *(H)* citations were re-read against H as built on 2026-11-15;
-the drift found is in the Reviews table. If H-5's review changes what it merges,
-they are re-read once more before K-0 merges.
+the drift found is in the Reviews table, and a re-check at `26fe181` found none
+more (H-5's review rounds changed only the ledger after `afc5d5b`).
 
 The plan was revised after both reviews of `9c9d859`; each finding's
 resolution is in the Reviews table, and the sections it changed carry
@@ -118,8 +117,11 @@ destination configuration re-read and re-check; the destination re-read with
 the verify step's own commands, judged by `destination_still_verified`
 (`application/src/executor.rs:1742-1788`, which answers `Result<(), Precondition>`)
 — *(H)* the reads plus a fresh check 3 per executable and no other: checks 2,
-4 and 5 are not re-run, a window H declares (`reverify_questions`,
-`executor.rs:1694-1707`; `docs/passes/16-plans/H.md:226`);
+4 and 5 are not re-run, a window declared in H's plan only
+(`docs/passes/16-plans/H.md:226`; `reverify_questions`,
+`crates/application/src/executor.rs:1694-1707`, whose comment calls it a
+window "the specification declares" though no spec text does yet); K-6
+declares it in 04 and SE-114;
 the run lock still current (`:1098`); the source's configuration re-check
 (`:1110-1129`); the provider-lock sample (`:1133-1137`, `provider_locks_clear`
 `application/src/executor.rs:450-458`, `Result<(), ProviderLockRefusal>`); then
@@ -137,7 +139,7 @@ H-5"), so past the gate all four of DP-051's checks are observed and
 (`crates/cli/tests/executor.rs:1810`) is positive. A removal is dispatched only
 behind a `VERIFY_DESTINATION` recorded `Verified`, every check `Holds`; a
 `VerifiedWithUnchecked` still passes it over as `SOURCE_KEPT_UNCHECKED`
-(`executor.rs:1076-1077`). H expects most live probe answers to be `UNCHECKED` —
+(`crates/application/src/executor.rs:1076-1077`). H expects most live probe answers to be `UNCHECKED` —
 a package with no row is skipped, a row answers only at its exact version — so
 most removals will keep the source (H.md, "What H-5 does not claim").
 `THIS_BUILD_DISPATCHES_MUTATIONS` (`plan.rs:584`) stays `false` and is the
@@ -158,7 +160,7 @@ plan was certified by a probe no mutation preceded; D7's toolchain block never
 applies to such a plan, so it adds no refusal ahead of the probe; and D8 makes
 coexistence the default, so after a flip a default `migrate` onto a destination
 that already holds the package probes and dispatches nothing. None of this
-changes K's slices; it is a sentence K-3 and K-6 carry into SE-114, and part
+changes K's slices; it is a sentence K-3 writes into SE-114 and K-6 keeps, and part
 L's proposal inherits H's checklist item for it (H.md "When the switch flips").
 
 **DP-050 today.** A non-prebuilt destination raises the non-blocking
@@ -382,12 +384,13 @@ SR-M1, SR-M2, SR-I1, SR-I2*).
   sample for a removal is judged only inside `clear_removal`. *(H)* What
   `DestinationReverified` certifies is H's re-read judge: the reads and check 3
   per executable; checks 2, 4 and 5 come from the guarding step's record, not
-  from a re-run (`reverify_questions`, `executor.rs:1694-1707`), and K keeps
+  from a re-run (`reverify_questions`, `crates/application/src/executor.rs:1694-1707`), and K keeps
   that window rather than widening the re-read: a fresh liveness probe before
   every removal command would start a curated program again per command, and
   DP-048 (c) asks that the six checks were *evaluated* for that package, not
-  re-run. K-6 names the window in 04's residual paragraph beside dependents if
-  04 does not already. **Not by type:**
+  re-run. 04 does not name that window yet, so K-6 names it in 04's residual
+  paragraph beside dependents, and corrects the `reverify_questions` comment
+  to cite 04. **Not by type:**
   that the `StepRead`s `destination_still_verified` judged were *fresh* — the
   shell builds them (`executor/mod.rs:1065-1069`), so the token proves the
   judgement, not that the reads were made just then — and that the run lock
@@ -520,12 +523,12 @@ only on what the note can support.
 | K-0 | `wo16/K-0-plan` | This plan and its reviews. Docs only. Stays unmerged until H's row is `merged` | H merged |
 | K-1 | `wo16/K-1-toolchain-note` | R-29: the note and its checklist entry. Docs only, `provider-researcher`, the allowlist above | K-0 |
 | K-2 | `wo16/K-2-source-fate` | D2: `SourceFate` replaces `PlanRequest.retain_source`, every site mapped explicitly, **no behaviour change** (the CLI still maps an absent flag to `Remove`) | K-0 |
-| K-3 | `wo16/K-3-opt-in` | D1, D3 (`retainSource` text), D4, D8: `--remove-source` on `plan` and `migrate`, the default `Keep`, `--retain-source` the no-op with its notice and the conflict; 06's synopsis; 04's restore paragraph; catalogue `en` and `pt-BR` (`plan.dry_run_only`, `migrate.by_hand`, `doctor.provider_prefix_is_not_absolute`, `history.show_retain_source`, `plan.source_kept`, `cli.retain_source_deprecated`); documented samples regenerated; wiki's three pages; SE-114 written; the `UNKNOWN` decision in SE-109's part C bullet and the ledger | K-2 |
+| K-3 | `wo16/K-3-opt-in` | D1, D3 (`retainSource` text), D4, D8: `--remove-source` on `plan` and `migrate`, the default `Keep`, `--retain-source` the no-op with its notice and the conflict; 06's synopsis; 04's restore paragraph; catalogue `en` and `pt-BR` (`plan.dry_run_only`, `migrate.by_hand`, `doctor.provider_prefix_is_not_absolute`, `history.show_retain_source`, `plan.source_kept`, `cli.retain_source_deprecated`); documented samples regenerated; wiki's three pages; SE-114 written, with M-1's sentence (D8); the `UNKNOWN` decision in SE-109's part C bullet and the ledger | K-2 |
 | K-4 | `wo16/K-4-levels` | D5's application and domain half: `sourceOwnership`, `ConfirmationLevel`, `confirmation_level`, the two gate refusals documented in `migrate.v2.md` and the CHANGELOG, `ShownPlan`'s level, `admits`, the consuming mints, `tie_removal` and the removal digest, the run loop's check; **SE-114 amended in this PR** | K-3 |
-| K-5 | `wo16/K-5-confirm` | D5's command-line half: Q1 and Q2 and their keys, `--removal-digest`, the tie-point refusal of `ADVANCED_REMOVAL`, `confirmation` and `removalDigest` in the documents, the schemas, 06's advanced-mode MUST and its confirmation paragraph (keeping "until then no plan executes"), C's invariant test completed; SE-114 amended | K-4 |
+| K-5 | `wo16/K-5-confirm` | D5's command-line half: Q1 and Q2 and their keys, `--removal-digest`, the tie-point refusal of `ADVANCED_REMOVAL`, `confirmation` and `removalDigest` in the documents, the schemas, 06's advanced-mode MUST and its confirmation paragraph (keeping "until then no plan executes"), C's invariant test completed; E's two handed tests tried in a scratch switch-on worktree, outcome recorded; SE-114 amended | K-4 |
 | K-6 | `wo16/K-6-witness` | D6 and D9: `guarding_verify`, the four tokens, `reread_dependents`, `DependentsRechecked`, `clear_removal`, `mutation_dispatch`'s parameter, the boundary-order test; 04's "Not yet met" (`:492-498`; since H-5 it already says DP-051's four checks exist and names only the opt-in, and ties the switch to the owner's ruling on part L's proposal) for the opt-in and the dispatch conditions becomes met, keeping that last clause, and the residual names dependents and the re-read's unrerun checks 2, 4 and 5; **SE-114 amended in this PR**, with M-1's sentence | K-5 |
 | K-7 | `wo16/K-7-source-build` | D7, on R-29's answer: the risk's reason, the toolchain block if supported, `doctor`'s wording if changed; 04's source-build sentence (`:262-268`); SE-109 propagation bullet ("already met" for `doctor`) | K-1, K-6 |
-| K-8 | `wo16/K-8-close` | `the_switch_needs_removal_opt_in` turned positive; ledger, `16-report.md`'s K section, CHANGELOG; `docs-auditor` | K-7 |
+| K-8 | `wo16/K-8-close` | `the_switch_needs_removal_opt_in` turned positive; D8's M-1 consequence recorded for part L's proposal beside H's checklist item; ledger, `16-report.md`'s K section, CHANGELOG; `docs-auditor` | K-7 |
 
 Until K-5 merges a `--remove-source` plan is confirmed by Q0 alone. Nothing
 runs: the switch is off (`grep -n THIS_BUILD_DISPATCHES_MUTATIONS`).
@@ -608,8 +611,11 @@ New tests are marked *new*; the rest are extended.
   (`crates/cli/tests/executor.rs:1810`), positive; but E's blockers were not
   only the contract: under `--replay` `execute_mutating` still refuses the live
   scope first (H.md "As built (H-5)" item 3), and a replayed probe is
-  `NOT_OBSERVED`. K-5 tries them in a switch-on worktree; if either blocker
-  still holds, K-8 records them as still handed, with the reason.
+  `NOT_OBSERVED`. K-5 tries them with the constant flipped in a scratch,
+  uncommitted worktree, and nothing switch-on is committed
+  (`THIS_BUILD_DISPATCHES_MUTATIONS` stays `false`); K-5's PR records the
+  outcome either way, and if either blocker still holds K-8 records them as
+  still handed, with the reason.
 
 ## Mutants each slice must kill
 
@@ -730,3 +736,4 @@ Nothing blocks K. Two items may appear:
 | spec-guardian | `9c9d859` | **approve with changes.** M1 D6's order not held by type: the lock sample must consume the re-read's token; one witness per command; a mutant moving the lock sample first. M2 the level derivation not total: `REMOVAL` only for `(Some(DEFAULT_VIEW), Some(TOP_LEVEL))`, exhaustive match; gate refuses an inconsistent pair; mutant 12 to `DEPENDENCY`/`ORPHAN`; `TOP_LEVEL` written explicitly, distinct from absence in the digest. M3 dependents appearing between the lock and the removal: (a) re-read or (b) declare. M4 SE-114 amended in K-4 and K-6's own PRs; `RETENTION_DISAGREES_WITH_STEPS` in `migrate.v2.md` and the CHANGELOG in K-4. M5 K-0's timing. L1 say `PLAN` is today's level and K defines two. L2 `UNKNOWN`'s own key, no `advanced.warning`. L3 one phrasing for `--retain-source`'s life. L4 name `doctor`'s absence test; "already met" in SE-109. L5 a filesystem read needs replay coverage or an owner capture. L6 `pkgutil` research-only. L7 `confirmation` optional or justified. L8 a removing restore has no script route (SE-114); cross-reference C's `UNKNOWN` decision from SE-109 and the ledger | M1: D6 chain, `clear_removal` consumes the dependents token (which consumes `DestinationReverified`), borrows the source's `ConfigurationRechecked` and judges the removal's lock sample; per-command witness; mutant 30a. Deviation, stated: `provider_locks_clear` keeps its signature for the four run-level samples, which have no re-read; for a removal it is called only inside `clear_removal`. M2: D5's table and total-derivation bullet, `ENTRY_DISAGREES_WITH_OWNERSHIP`, mutants 12/20a/20b, D3. M3: **(a)**, D9 — the dependents come from capture's existing inventory read, so no allowlist growth; new INV-04 test. M4: D's preamble, D3, slices K-4/K-6. M5: Timing paragraph. L1: D5 heading and lead. L2: D5 questions bullet, mutant 28b. L3: D1 "throughout the v0.2.x line". L4: D7. L5: D7 filesystem-read bullet, Needs the owner. L6: R-29 item 4. L7: D3. L8: D4, D5 `UNKNOWN` bullet, K-3 row |
 | security-reviewer | `9c9d859` | **approve with changes.** M1 as SG-M1, and `destination_still_verified` judges caller-built reads, so the token proves the judgement, not freshness: an explicit per-command boundary-order test named in SE-114; mutants "lock sample before re-read" and "re-verify on earlier reads"; say what is by type and what by test. M2 the witness requirement decided from the step's kind in `application`, not `reverify.is_some()` or argv; a future dispatched uninstalling step covered or refused. L1 as SG-M2. L2 the higher mints consume the lower `ShownPlan` by value; the `ADVANCED_REMOVAL` digest refusal at the tie point, every build, stdout empty; mutants "Q1 without Q0" and "`tie_removal` on `ADVANCED_REMOVAL`". L3 R-29 by allowlist; no developer variables set. L4 a CLT `stat` through the recorded machine reader; missing in a recording is `Unknown`; INV-15 covers it. L5 the retention refusal also for `VERIFY_REMOVAL`/`CLEANUP_REVIEW` under `retainSource: true`. I1 one function picks the guarding verify step. I2 `RemovalCleared` per command, consumed by value like `ConsentGiven::covers`. I3 K-5 keeps 06's "until then no plan executes" while the switch is false | M1: D6 "What is held by type, and what by test", `invariant_01_each_removal_command_passes_its_boundaries_in_order`, mutants 30a/30b. M2: D6 first bullet, `invariant_01_only_add_and_remove_are_ever_dispatched`, mutant 35a. L1: as SG-M2. L2: D5 enforcement and script bullets, mutants 20c/28a. L3: R-29 allowlist and "Never". L4: D7 filesystem-read bullet, mutant 41. L5: D5 gate bullet, mutant 19. I1: D6 `guarding_verify` (today `.rposition` vs `.position`), test and mutant 34a. I2: D6 step 5, mutant 35b. I3: D5 last bullet; the sentence "until K-5 replaces it" removed |
 | Citation refresh against H as built (Timing) | `9fc9ae0` (merge of `origin/wo16/H-8-observe`, `afc5d5b`) | Drift: H-stage-2 never happened (L1 merged directly, `e41785b`); the liveness observer is on, so "every removal is `SOURCE_KEPT_UNCHECKED`" was stale; line shifts in `execution_gate.rs` (+1 from `:646`), `plan.rs` (+7 from `:592`), 04 (the "Not yet met" sentence, now `:492-498`, rewritten by H-5) and `spec-evolution.md` (+4 from `:1847`); E's tripwire name; H's re-read asks check 3 only, which K's D6 had not said; security M-1 (H-5) unmentioned | Timing paragraph; "When `REMOVE_SOURCE` is dispatched today" (observer, re-read scope, new M-1 paragraph); D6 step 4 and its by-type bullet; D7; D8; K-6 row; E's handed tests; Security notes; What is not claimed. **No slice changed:** K-6's row gains the re-read window in 04's residual and M-1's sentence in SE-114, both within its existing scope |
+| spec-guardian | `a6a0c47` (at `c93f253`, with `main` at `26fe181`) | **approve with changes.** B-1 K-0's own rule: H's ledger row not yet `merged`. S-1 Timing still said H-5 in review. S-2 the re-read window is declared only in H's plan, not in 04 or SE-113, while `reverify_questions`'s comment says "the specification". S-3 D8's K-8 record and K-3's M-1 sentence unscheduled. S-4 "switch-on worktree" undefined and unscheduled. S-5 a bare `executor.rs:1076-1077` read as the test file. N-1 bare `executor.rs:1694-1707`. N-2 the `next_action_with` chain is indirect. N-3 the no-spawn test-double rule held by review only. All citations otherwise correct | B-1: K-0 merges after the ledger PR #77. S-1, S-2 (K-6 declares the window in 04 and SE-114 and fixes the comment), S-3 (K-3 and K-8 rows), S-4 (scratch, uncommitted; K-5's row), S-5 and N-1 fixed. N-2 kept, matching H's wording. N-3 kept as a review rule, as in H item 5; a structural check is a candidate for part L |
