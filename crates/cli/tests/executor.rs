@@ -1798,7 +1798,10 @@ fn a_certifying_read_follows_a_configuration_recheck() {
 /// than 04's contract, so the switch stays off until every check the planner
 /// writes on a `VERIFY_DESTINATION`, in each direction, is observed by this
 /// build (INV-01; slice 4 review, spec 2). The failure names the checks that
-/// are not. Held whatever the switch is: exactly DP-051's four are not observed.
+/// are not. Held whatever the switch is: since H-5 every one of DP-051's four is
+/// observed, the probe last, so this no longer keeps the switch off on its own;
+/// a check that loses its observer fails it again. The switch's own pin is
+/// `this_build_does_not_dispatch_mutations`.
 ///
 /// The planner's plan is over synthesised snapshots that record no executable
 /// list, so it writes a nameless recorded skip and no `LIVENESS_PROBE` or
@@ -1892,23 +1895,18 @@ fn the_switch_needs_the_destination_contract_observed() {
         probe,
     ];
     for check in &four {
-        // Three have their observer since H-2; the probe's is H-3's, behind the
-        // owner-applied admission.
-        assert_eq!(
-            observed_by_this_build(check),
-            !matches!(check, VerificationCheck::LivenessProbe { .. }),
-            "{check:?}"
-        );
+        // Three have their observer since H-2; the probe's is H-3's admitted
+        // run, counted since H-5, when the route's guard opened.
+        assert!(observed_by_this_build(check), "{check:?} is observed");
         assert!(is_site_answered(StepKind::VerifyDestination, check));
         assert!(evaluable_in_this_build(StepKind::VerifyDestination, check));
     }
     assert_eq!(four.iter().map(kind_of).collect::<BTreeSet<_>>(), dp_051);
-    // What lacks an observer is DP-051's, and only the probe of it.
-    assert!(not_observed.is_subset(&dp_051));
-    assert_eq!(
-        not_observed,
-        BTreeSet::from(["LivenessProbe".to_owned()]),
-        "the switch stays off for the check nothing here runs"
+    // Nothing the planner writes on a VERIFY_DESTINATION, nor the probe, lacks
+    // an observer: the tripwire is positive.
+    assert!(
+        not_observed.is_empty(),
+        "every check of 04's contract is observed since H-5: {not_observed:?}"
     );
 }
 

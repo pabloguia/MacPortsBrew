@@ -46,16 +46,25 @@ impl<R: ProcessRunner> ProbeOwner for MacPortsAdapter<R> {
     }
 
     /// The registry names `package` for `placed` and for `canonical`, each asked
-    /// on its own and compared, never joined.
-    fn target_is_packages(
+    /// on its own and compared, never joined; the version is then a fresh
+    /// `-q installed <name>` read of the active row, never the entry's earlier
+    /// answer (work order 16 H-4, L1). `provides` names no version and the two
+    /// reads are not one, so `admit`'s `lstat` of `canonical` before this call
+    /// and after it is what binds the version to the file: an activation in
+    /// between extracts a new file (R-26, 2026-11-15) and is refused. No active
+    /// row is not shown to be the package's.
+    fn target_version(
         &self,
         package: &str,
         placed: &Path,
         canonical: &Path,
-    ) -> Result<bool, UncheckedCause> {
+    ) -> Result<Option<String>, UncheckedCause> {
         let names_package = |path: &Path| -> Result<bool, UncheckedCause> {
             Ok(self.registered_owner(path)?.as_deref() == Some(package))
         };
-        Ok(names_package(placed)? && names_package(canonical)?)
+        if !(names_package(placed)? && names_package(canonical)?) {
+            return Ok(None);
+        }
+        self.active_version(package)
     }
 }

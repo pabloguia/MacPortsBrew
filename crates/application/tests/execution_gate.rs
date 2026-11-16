@@ -380,8 +380,8 @@ fn a_recognised_check_is_not_thereby_evaluable() {
     assert!(liveness.is_satisfiable(), "the domain recognises it");
     // Work order 16 part H: DP-051's four checks and a recorded skip are
     // evaluable on the destination's verify step because their answers are
-    // judged there. That is not the same as observed: nothing in this build
-    // observes any of the four.
+    // judged there. That is not the same as observed, which says something
+    // other than "not observed" can come back: true of the probe since H-5.
     assert!(
         evaluable_in_this_build(StepKind::VerifyDestination, &liveness),
         "its answer is judged on the destination's verify step"
@@ -393,9 +393,12 @@ fn a_recognised_check_is_not_thereby_evaluable() {
         macportsbrew_domain::plan::THIS_BUILD_OBSERVES_LIVENESS_PROBE,
         "the observer is the route's constant"
     );
+    // H-5: observed. Not run in this build all the same: only the mutating loop
+    // reaches the route, and the gate refuses every plan
+    // (`this_build_does_not_dispatch_mutations`).
     assert!(
-        !macportsbrew_application::observed_by_this_build(&liveness),
-        "but nothing in this build runs it"
+        macportsbrew_application::observed_by_this_build(&liveness),
+        "the probe is observed since H-5"
     );
     let dest = StepKind::VerifyDestination;
     let removal = StepKind::VerifyRemoval;

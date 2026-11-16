@@ -3,10 +3,13 @@
 //! The curated liveness probe: the one way an installed package's own program
 //! may be started (DP-051 (a); `docs/passes/16-liveness-design.md`; R-28).
 //!
-//! **Staged (work order 16 part H, H/01).** This module is the admission, the
-//! table reader, the scratch directory and the answer. Nothing outside the
-//! process module calls it yet, so applying it starts no program; H-3 wires it,
-//! in unfrozen code, after it lands ("What H-3 owes", `docs/passes/16-plans/H.md`).
+//! **Work order 16 part H (H/01, wired by H-3).** This module is the admission,
+//! the table reader, the scratch directory and the answer. Its one caller
+//! outside the process module is `registry::DestinationSites::liveness_probe`,
+//! which asks its runner nothing while this build does not observe the probe
+//! (`docs/passes/16-plans/H.md`, "Plan (H-4)" item 3). This build observes it
+//! since H-5, so the route is open; it is reached only from the mutating loop,
+//! which this build never enters.
 //!
 //! The allowlist is untouched. `PERMITTED_PROGRAMS`, `PERMITTED_SUBCOMMANDS`,
 //! `SYSTEM_PROBES` and `is_permitted_invocation` still refuse every package
@@ -20,14 +23,6 @@
 //! exclude a started server** (R-28): the controls are the observed-only rows,
 //! the exact version, the closed flag set and the stateful exclusion in the
 //! policy loader.
-
-#![cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "staged (H/01): nothing unfrozen calls the admission until H-3's wiring lands"
-    )
-)]
 
 use super::{Admission, CommandSpec, ExitStatus, ProcessRunner, PERMITTED_PROGRAMS, SYSTEM_PROBES};
 use crate::persistence::run_lock::RunLock;
@@ -291,17 +286,22 @@ pub(crate) trait ProbeOwner {
     /// parts and is about to canonicalise (conditions 6 and 7): the same answer
     /// `EXECUTABLES_OWNED_BY_DESTINATION` reads, judged of that very file.
     fn entry_owner(&self, package: &str, leaf: &ExecutableName, placed: &Path) -> OwnershipFacts;
-    /// Whether `canonical`, what `placed` finally resolves to, is the package's
-    /// by the owner rule (condition 8): inside its keg where the rule is a
-    /// path, and where the rule is a query, asked of `placed` **and**
-    /// `canonical`, both answering the package. Not merely under the prefix,
-    /// which `admit` requires as a floor of its own.
-    fn target_is_packages(
+    /// The version of `package` that owns `canonical`, what `placed` finally
+    /// resolves to, by the owner rule (condition 8, work order 16 H-4 L1):
+    /// `Ok(Some(version))` when it is the package's, `Ok(None)` when it is not,
+    /// and `Err` when a read failed, which is never a yes. Where the rule is a
+    /// path, it is inside the package's keg and the version is read from
+    /// `canonical`'s own path; where the rule is a query, `placed` **and**
+    /// `canonical` each name the package and the version is a fresh read, never
+    /// an earlier answer. Not merely under the prefix, which `admit` requires
+    /// as a floor of its own; `admit` brackets this call with two `lstat`s of
+    /// `canonical` and compares the version with the row's.
+    fn target_version(
         &self,
         package: &str,
         placed: &Path,
         canonical: &Path,
-    ) -> Result<bool, UncheckedCause>;
+    ) -> Result<Option<String>, UncheckedCause>;
 }
 
 // ---------------------------------------------------------------------------
@@ -397,7 +397,10 @@ impl AdmittedProbe {
     ///
     /// The owner rule's answer is read once and tested for condition 7 before
     /// condition 6: a version is only the package's to compare once the entry
-    /// is the package's. Everything else is in the note's order.
+    /// is the package's. Condition 9's `lstat` is taken before condition 8's
+    /// owner rule reads the target's version, and a second `lstat` after it
+    /// must give the same identity (L1, work order 16 H-4). Everything else is
+    /// in the note's order.
     pub(in crate::process) fn admit(
         table: &[Row],
         owner: &dyn ProbeOwner,
@@ -459,21 +462,18 @@ impl AdmittedProbe {
         if version != row.observed_version {
             return Err(UncheckedCause::ProbeVersionNotQualified);
         }
-        // 8. What it resolves to lies under the destination's prefix, by
-        // component (a floor of this module's own), and is the package's by the
-        // owner rule.
+        // 8, its floor. What it resolves to lies under the destination's
+        // prefix, by component (a floor of this module's own).
         let Ok(canonical) = std::fs::canonicalize(&placed) else {
             return Err(UncheckedCause::ProbeTargetNotThePackages);
         };
-        if !super::is_safe_path(&canonical)
-            || !lies_under(&canonical, owner.prefix())
-            || owner.target_is_packages(package, &placed, &canonical) != Ok(true)
-        {
+        if !super::is_safe_path(&canonical) || !lies_under(&canonical, owner.prefix()) {
             return Err(UncheckedCause::ProbeTargetNotThePackages);
         }
-        // 9. On one `lstat` of the canonical target: a regular file, neither
-        // mode bit that runs it as someone else, owned by this uid or root, no
-        // group or world write (INV-06).
+        // 9. On one `lstat` of the canonical target, taken **before** the owner
+        // rule reads its version (L1): a regular file, neither mode bit that
+        // runs it as someone else, owned by this uid or root, no group or world
+        // write (INV-06).
         let Ok(meta) = std::fs::symlink_metadata(&canonical) else {
             return Err(UncheckedCause::ProbeTargetModeRefused);
         };
@@ -481,6 +481,22 @@ impl AdmittedProbe {
             return Err(UncheckedCause::ProbeTargetModeRefused);
         }
         let target = TargetIdentity::of(&meta);
+        // 8. The canonical target is the package's by the owner rule, at
+        // exactly the row's version, which is what must hold of what runs:
+        // condition 6's version came from another resolution, and a relink in
+        // between would admit another version of the same package (L1). A
+        // failed read and "not the package's" are both not the package's.
+        let Ok(Some(target_version)) = owner.target_version(package, &placed, &canonical) else {
+            return Err(UncheckedCause::ProbeTargetNotThePackages);
+        };
+        // The identity taken before the version read is still the file's after
+        // it, so the version is bound to the file that runs: an activation or
+        // a rewrite in between is refused.
+        if target_version != row.observed_version
+            || TargetIdentity::read(&canonical) != Some(target)
+        {
+            return Err(UncheckedCause::ProbeTargetChanged);
+        }
         // 10. Neither leaf is a provider program, a system probe, a shell or an
         // interpreter.
         let canonical_leaf = canonical.file_name().and_then(|n| n.to_str());
