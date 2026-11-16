@@ -481,8 +481,10 @@ impl DestinationSites<'_, '_> {
     /// all, the first statement (H-4): while
     /// [`THIS_BUILD_OBSERVES_LIVENESS_PROBE`] is false the route starts nothing,
     /// whatever the switch says. It is true since H-5, so the guard is open and
-    /// the switch is the one barrier: the mutating loop, this route's only
-    /// caller, is not entered while this build dispatches no mutations.
+    /// the switch is the one build-level barrier: this route's one caller is the
+    /// machine destination site's probe method, which only the mutating loop
+    /// reaches with a lock, and that loop is not entered while this build
+    /// dispatches no mutations.
     #[must_use]
     pub fn liveness_probe(
         &self,

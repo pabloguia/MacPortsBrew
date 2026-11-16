@@ -295,8 +295,9 @@ impl ProcessRunner for Counting {
 
 /// Work order 16 parts H-4 and H-5: [`THIS_BUILD_OBSERVES_LIVENESS_PROBE`]
 /// alone decides whether the one route to a curated probe reaches its runner,
-/// on this machine, live, with the lock, for every provider. Both values are
-/// asserted, so the flip turned this positive rather than deleting it.
+/// on this machine, live, with the lock, for every provider. Written for both
+/// values; exercises the current one; the closed branch guards a revert. So the
+/// flip turned this positive rather than deleting it.
 ///
 /// - **False (H-4):** with a runner that says it *may* probe, the route answers
 ///   `NOT_OBSERVED` and asks it nothing, so flipping the switch alone starts no
@@ -306,9 +307,15 @@ impl ProcessRunner for Counting {
 ///   detected here (one this build does not know among them) never reaches the
 ///   admission; a provider detected on this host does, and its condition 1 asks
 ///   `may_run_probes` and refuses, so nothing is read and nothing starts.
-///   **Host-dependent:** on a host with neither provider detected only the
-///   unknown provider is measured; `the_unobserved_guard_is_the_routes_first_decision`
-///   holds the guard's place on every host.
+///
+/// **Host-dependent.** The open branch's expectation uses `observes` itself, so
+/// on a host with neither provider detected it measures no admission at all, and
+/// on a host with one provider the other goes unmeasured. The providers that
+/// reached condition 1 are counted: with `MPB_EXPECT_DETECTED_PROVIDER=1` (an
+/// opt-in for a host known to have one) at least one must have, and otherwise
+/// the set is printed. `the_unobserved_guard_is_the_routes_first_decision`
+/// holds the guard's place on every host, and the per-owner tests in
+/// `process/probe/tests.rs` hold the admission for both providers.
 ///
 /// [`THIS_BUILD_OBSERVES_LIVENESS_PROBE`]: macportsbrew_domain::plan::THIS_BUILD_OBSERVES_LIVENESS_PROBE
 #[test]
@@ -331,6 +338,7 @@ fn the_route_reaches_its_runner_only_while_the_probe_is_observed() {
     // Building the sites asks the runner whether it replays; the route is what
     // is measured.
     let sites = destination_sites(&ctx, &state, &lock);
+    let mut admitted = Vec::new();
     for id in ["homebrew", "macports", "no-such-provider"] {
         let provider = ProviderId::new(id);
         let (calls, asked) = (runner.calls.get(), runner.asked_may_probe.get());
@@ -340,11 +348,15 @@ fn the_route_reaches_its_runner_only_while_the_probe_is_observed() {
             "{id}"
         );
         let reached = observed && sites.observes(&provider);
+        let asked = runner.asked_may_probe.get() - asked;
         assert_eq!(
-            runner.asked_may_probe.get() - asked,
+            asked,
             u32::from(reached),
             "{id}: the admission's condition 1 asked iff the route was open to it"
         );
+        if asked > 0 {
+            admitted.push(id);
+        }
         // Unobserved, the guard answers before detection, which asks whether the
         // runner replays, so the runner is asked nothing at all. Observed,
         // detection may ask that, and the panicking `run` and `run_probe` are
@@ -355,6 +367,16 @@ fn the_route_reaches_its_runner_only_while_the_probe_is_observed() {
                 calls,
                 "{id}: the route asked its runner"
             );
+        }
+    }
+    if observed {
+        if std::env::var_os("MPB_EXPECT_DETECTED_PROVIDER").is_some_and(|v| v == "1") {
+            assert!(
+                !admitted.is_empty(),
+                "MPB_EXPECT_DETECTED_PROVIDER=1, and no provider reached the admission"
+            );
+        } else {
+            eprintln!("providers that reached the admission's condition 1: {admitted:?}");
         }
     }
     drop(lock);

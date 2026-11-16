@@ -590,13 +590,17 @@ pub const THIS_BUILD_DISPATCHES_MUTATIONS: bool = false;
 /// `observed_by_this_build`, which the switch's tripwire reads, and the
 /// registry's `DestinationSites::liveness_probe`, which answers `NOT_OBSERVED`
 /// on it before anything is built. While it was false the observer and the
-/// switch were two barriers (H-4). **It is true since H-5**, after L1 landed,
-/// so the guard opens and [`THIS_BUILD_DISPATCHES_MUTATIONS`] is again the only
-/// runtime barrier before a curated program starts: the route is called only
-/// from the mutating loop, which nothing enters without a mutation allowance,
-/// and this build grants none (`docs/passes/16-plans/H.md`, "As built (H-5)").
-/// Turning this back to false closes the route again without touching the
-/// switch.
+/// switch were two barriers (H-4). **It is true since H-5**, after L1 (merged
+/// as `e41785b`), so the guard opens and [`THIS_BUILD_DISPATCHES_MUTATIONS`] is
+/// again the only build-level barrier before a curated program starts: the
+/// route's one caller is the machine destination site's probe method, which
+/// only the mutating loop reaches with a lock, and nothing enters that loop
+/// without a mutation allowance, and this build grants none
+/// (`docs/passes/16-plans/H.md`, "As built (H-5)"). Flipping the switch enables
+/// probes in the same change, on a plan whose destination already holds the
+/// package too, where nothing is dispatched before the probe; **to flip the
+/// switch without probes, set this back to false first**, which closes the
+/// route again without touching the switch.
 pub const THIS_BUILD_OBSERVES_LIVENESS_PROBE: bool = true;
 
 /// The current plan schema version.
