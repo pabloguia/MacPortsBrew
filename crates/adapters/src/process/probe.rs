@@ -7,7 +7,9 @@
 //! the table reader, the scratch directory and the answer. Its one caller
 //! outside the process module is `registry::DestinationSites::liveness_probe`,
 //! which asks its runner nothing while this build does not observe the probe
-//! (`docs/passes/16-plans/H.md`, "Plan (H-4)" item 3).
+//! (`docs/passes/16-plans/H.md`, "Plan (H-4)" item 3). This build observes it
+//! since H-5, so the route is open; it is reached only from the mutating loop,
+//! which this build never enters.
 //!
 //! The allowlist is untouched. `PERMITTED_PROGRAMS`, `PERMITTED_SUBCOMMANDS`,
 //! `SYSTEM_PROBES` and `is_permitted_invocation` still refuse every package

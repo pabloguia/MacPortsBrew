@@ -13,8 +13,10 @@
 # of `--version`, `-version`, `-V`, `-v`, and growing that set is a reviewed code
 # change. `observed_version` is in the shape the owner rule answers, revision
 # included. A probe runs only at exactly that version (condition 6 of the
-# admission, `process/probe.rs`), and only while the build observes the probe
-# (`THIS_BUILD_OBSERVES_LIVENESS_PROBE`, false in this build).
+# admission, `process/probe.rs`), only while the build observes the probe
+# (`THIS_BUILD_OBSERVES_LIVENESS_PROBE`, true since work order 16 H-5), and only
+# from the mutating loop, which this build never enters while it dispatches no
+# mutations: nothing in this build runs a row.
 #
 # THE SCOPE OF THE ACCEPTANCE (security-reviewer, 2026-11-13 and 2026-11-14;
 # docs/passes/16-plans/H.md, "Plan (H-4)"): the eleven (provider, package,

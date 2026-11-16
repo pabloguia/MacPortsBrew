@@ -313,9 +313,10 @@ comments:
    `VERIFY_DESTINATION` also carries DP-051's four checks. Those are answered
    through a destination site rather than a read, with `HOLDS`, `FAILS` or
    `UNCHECKED` (`04-migration-and-safety.md`). Past the gate, which this build does
-   not reach, integrity, ownership and linkage would be observed on this machine
-   under the run's lock, and the probe would answer `UNCHECKED` / `NOT_OBSERVED` until
-   its admission lands, or the cause that stopped it, as would all four under a replay or a snapshot file.
+   not reach, all four would be observed on this machine under the run's lock
+   (the probe since work order 16 part H-5, through its admission, answering by
+   how it ended or the cause that stopped it), and all four answer `UNCHECKED` /
+   `NOT_OBSERVED` under a replay or a snapshot file.
    `FAILS` halts, `UNCHECKED` keeps
    the source and ends the run `COMPLETED_WITH_UNCHECKED`. **The gate refuses a
    `VERIFY_DESTINATION` missing `PROVIDER_REPORTS_ACTIVE` or any of the four, one
@@ -338,8 +339,9 @@ comments:
    configuration cannot be re-read, so a replayed certifying read halts before
    it is made — fail closed. `LIVENESS_PROBE` runs the package's own executable,
    a program outside the executor's `PERMITTED_PROGRAMS`, through an admission
-   of its own ([`16-liveness-design.md`](../passes/16-liveness-design.md), not
-   built yet).
+   of its own ([`16-liveness-design.md`](../passes/16-liveness-design.md); built in
+   part H-3, observed since part H-5, and reached only from the mutating loop, which
+   this build does not enter).
 7. **A verification step that asserts nothing is refused.** A `VERIFY_*` step
    with no command to read, or no check to read it against, could only pass by
    saying nothing, which makes the gate it stands for an open one

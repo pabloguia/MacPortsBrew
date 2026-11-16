@@ -64,7 +64,7 @@ The original brief said "verify" without defining it. It is defined here.
    reader reads (see contamination check below, and "What check 5 may claim"). "New"
    is not claimed: the snapshot holds no baseline (R-27).
 
-**MUST** (DP-051, work order 16 part H; the answer model is built, H-1. Past the gate, which this build does not reach, integrity, ownership and linkage would be observed since H-2, and no probe runs yet: SE-113). **Each of checks
+**MUST** (DP-051, work order 16 part H; the answer model is built, H-1. Past the gate, which this build does not reach, integrity, ownership and linkage would be observed since H-2 and the probe since H-5; no probe runs in this build, whose gate refuses every plan, and only the mutating loop reaches one: SE-113). **Each of checks
 2 to 5 answers `HOLDS`, `FAILS` or `UNCHECKED`.** "Could not tell" is `UNCHECKED`, and
 is never either of the others. `FAILS` stops the step, and the source is kept. An
 `UNCHECKED` does not stop it: it is reported per check and per executable, **the source
@@ -77,7 +77,7 @@ keg is not detected**, because `brew list --formula` lists the keg at call time 
 asks the owner to confirm this basis. Neither claim is content integrity, provenance,
 or that the package runs.
 
-**What check 4 does not prove** (R-28; its table landed in H-2 and the probe is not built, H-3: SE-113). It proves that this file, in this environment,
+**What check 4 does not prove** (R-28; its table landed in H-2, the probe was wired in H-3 and is observed since H-5, and no run reaches it while the gate refuses every plan: SE-113). It proves that this file, in this environment,
 with this flag, loaded and exited 0 once. Not that the program does its job, is the
 expected version, works under the user's configuration, or had no side effect: **a
 passing probe does not exclude a started server.**
@@ -107,7 +107,7 @@ activation read alone, in both directions (S-2;
 `provider_reports_active_is_evaluable_on_verify_destination_only`, and over the
 recordings `invariant_15_a_recorded_json_inventory_is_judged_by_each_entrys_own_linked_keg`
 and `invariant_15_a_recorded_installed_list_is_judged_by_each_names_own_marker`).
-Checks 2 to 5 are DP-051's. Since H-1 they answer `HOLDS`, `FAILS` or `UNCHECKED`. Since H-2 the reads for integrity, ownership and linkage exist; past the gate, which this build does not reach, they would run on this machine under the run's lock (`NOT_OBSERVED` under a replay or a snapshot file, INV-15). Past it, a probe would answer `NOT_OBSERVED` until its admission lands, or the cause that stopped it, or `NO_CURATED_PROBE` or `NO_EXECUTABLE_TO_PROBE` with no row, and no source would be removed on them.
+Checks 2 to 5 are DP-051's. Since H-1 they answer `HOLDS`, `FAILS` or `UNCHECKED`. Since H-2 the reads for integrity, ownership and linkage exist; past the gate, which this build does not reach, they would run on this machine under the run's lock (`NOT_OBSERVED` under a replay or a snapshot file, INV-15). Past it, a probe would run through its admission, observed since H-5, and answer by how it ended or by the cause that stopped it (`NOT_OBSERVED` under a replay or a snapshot file), or `NO_CURATED_PROBE` or `NO_EXECUTABLE_TO_PROBE` with no row, and no source would be removed on an answer but `HOLDS`.
 
 **MUST** (part F, work order 16, built in F-3; SE-112). **Check 3's "expected
 executables" are the source package's executable list** — the executables the
@@ -319,7 +319,7 @@ restored from a guess.
 |---|---|
 | Destination install fails | Source untouched. Report and stop. |
 | Destination verification fails | Source untouched. Report which check failed. |
-| A destination check could not be evaluated (the rule is built, H-1; the probe is not observed yet: SE-113) | Source untouched, never removed. The run continues and, unless a later step halts, ends `COMPLETED_WITH_UNCHECKED`, naming each check. |
+| A destination check could not be evaluated (the rule is built, H-1; all four are observed since H-5, and no run reaches them while the gate refuses every plan: SE-113) | Source untouched, never removed. The run continues and, unless a later step halts, ends `COMPLETED_WITH_UNCHECKED`, naming each check. |
 | Activation fails | Restore previous resolution where safe. Source untouched. |
 | Source removal fails after a good destination | Destination usable. Report **partial success**. Leave recovery instructions. |
 | Cleanup fails | Never affects migration status. Report separately. |
@@ -493,8 +493,9 @@ removal (`DESTINATION_NOT_REVERIFIED`). **Not yet met:** it will be bounded by m
 (`--remove-source`, with a confirmation stronger than an install's) and by
 dispatching `REMOVE_SOURCE` only when the re-read ran, DP-030's probe
 answered, and all six destination checks were evaluated for that package. The
-re-read (part S) and the probe (part G) exist; the opt-in and the checks do not yet — work
-order 16 parts K and H build them — and the switch stays off until they do.
+re-read (part S), the probe (part G) and DP-051's four checks (part H, all observed
+since H-5) exist; the opt-in does not yet — work order 16 part K builds it — and the
+switch stays off until it does and the owner rules on part L's proposal.
 
 ## Privilege
 
@@ -581,17 +582,19 @@ starts in `/`, which is root-owned and holds no Portfile, because a provider can
 resolve a read against the directory it was started in (`port`'s `current`
 pseudo-port; SE-050). A command spec carries no directory, so nothing can name
 another one.
-*Applied (`docs/passes/16-staged/H/01`, 2026-11-08) and wired by H-3 (SE-113);
-no probe runs in this build while it does not observe the probe:* the curated
-probe's admission is the one exception: it alone sets a working directory, the
-probe's fresh `0700` scratch directory under the state root. No *allowlist*
-spec carries one.
+*Applied (`docs/passes/16-staged/H/01`, 2026-11-08), wired by H-3 and observed
+since H-5 (SE-113); no probe runs in this build, since only the mutating loop
+reaches one and the gate refuses every plan:* the curated probe's admission is
+the one exception: it alone sets a working directory, the probe's fresh `0700`
+scratch directory under the state root. No *allowlist* spec carries one.
 
 **MUST.** Every invocation records argv, sanitised environment, exit status,
 stdout, stderr and duration, and supports timeout and cancellation.
-*Applied (`16-staged/H/01`) and wired (H-3); no probe runs in this build while
-it does not observe the probe:* the curated probe is the deliberate exception. It records nothing, its output is thrown away, and only its ending
-reaches the check's answer (`docs/passes/16-liveness-design.md`, "How it runs").
+*Applied (`16-staged/H/01`), wired (H-3) and observed (H-5); no probe runs in
+this build, since only the mutating loop reaches one and the gate refuses every
+plan:* the curated probe is the deliberate exception. It records nothing, its
+output is thrown away, and only its ending reaches the check's answer
+(`docs/passes/16-liveness-design.md`, "How it runs").
 
 **MUST.** Provider invocations set the environment *and flags* that keep them
 quiet and side-effect-free during analysis — no auto-update, no interactive
@@ -755,8 +758,9 @@ do not gold-plate beyond them.
   for with no `Box::leak` and nothing to grep, and a *denylist* of interpreters
   had never heard of `tclsh`, which is what `port` is written in.
 
-  *Applied (`16-staged/H/01`) and wired (H-3); no probe runs in this build while
-  it does not observe the probe:* the same spawn site starts a second class, a
+  *Applied (`16-staged/H/01`), wired (H-3) and observed (H-5); no probe runs in
+  this build, since only the mutating loop reaches one and the gate refuses every
+  plan:* the same spawn site starts a second class, a
   package's own curated program, through `run_probe` and an admission only
   `process/probe.rs` can build. The six are still all that `SystemRunner::run`
   starts; what the list does not cover is that admission, whose eleven

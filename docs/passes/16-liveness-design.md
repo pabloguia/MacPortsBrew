@@ -90,7 +90,7 @@ observation; it never produces the permission.
 **`AdmittedProbe::admit` refuses unless all of these hold.** Each refusal is a named
 `ProbeObservation::NotRun(cause)`, which answers `Unchecked`, never a spawn.
 
-**The causes (reserved in the enum, work order 16 H-2 round 7; answered by nothing yet).** By condition: 1 `NOT_OBSERVED`; 2 `PROBE_AS_ROOT`; 3 `PROBE_LEAF_REFUSED`; 4 `NO_CURATED_PROBE` with no row, `PROBE_ARGV_NOT_THE_ROWS` otherwise; 5 `PROBE_ARGV_NOT_PERMITTED`; 6 `PROBE_VERSION_NOT_QUALIFIED`; 7 `PROBE_ENTRY_NOT_THE_PACKAGES`; 8 `PROBE_TARGET_NOT_THE_PACKAGES`; 9 `PROBE_TARGET_MODE_REFUSED`; 10 `PROBE_PROGRAM_EXCLUDED`; 11 `PROBE_TARGET_IS_ENV_SCRIPT`. The spawn failing is `PROBE_NOT_STARTED`, and the table below's unnamed `Unchecked` rows, a failed wait and a read error on a pipe, are `PROBE_END_NOT_READ`.
+**The causes (reserved in the enum, work order 16 H-2 round 7; answered by `admit` since H/01 was applied, and observed since H-5, though only the mutating loop reaches them).** By condition: 1 `NOT_OBSERVED`; 2 `PROBE_AS_ROOT`; 3 `PROBE_LEAF_REFUSED`; 4 `NO_CURATED_PROBE` with no row, `PROBE_ARGV_NOT_THE_ROWS` otherwise; 5 `PROBE_ARGV_NOT_PERMITTED`; 6 `PROBE_VERSION_NOT_QUALIFIED`; 7 `PROBE_ENTRY_NOT_THE_PACKAGES`; 8 `PROBE_TARGET_NOT_THE_PACKAGES`; 9 `PROBE_TARGET_MODE_REFUSED`; 10 `PROBE_PROGRAM_EXCLUDED`; 11 `PROBE_TARGET_IS_ENV_SCRIPT`. The spawn failing is `PROBE_NOT_STARTED`, and the table below's unnamed `Unchecked` rows, a failed wait and a read error on a pipe, are `PROBE_END_NOT_READ`.
 
 | # | Condition | Why |
 |---|---|---|
@@ -104,7 +104,7 @@ observation; it never produces the permission.
 | 8 | The canonical path is the destination package's by the owner rule: inside the keg; and where the rule is a query, it is asked of the placed path **and** the canonical path, and both answer this package (`lzcat` is a link to `xz`; the same argv form). Not merely under the prefix, which admits `Caskroom`, `var/`, `Homebrew/`. **And at the row's version, on the file that runs** (work order 16 H-4, L1): `ProbeOwner::target_version` answers the version owning the canonical target (Homebrew: the keg in its path; MacPorts: a fresh `-q installed`), condition 9's `lstat` is taken before that read and a second `lstat` after it must agree; another version or another identity is `PROBE_TARGET_CHANGED` | §3 item 10; a lenient reading would admit a link into another port. Condition 6's version and the program that runs come from two resolutions |
 | 9 | On one handle or one `lstat` of the canonical target: a regular file; no setuid or setgid; owned by this uid or root; no group or world write | INV-06. The mode bit is the only check possible, since `invariant_06_*` refuses the elevation program's name in source |
 | 10 | Neither the placed nor the canonical leaf is a provider program, a system probe, a shell or an interpreter | Defence in depth, and `bin/foo -> libexec/python3` |
-| 11 | Read on a handle that is the file `lstat` described: the target is a thin native 64-bit Mach-O executable for this build's architecture, or a big-endian fat file every slice of which is a Mach-O executable and one of which is for this build's architecture; anything else, scripts of every kind included, is `PROBE_TARGET_IS_ENV_SCRIPT` (an allowlist since H-stage; first written as "not an `env` shebang") | The table excludes scripts when written, and a later version can become one; what the kernel cannot exec it hands to `/bin/sh` |
+| 11 | Read on a handle that is the file `lstat` described: the target is a thin native 64-bit Mach-O executable for this build's architecture, or a big-endian fat file every slice of which is a Mach-O executable and one of which is for this build's architecture; anything else, scripts of every kind included, is `PROBE_TARGET_IS_ENV_SCRIPT` (an allowlist since the H/01 staging of 2026-11-08; first written as "not an `env` shebang") | The table excludes scripts when written, and a later version can become one; what the kernel cannot exec it hands to `/bin/sh` |
 
 **A package just shown to link into the other provider is not run, and the adapter cannot enforce that:** it does not hold the other checks' answers, and a flag passed in would be decorative. It is a pure function in `application::executor`, `next_destination_question(plan, position, answers) -> Question`; the shell may call the probe only with what `Question::Probe { leaf, argv }` hands it. Tested there, with the mutant "a probe after a `Fails`".
 
@@ -277,6 +277,22 @@ conditions, the post-admission checks, the site checks and the answer table are 
   the `lstat` is `PROBE_TARGET_CHANGED`.
 - Condition 7 is evaluated before condition 6; a changed target overrides `FAILS` as well as
   `HOLDS`; `CFFIXED_USER_HOME` is not set. Each item in this section is recorded in SE-113.
+
+## As built, observed (H-5, 2026-11-15)
+
+`THIS_BUILD_OBSERVES_LIVENESS_PROBE` (`crates/domain/src/plan.rs`) is true, after L1 (condition
+8's version, bracketed by the target's identity). `registry::DestinationSites::liveness_probe`
+keeps its guard as its first statement, and the guard is now open, so a call reaches the
+admission above on a detected destination; under a replay or a snapshot file the route's own
+`observes` and the admission's condition 1 still answer `NOT_OBSERVED` before anything is
+built or read. **One barrier stands before a curated program starts:** the route is called only
+from the mutating loop, with the lock that loop holds, and nothing enters that loop without a
+mutation allowance, which this build never grants (`THIS_BUILD_DISPATCHES_MUTATIONS` is false).
+The read-only loop's destination site is `NothingObserved` and it passes no lock; `plan`,
+`explain`, `doctor` and every other read-only command build no destination site at all. So no
+run of this build starts a probe, and this section changes nothing about what is admitted:
+what the curated table qualifies, and every limit "The curated table" and R-28 state, stand as
+written. `docs/passes/16-plans/H.md`, "As built (H-5)", has the tests and the mutants.
 
 ## Reviews
 

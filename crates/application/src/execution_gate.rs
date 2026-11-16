@@ -643,8 +643,9 @@ pub fn is_site_answered(kind: StepKind, check: &VerificationCheck) -> bool {
 #[must_use]
 pub fn observed_by_this_build(check: &VerificationCheck) -> bool {
     match check {
-        // Observed since H-2. The probe's observer is the admitted run, H-3's,
-        // and it counts only once the route may start it (H-4).
+        // DP-051's other three are observed since H-2. The probe's observer is
+        // the admitted run, H-3's, and it counts only while the route may start
+        // it: the route's constant, true since H-5.
         VerificationCheck::LivenessProbe { .. } => THIS_BUILD_OBSERVES_LIVENESS_PROBE,
         VerificationCheck::ProviderIntegrityCheck
         | VerificationCheck::ExecutablesOwnedByDestination { .. }
