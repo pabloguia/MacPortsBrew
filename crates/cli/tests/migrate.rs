@@ -19,7 +19,7 @@ use macportsbrew_adapters::process::{
 use macportsbrew_adapters::registry::{self, RegistryContext};
 use macportsbrew_application::{
     migration_start, provider_commands, AnalysisOptions, HistoryConsultation, MigrationStart,
-    PlanRequest, RunOutcome,
+    PlanRequest, RunOutcome, SourceFate,
 };
 use macportsbrew_domain::{HomeRedaction, ProviderId};
 use macportsbrew_policy::PolicyData;
@@ -600,7 +600,7 @@ fn invariant_06_migrate_never_elevates() {
         &PlanRequest {
             package: "python@3.12".to_string(),
             to: ProviderId::new(MP),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &registry::known_provider_ids(),
         HistoryConsultation::NotConsulted,
@@ -766,7 +766,7 @@ fn migrate_yes_against_a_recording_dispatches_no_mutating_invocation() {
             &PlanRequest {
                 package: package.to_string(),
                 to: ProviderId::new(to),
-                retain_source: false,
+                source: SourceFate::Remove,
             },
             &registry::known_provider_ids(),
             HistoryConsultation::NotConsulted,
@@ -1239,7 +1239,7 @@ fn every_gate_refusal_of_every_plan_on_every_fixture_is_kept_as_an_object() {
                     &PlanRequest {
                         package: name.clone(),
                         to,
-                        retain_source: false,
+                        source: SourceFate::Remove,
                     },
                     &registry::known_provider_ids(),
                     HistoryConsultation::NotConsulted,

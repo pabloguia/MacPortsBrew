@@ -23,7 +23,7 @@
 //! the same change, because these tests will start failing and this comment is
 //! why.
 
-use macportsbrew_application::{build_plan, AnalysisOptions, PlanRequest};
+use macportsbrew_application::{build_plan, AnalysisOptions, PlanRequest, SourceFate};
 use macportsbrew_domain::{
     Architecture, CommandLineTools, EnvironmentSnapshot, InstalledPackage, Machine, MacosVersion,
     PackageIdentity, PackageKind, PackageMetadata, Provenance, ProviderCapabilities,
@@ -137,7 +137,7 @@ fn plan(source_kind: PackageKind) -> macportsbrew_domain::MigrationPlan {
         &PlanRequest {
             package: "gimp".to_string(),
             to: ProviderId::new(MP),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &known,
     )
@@ -233,7 +233,7 @@ fn a_cask_row_as_the_adapter_writes_it_is_refused_not_reviewed() {
         &PlanRequest {
             package: "gimp".to_string(),
             to: ProviderId::new(MP),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &known,
     )

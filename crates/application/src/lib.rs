@@ -74,6 +74,7 @@ pub use history::{
 pub use plan_tie::{confirm_shown, plan_phrase, plan_question_error, tie, PlanDigest, ShownPlan};
 pub use planner::{
     build_plan, migration_start, plan_outcome, plan_run, MigrationStart, PlanOutcome, PlanRequest,
+    SourceFate,
 };
 pub use report::{PackageReport, ProviderReport, ProviderRow, RowPresence, Summary};
 pub use restore::{

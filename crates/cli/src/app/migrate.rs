@@ -67,7 +67,7 @@ use macportsbrew_application::{
     clear, migration_key, migration_start, mutation_allowance, plan_question_error, tie,
     AnalysisOptions, ConsentDecision, ElevationRequest, GateClear, HistoryConsultation,
     MigrationStart, MutationAllowance, NotRecognised, PlanDigest, PlanRequest, PlannedRun,
-    RunOutcome, ShownPlan, StepRecord,
+    RunOutcome, ShownPlan, SourceFate, StepRecord,
 };
 use macportsbrew_domain::{
     ConcurrencyFlag, DomainError, ErrorId, HistoryView, MigrationKey, MigrationPlan, ProviderId,
@@ -288,16 +288,17 @@ fn execute_mutating(
         let now = ctx.recapture()?;
         let replan =
             |consultation| migration_start(&now, &ctx.policy, options, request, &ids, consultation);
-        let start = if ctx.history == HistoryScope::ThisMachine && request.retain_source {
-            // Under the lock, from the state directory resolved once above.
-            let view = read_view(&state, &migration_key(cleared.run().plan()), euid)?;
-            replan(HistoryConsultation::Consulted {
-                view: &view,
-                run_stamp: &ctx.run_stamp,
-            })?
-        } else {
-            replan(HistoryConsultation::NotConsulted)?
-        };
+        let start =
+            if ctx.history == HistoryScope::ThisMachine && request.source == SourceFate::Keep {
+                // Under the lock, from the state directory resolved once above.
+                let view = read_view(&state, &migration_key(cleared.run().plan()), euid)?;
+                replan(HistoryConsultation::Consulted {
+                    view: &view,
+                    run_stamp: &ctx.run_stamp,
+                })?
+            } else {
+                replan(HistoryConsultation::NotConsulted)?
+            };
         match start {
             MigrationStart::Run(fresh, _) => Ok((now.clone(), fresh.plan().clone())),
             _ => Err(DomainError::new(
@@ -514,7 +515,7 @@ fn migrate_with(
     let start = match start {
         MigrationStart::Run(planned, _)
             if ctx.history == HistoryScope::ThisMachine
-                && request.retain_source
+                && request.source == SourceFate::Keep
                 && !planned.plan().requires_manual_review() =>
         {
             let view = history(&migration_key(planned.plan()))?;

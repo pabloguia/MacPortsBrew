@@ -10,7 +10,7 @@
 
 use macportsbrew_application::{
     judge_step, next_action, outcome_of, plan_run, run_record, Action, AnalysisOptions,
-    Disposition, HaltReason, PlanRequest, PlannedRun, RunOutcome, StepRead, StepRecord,
+    Disposition, HaltReason, PlanRequest, PlannedRun, RunOutcome, SourceFate, StepRead, StepRecord,
     Unevaluable,
 };
 use macportsbrew_domain::{
@@ -165,7 +165,7 @@ fn planned_from(snap: &Snapshot, package: &str, to: &str) -> PlannedRun {
         &PlanRequest {
             package: package.into(),
             to: ProviderId::new(to),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )

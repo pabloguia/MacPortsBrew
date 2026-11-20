@@ -22,7 +22,7 @@
 
 use macportsbrew_application::{
     build_plan, explain_package, migration_start, plan_outcome, AnalysisOptions,
-    HistoryConsultation, MigrationStart, PlanOutcome, PlanRequest,
+    HistoryConsultation, MigrationStart, PlanOutcome, PlanRequest, SourceFate,
 };
 use macportsbrew_domain::{
     Answer, Architecture, Capability, CapabilityState, CommandLineTools, EnvironmentSnapshot,
@@ -154,7 +154,7 @@ fn plan_for(snapshot: &Snapshot, package: &str, to: &str) -> Result<(), (ErrorId
         &PlanRequest {
             package: package.to_string(),
             to: ProviderId::new(to),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &known(),
     )
@@ -197,7 +197,7 @@ fn outcome_for(snapshot: &Snapshot, package: &str, to: &str) -> Result<PlanOutco
         &PlanRequest {
             package: package.to_string(),
             to: ProviderId::new(to),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &known(),
     )
@@ -284,7 +284,7 @@ fn a_broken_other_provider_is_not_evidence_the_package_was_moved() {
         &PlanRequest {
             package: "curl".into(),
             to: ProviderId::new(MP),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &known(),
     )
@@ -633,7 +633,7 @@ fn plan_outcome_of(snapshot: &Snapshot, package: &str, to: &str) -> Result<bool,
         &PlanRequest {
             package: package.to_string(),
             to: ProviderId::new(to),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &known(),
     )
@@ -833,7 +833,7 @@ fn start_for(
         &PlanRequest {
             package: package.to_string(),
             to: ProviderId::new(to),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &known(),
         HistoryConsultation::NotConsulted,
@@ -985,7 +985,7 @@ fn the_planners_mapping_confidence_params_are_confidence_identifiers() {
         &PlanRequest {
             package: "onlyhere".to_string(),
             to: ProviderId::new(MP),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &known(),
     )
@@ -1035,7 +1035,7 @@ fn configuration_risks(snap: &Snapshot, package: &str, to: &str) -> Vec<(String,
         &PlanRequest {
             package: package.to_string(),
             to: ProviderId::new(to),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &known(),
     )
@@ -1106,7 +1106,7 @@ fn a_configuration_nobody_could_read_is_an_unknown_on_the_plan() {
             &PlanRequest {
                 package: "wget".to_string(),
                 to: ProviderId::new(MP),
-                retain_source: false,
+                source: SourceFate::Remove,
             },
             &known(),
         )

@@ -19,7 +19,7 @@
 use macportsbrew_adapters::filesystem::FilesystemScope;
 use macportsbrew_adapters::process::{PlanReadRefusal, Recording, ReplayRunner};
 use macportsbrew_adapters::registry::{self, detected_prefix, plan_read_spec, RegistryContext};
-use macportsbrew_application::{build_plan, AnalysisOptions, PlanRequest};
+use macportsbrew_application::{build_plan, AnalysisOptions, PlanRequest, SourceFate};
 use macportsbrew_domain::{CommandTarget, ProviderId, Snapshot};
 use macportsbrew_policy::PolicyData;
 use std::collections::BTreeSet;
@@ -135,7 +135,11 @@ fn check(
                         &PlanRequest {
                             package: (*name).to_string(),
                             to: to.clone(),
-                            retain_source: retain,
+                            source: if retain {
+                                SourceFate::Keep
+                            } else {
+                                SourceFate::Remove
+                            },
                         },
                         &registry::known_provider_ids(),
                     ) else {

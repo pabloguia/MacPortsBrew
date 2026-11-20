@@ -11,6 +11,7 @@
 use super::*;
 use clap::Parser;
 use macportsbrew_adapters::persistence::history_store::write_record;
+use macportsbrew_application::SourceFate;
 use macportsbrew_domain::{
     Direction, ExecutableOwner, Outcome, RecordedStep, RecordedVersions, Resolution, RunEnding,
     RunRecord, RunStart, RunSubject, StepKind, StepResult, Version,
@@ -64,7 +65,7 @@ fn request(package: &str, to: &str) -> PlanRequest {
     PlanRequest {
         package: package.into(),
         to: ProviderId::new(to),
-        retain_source: true,
+        source: SourceFate::Keep,
     }
 }
 
@@ -384,7 +385,7 @@ fn history_is_read_only_by_a_live_retained_run() {
     // A live run that does not retain the source.
     let ctx = live(&cli_r);
     let plain = PlanRequest {
-        retain_source: false,
+        source: SourceFate::Remove,
         ..request("htop", "macports")
     };
     migrate_with(

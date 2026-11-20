@@ -10,7 +10,7 @@
 use macportsbrew_application::{
     build_plan, confirm, confirmation_phrase, consent_for, elevation_requests, execution_refusals,
     plan_run, AnalysisOptions, ConsentCode, ConsentDecision, ConsentGiven, ConsentHalt,
-    ConsentRefusal, ElevationRequest, ExecutionRefusal, PlanRequest, PlannedRun,
+    ConsentRefusal, ElevationRequest, ExecutionRefusal, PlanRequest, PlannedRun, SourceFate,
 };
 use macportsbrew_domain::ErrorId;
 use macportsbrew_domain::{
@@ -160,7 +160,11 @@ fn plan_for(snap: &Snapshot, package: &str, to: &str, retain: bool) -> Migration
         &PlanRequest {
             package: package.into(),
             to: ProviderId::new(to),
-            retain_source: retain,
+            source: if retain {
+                SourceFate::Keep
+            } else {
+                SourceFate::Remove
+            },
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )
@@ -179,7 +183,11 @@ fn run_for(snap: &Snapshot, package: &str, to: &str, retain_source: bool) -> Pla
         &PlanRequest {
             package: package.into(),
             to: ProviderId::new(to),
-            retain_source,
+            source: if retain_source {
+                SourceFate::Keep
+            } else {
+                SourceFate::Remove
+            },
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )

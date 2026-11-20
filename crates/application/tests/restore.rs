@@ -8,7 +8,7 @@
 
 use macportsbrew_application::{
     check_same_package, plan_outcome, restore_notes, restore_request, AnalysisOptions, KeepReason,
-    PlanOutcome, Removal, RestoreNote, RestoreRefusal,
+    PlanOutcome, Removal, RestoreNote, RestoreRefusal, SourceFate,
 };
 use macportsbrew_domain::{
     Architecture, Capability, CapabilityState, CommandEnd, CommandLineTools, DependencyEdge,
@@ -336,7 +336,7 @@ fn a_package_the_destination_held_before_the_run_is_never_removed() {
             intent.removal,
             Removal::Keeps(KeepReason::DestinationHeldItBefore)
         );
-        assert!(intent.request.retain_source);
+        assert_eq!(intent.request.source, SourceFate::Keep);
         let plan = plan_of(outcome);
         assert!(
             !kinds(&plan).contains(&StepKind::RemoveSource),
@@ -359,7 +359,7 @@ fn a_run_whose_add_did_not_exit_zero_removes_nothing() {
         let record = run(a, b, name_at(a), halted);
         let (intent, outcome) = plan_for(&live, &record, &before);
         assert_eq!(intent.removal, Removal::Keeps(KeepReason::AddNotPerformed));
-        assert!(intent.request.retain_source);
+        assert_eq!(intent.request.source, SourceFate::Keep);
         assert!(!kinds(&plan_of(outcome)).contains(&StepKind::RemoveSource));
         // Nor does an add that exited non-zero.
         let failed = StepResult::Halted {
@@ -390,7 +390,7 @@ fn a_destination_the_snapshot_did_not_read_is_not_known_to_have_lacked_the_packa
         intent.removal,
         Removal::Keeps(KeepReason::BeforeStateNotEstablished)
     );
-    assert!(intent.request.retain_source);
+    assert_eq!(intent.request.source, SourceFate::Keep);
     let mut missing = machine(true, false);
     missing.providers.remove(&ProviderId::new(MP));
     assert_eq!(

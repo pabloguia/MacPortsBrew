@@ -40,8 +40,8 @@ use macportsbrew_application::{
     clear, confirm_shown, evaluable_in_this_build, plan_run, tie, AnalysisOptions,
     ConfigurationRechecked, ConsentCode, ConsentDecision, ConsentGiven, Disposition,
     ElevationRequest, GateClear, HaltReason, MutationAllowance, PlanDigest, PlanRequest,
-    PlannedRun, Precondition, Question, RunOutcome, ShownPlan, PARTIAL_SUCCESS_EXIT_CODE,
-    TEST_PROBE_EXECUTABLE,
+    PlannedRun, Precondition, Question, RunOutcome, ShownPlan, SourceFate,
+    PARTIAL_SUCCESS_EXIT_CODE, TEST_PROBE_EXECUTABLE,
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
@@ -367,7 +367,11 @@ impl Direction {
             &PlanRequest {
                 package: self.package.into(),
                 to: ProviderId::new(self.to),
-                retain_source: self.retain,
+                source: if self.retain {
+                    SourceFate::Keep
+                } else {
+                    SourceFate::Remove
+                },
             },
             &registry::known_provider_ids(),
         )

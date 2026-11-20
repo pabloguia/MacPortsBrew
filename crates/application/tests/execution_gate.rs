@@ -14,7 +14,7 @@
 
 use macportsbrew_application::{
     build_plan, evaluable_in_this_build, execution_refusals, AnalysisOptions, ExecutionRefusal,
-    GateReport, PlanRequest,
+    GateReport, PlanRequest, SourceFate,
 };
 use macportsbrew_domain::plan::PLAN_SCHEMA_VERSION;
 use macportsbrew_domain::{
@@ -193,7 +193,11 @@ fn plan_for(snap: &Snapshot, package: &str, to: &str, retain: bool) -> Migration
         &PlanRequest {
             package: package.into(),
             to: ProviderId::new(to),
-            retain_source: retain,
+            source: if retain {
+                SourceFate::Keep
+            } else {
+                SourceFate::Remove
+            },
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )

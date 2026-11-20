@@ -7,7 +7,7 @@
 
 use macportsbrew_application::{
     analyze, build_plan, execution_refusals, provider_commands, AnalysisOptions, AnalysisSource,
-    PlanRequest,
+    PlanRequest, SourceFate,
 };
 use macportsbrew_domain::{
     is_build_flag, Architecture, ArtifactAvailability, AvailabilityAssessment,
@@ -257,7 +257,11 @@ fn plan_for(
         &PlanRequest {
             package: package.into(),
             to: ProviderId::new(to),
-            retain_source: retain,
+            source: if retain {
+                SourceFate::Keep
+            } else {
+                SourceFate::Remove
+            },
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )
@@ -2024,7 +2028,7 @@ fn plan_with(snap: &Snapshot, package: &str, to: &str, advanced: bool) -> Migrat
         &PlanRequest {
             package: package.into(),
             to: ProviderId::new(to),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )

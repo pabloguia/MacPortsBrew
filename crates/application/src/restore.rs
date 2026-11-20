@@ -20,7 +20,7 @@
 //! predates the run, or one the run never added, would be the worst thing an
 //! undo could do.
 
-use crate::planner::PlanRequest;
+use crate::planner::{PlanRequest, SourceFate};
 use macportsbrew_domain::{
     MigrationPlan, ProviderPresence, RunRecord, Snapshot, StepKind, StepResult,
 };
@@ -135,7 +135,10 @@ pub fn restore_request(
         request: PlanRequest {
             package: at_destination,
             to: source.clone(),
-            retain_source: removal != Removal::Removes,
+            source: match removal {
+                Removal::Removes => SourceFate::Remove,
+                Removal::Keeps(_) => SourceFate::Keep,
+            },
         },
         expected_package: subject.package.name.clone(),
         restore_to: source.clone(),

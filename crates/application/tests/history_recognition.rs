@@ -8,7 +8,7 @@
 
 use macportsbrew_application::{
     migration_start, must_record, AnalysisOptions, HistoryConsultation, MigrationStart,
-    NotRecognised, PlanRequest,
+    NotRecognised, PlanRequest, SourceFate,
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
@@ -338,7 +338,11 @@ fn start(
         &PlanRequest {
             package: src_name.into(),
             to: ProviderId::new(dst),
-            retain_source,
+            source: if retain_source {
+                SourceFate::Keep
+            } else {
+                SourceFate::Remove
+            },
         },
         &snapshot.providers.keys().cloned().collect::<Vec<_>>(),
         history,
