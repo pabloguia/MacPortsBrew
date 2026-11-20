@@ -531,26 +531,8 @@ is recorded and not acted on without the owner.
 [R-28](../research/R-28-liveness-probes.md) (`LIVENESS_PROBE`).
 
 ### R-29 · Whether a read proves the Command Line Tools present or absent
-*Answered 2026-11-19, partially:
-[R-29](../research/R-29-command-line-tools-presence.md). Raised by work order 16
-part K (`docs/passes/16-plans/K.md`, "The DP-050 research note (R-29)").*
-Blocks part K's D7: DP-050's ruling makes a source-build `ADD_DESTINATION`
-`MANUAL_REVIEW` only if the build toolchain's absence can be detected by a read
-with no new spawn; otherwise the risk text says so.
-
-Questions:
-- Does `/usr/bin/xcode-select -p` succeeding prove the build tools present, and
-  does its non-zero exit prove them absent?
-- Does a filesystem read (stat, nothing executed) of
-  `/Library/Developer/CommandLineTools` — `usr/bin/clang`, `usr/bin/make`,
-  `SDKs/` — or of the selected Xcode's `Contents/Developer/usr/bin` prove either?
-- What do the two providers themselves test, and does either need the Command
-  Line Tools specifically, or accept Xcode instead?
-
-Run only the reads part K's allowlist names; `pkgutil` is research-only, since
-nothing the product builds may depend on it. Absence cannot be observed on a
-machine that has the tools without a mutation, so the absent case comes from
-documentation or an owner capture on a disposable machine.
+*Answered 2026-11-19, partially, with its open states listed in the note:
+[R-29](../research/R-29-command-line-tools-presence.md) (work order 16 part K, D7; DP-050).*
 
 ## Non-blocking research
 
