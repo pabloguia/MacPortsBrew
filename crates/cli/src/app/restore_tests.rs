@@ -497,6 +497,43 @@ fn the_human_text_leads_with_the_run_what_is_known_and_what_the_plan_cannot_say(
     }
 }
 
+/// Part K, D4: `restore` decides removal from the record and takes no
+/// `--remove-source`, so a restore plan that keeps what the run added never
+/// advises it (`plan.source_kept` is `plan`'s and `migrate`'s line only).
+#[test]
+fn a_restore_that_keeps_what_the_run_added_never_advises_remove_source() {
+    let scratch = Scratch::new("kept-human");
+    let mut args = vec![
+        "macportsbrew".to_string(),
+        "--from-snapshot".into(),
+        live_snapshot().to_string_lossy().into_owned(),
+        "--today".into(),
+        "2026-10-04".into(),
+        "restore".into(),
+        "--plan".into(),
+        "--run".into(),
+        RUN_ID.into(),
+    ];
+    let human = Cli::try_parse_from(args.drain(..)).unwrap();
+    let ctx = live(&scratch, &human);
+    // The snapshot the run took shows Homebrew already held `htop`, so the
+    // undo keeps it (`KEEPS_DESTINATION`, `DESTINATION_HELD_IT_BEFORE`).
+    let state = scratch.state();
+    let euid = macportsbrew_adapters::system::machine::effective_uid().unwrap();
+    let mut held = ctx.snapshot.clone();
+    held.provenance.captured_at = STARTED_AT.into();
+    save_snapshot_durable(&state.snapshots(), &held).expect("the snapshot");
+    write_record(&state, &record(performed(), RUN_ID), euid).expect("the record");
+    let (code, out) = run_restore(&ctx, &human, true, RUN_ID);
+    assert_eq!(code.unwrap(), 0, "{out}");
+    assert!(
+        !out.contains("Execution would stop here"),
+        "a plan that stops would hide the line anyway:\n{out}"
+    );
+    assert!(out.contains("predates") || out.contains("before"), "{out}");
+    assert!(!out.contains("--remove-source"), "{out}");
+}
+
 /// DP-037 on the restore path: a restore acts on the row the current machine
 /// holds, so when that row is now a dependency under the provider the restore
 /// removes from, the plan is `NAMED`, `--json` carries the warning, and the

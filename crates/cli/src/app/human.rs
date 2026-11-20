@@ -436,6 +436,28 @@ pub fn explanation(ctx: &Context, e: &Explanation) -> String {
     out
 }
 
+/// Coexistence is the default outcome (INV-18; part K, D8): a `plan` or
+/// `migrate` plan that keeps the source says so, and how to ask for its
+/// removal. Not part of [`plan`], because `restore` renders its plan with that
+/// function too and takes no `--remove-source` (D4): advising it there would be
+/// a usage error that removes what the undo deliberately kept. A plan that
+/// stops at manual review is not offered a removal it cannot reach.
+pub fn source_kept(ctx: &Context, plan: &MigrationPlan) -> String {
+    if !plan.retain_source || plan.requires_manual_review() {
+        return String::new();
+    }
+    format!(
+        "\n{}\n",
+        ctx.messages.render(
+            "plan.source_kept",
+            &params(&[
+                ("package", plan.package.name.clone()),
+                ("source", plan.source.to_string()),
+            ])
+        )
+    )
+}
+
 /// `plan`: the dry-run rendering of a plan.
 pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
     let mut out = String::new();
@@ -850,7 +872,7 @@ pub fn nothing_to_move(
     out
 }
 
-/// `migrate --retain-source` when history and a fresh capture show the
+/// `migrate` that keeps the source when history and a fresh capture show the
 /// migration done (INV-16): nothing planned, nothing changed.
 pub fn retained_run_done(
     ctx: &Context,
@@ -870,7 +892,7 @@ pub fn retained_run_done(
     out
 }
 
-/// `migrate --retain-source`, before the plan, when history had a record to
+/// `migrate` that keeps the source, before the plan, when history had a record to
 /// say something about and it was not enough: why the migration is planned
 /// again rather than reported done. Exhaustive, with literal keys, so a new
 /// reason is a compile error here and every key is seen rendered.

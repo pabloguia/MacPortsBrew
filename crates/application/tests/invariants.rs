@@ -883,7 +883,7 @@ fn invariant_11_setting_the_primary_transfers_no_ownership() {
     ));
     assert!(
         !plan.steps.iter().any(|s| s.kind == StepKind::RemoveSource),
-        "`--retain-source` keeps the source copy, so ownership cannot move by removal"
+        "a plan that keeps the source keeps its copy, so ownership cannot move by removal"
     );
 
     let primary = plan
@@ -1743,6 +1743,19 @@ fn invariant_04_removal_with_dependents_is_blocked_and_explained() {
         "nothing under homebrew depends on `tool`: {:?}",
         mirror.risks
     );
+    // A plan that keeps the source removes nothing, so the dependents block
+    // nothing (part K-3, DP-048 (c)): the same package, the same direction.
+    let kept = plan_for(&snap, "tool", HB, true);
+    assert!(
+        !kept.risks.iter().any(|r| r.id == "reverse_dependencies"),
+        "a kept source breaks no dependent: {:?}",
+        kept.risks
+    );
+    assert!(
+        !kept.requires_manual_review(),
+        "and nothing stops it for them: {:?}",
+        kept.steps.iter().map(|s| s.kind).collect::<Vec<_>>()
+    );
 }
 
 // --- Pass 08 slice 6, part A: an artifact the destination cannot supply ------
@@ -1755,6 +1768,18 @@ fn with_destination_availability(
     availability: ArtifactAvailability,
     disabled: bool,
     deprecated: bool,
+) -> MigrationPlan {
+    with_destination_availability_keeping(source, availability, disabled, deprecated, false)
+}
+
+/// [`with_destination_availability`], with the source's fate given: `retain`
+/// keeps it.
+fn with_destination_availability_keeping(
+    source: &str,
+    availability: ArtifactAvailability,
+    disabled: bool,
+    deprecated: bool,
+    retain: bool,
 ) -> MigrationPlan {
     let (destination, counterpart, package) = if source == HB {
         (MP, "gsed", "gnu-sed")
@@ -1785,7 +1810,7 @@ fn with_destination_availability(
         .or_default();
     meta.disabled = disabled.then(|| "2026-01-01".to_string());
     meta.deprecated = deprecated.then(|| "2026-01-01".to_string());
-    plan_for(&snap, package, destination, false)
+    plan_for(&snap, package, destination, retain)
 }
 
 /// The reason ids of a plan's `MANUAL_REVIEW` steps, in plan order.
@@ -1854,10 +1879,20 @@ fn invariant_17_an_unavailable_destination_blocks_identically_in_both_directions
 /// A source build and an unknown availability do not block (DP-050's default):
 /// they stay the non-blocking `destination_source_build` risk, and the plan
 /// keeps the step sequence a prebuilt destination gets, pinned literally so the
-/// comparison is not against the code under test.
+/// comparison is not against the code under test. Since part K-3 the sequence
+/// depends on the source's fate: a kept source has no removal steps, and a
+/// removed one keeps all three.
 #[test]
 fn source_build_and_unknown_are_not_manual_review() {
-    let full = [
+    let kept = [
+        StepKind::SnapshotBefore,
+        StepKind::AddDestination,
+        StepKind::VerifyDestination,
+        StepKind::SetPrimary,
+        StepKind::VerifyResolution,
+        StepKind::RecordHistory,
+    ];
+    let removed = [
         StepKind::SnapshotBefore,
         StepKind::AddDestination,
         StepKind::VerifyDestination,
@@ -1868,32 +1903,94 @@ fn source_build_and_unknown_are_not_manual_review() {
         StepKind::CleanupReview,
         StepKind::RecordHistory,
     ];
-    for source in [HB, MP] {
-        for state in [
-            ArtifactAvailability::SourceBuildRequired {
-                reason: macportsbrew_domain::SourceBuildReason::NoArtifactForThisPlatform,
-            },
-            ArtifactAvailability::Unknown,
-            ArtifactAvailability::BinaryAvailable,
-        ] {
-            let plan = with_destination_availability(source, state.clone(), false, false);
-            assert_eq!(kinds(&plan), full, "{state:?} from {source}");
-            assert!(
-                !plan
-                    .risks
-                    .iter()
-                    .any(|r| r.id == "destination_artifact_unavailable"),
-                "{state:?} from {source}: not an unavailable artifact"
-            );
-            assert_eq!(
+    for (retain, full) in [(true, &kept[..]), (false, &removed[..])] {
+        for source in [HB, MP] {
+            for state in [
+                ArtifactAvailability::SourceBuildRequired {
+                    reason: macportsbrew_domain::SourceBuildReason::NoArtifactForThisPlatform,
+                },
+                ArtifactAvailability::Unknown,
+                ArtifactAvailability::BinaryAvailable,
+            ] {
+                let plan = with_destination_availability_keeping(
+                    source,
+                    state.clone(),
+                    false,
+                    false,
+                    retain,
+                );
+                assert_eq!(
+                    kinds(&plan),
+                    full,
+                    "{state:?} from {source}, retain {retain}"
+                );
+                assert!(
+                    !plan
+                        .risks
+                        .iter()
+                        .any(|r| r.id == "destination_artifact_unavailable"),
+                    "{state:?} from {source}: not an unavailable artifact"
+                );
+                assert_eq!(
                 plan.risks
                     .iter()
                     .any(|r| r.id == "destination_source_build" && !r.blocking),
                 state != ArtifactAvailability::BinaryAvailable,
                 "{state:?} from {source}: a non-prebuilt destination keeps its non-blocking risk"
             );
+            }
         }
     }
+}
+
+/// INV-18, part K-3 (DP-048 (c)): coexistence is what a migration ends in unless
+/// removal is asked for. In both directions a plan that keeps the source has no
+/// `REMOVE_SOURCE`, `VERIFY_REMOVAL` or `CLEANUP_REVIEW` and records
+/// `retainSource: true`; the same request asking for removal has all three, after
+/// the destination is verified (INV-01).
+#[test]
+fn invariant_18_a_migration_keeps_the_source_unless_removal_is_asked_for() {
+    let removal = [
+        StepKind::RemoveSource,
+        StepKind::VerifyRemoval,
+        StepKind::CleanupReview,
+    ];
+    let mut shapes = Vec::new();
+    for source in [HB, MP] {
+        let kept = with_destination_availability_keeping(
+            source,
+            ArtifactAvailability::BinaryAvailable,
+            false,
+            false,
+            true,
+        );
+        assert!(kept.retain_source, "from {source}");
+        assert!(
+            !kinds(&kept).iter().any(|k| removal.contains(k)),
+            "from {source}: nothing is removed: {:?}",
+            kinds(&kept)
+        );
+        assert!(!kept.requires_manual_review(), "from {source}");
+        let removed = with_destination_availability_keeping(
+            source,
+            ArtifactAvailability::BinaryAvailable,
+            false,
+            false,
+            false,
+        );
+        assert!(!removed.retain_source, "from {source}");
+        let at = |k: StepKind| kinds(&removed).iter().position(|x| *x == k);
+        for k in removal {
+            assert!(at(k).is_some(), "from {source}: {k:?} is asked for");
+        }
+        assert!(
+            at(StepKind::VerifyDestination) < at(StepKind::RemoveSource),
+            "from {source}: {:?}",
+            kinds(&removed)
+        );
+        shapes.push(kinds(&kept));
+    }
+    assert_eq!(shapes[0], shapes[1], "the same shape either way (INV-17)");
 }
 
 /// A disabled destination carries both the withdrawal flag and `DISABLED`; it

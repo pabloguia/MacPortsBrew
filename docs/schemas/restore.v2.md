@@ -61,7 +61,8 @@ if the record shows the add dispatched and ended in a known exit 0 **and** the
 snapshot taken before the first change shows the destination did not already
 hold it. Anything less keeps it, with a `KEEPS_DESTINATION` note: removing a
 package that predates the run, or one the run never added, would be the worst an
-undo could do. A run made with `--retain-source` is the cheap case: nothing is
+undo could do. A run that kept its source — every run made without
+`--remove-source`, since SE-114 — is the cheap case: nothing is
 reinstalled and the plan verifies the retained package before removing what the
 run added (INV-01).
 

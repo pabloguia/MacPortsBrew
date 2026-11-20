@@ -935,6 +935,7 @@ fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
             "htop",
             "--to",
             "macports",
+            "--remove-source",
         ],
     );
     assert_eq!(planned.status.code(), Some(8), "the planner refuses it");
@@ -953,6 +954,28 @@ fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
         !stderr.contains("names no directory this tool can resolve"),
         "the superseded generic message must not be what answered: {stderr}"
     );
+
+    // Without `--remove-source` the source keeps its package and no step runs
+    // under its prefix, so the same plan is built (part K-3, DP-048 (c)): what
+    // `doctor.provider_prefix_is_not_absolute` tells the user.
+    let kept = run(
+        &scratch,
+        &[
+            "--json",
+            "--from-snapshot",
+            home_rooted.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "macports",
+        ],
+    );
+    assert_eq!(
+        kept.status.code(),
+        Some(0),
+        "a plan that keeps the source is built: {}",
+        String::from_utf8_lossy(&kept.stderr)
+    );
 }
 
 /// The direction the test above does not cover, and DP-021 got wrong.
@@ -960,16 +983,17 @@ fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
 /// That test makes the **source** home-rooted and migrates away. The entry then
 /// claimed "`plan --retain-source` exits 0", which is true only for that
 /// direction: `ADD_DESTINATION` and `VERIFY_DESTINATION` build their commands
-/// from the **destination**, and `--retain-source` drops only `REMOVE_SOURCE`
-/// and `VERIFY_REMOVAL`. So a user whose *destination* lives under `$HOME` is
-/// refused with or without it.
+/// from the **destination**, and keeping the source drops only the removal's
+/// steps. So a user whose *destination* lives under `$HOME` is refused whether
+/// the plan keeps the source (the default since part K-3) or removes it
+/// (`--remove-source`).
 ///
 /// Found by `spec-guardian` on 2026-09-19, and it is an INV-17 shape: one
 /// direction covered and one not, on a path both reach. The code is symmetric —
 /// the refusal names no provider — so what was missing was the test, which is
 /// the harder half to notice.
 #[test]
-fn a_home_redacted_destination_is_refused_too_and_retain_source_does_not_rescue_it() {
+fn a_home_redacted_destination_is_refused_too_and_keeping_the_source_does_not_rescue_it() {
     let scratch = Scratch::new("dp021dest");
     // The live capture: a replayed source row cannot answer the service
     // question, so it would be refused before the rule this test is about
@@ -1001,7 +1025,7 @@ fn a_home_redacted_destination_is_refused_too_and_retain_source_does_not_rescue_
     let home_rooted = scratch.path().join("home-rooted-destination.json");
     std::fs::write(&home_rooted, serde_json::to_vec(&doc).expect("serialise")).expect("write");
 
-    for extra in [Vec::new(), vec!["--retain-source"]] {
+    for extra in [Vec::new(), vec!["--remove-source"]] {
         let mut args = vec![
             "--json",
             "--from-snapshot",
@@ -2532,6 +2556,7 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
             "htop",
             "--to",
             "homebrew",
+            "--remove-source",
             "--today",
             TODAY,
         ],

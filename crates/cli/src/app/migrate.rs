@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `migrate <package> --to <id> [--retain-source]`: the one caller of the run
+//! `migrate <package> --to <id> [--remove-source]`: the one caller of the run
 //! loop (SE-092), and the command whose `--json` is `docs/schemas/migrate.v2.md`.
 //!
 //! **Two modes.** It renders by default, as `--dry-run` asks and
@@ -141,7 +141,7 @@ struct Document<'a> {
     mode: Mode,
     #[serde(skip_serializing_if = "Option::is_none")]
     nothing_to_move: Option<NothingToMove<'a>>,
-    /// A `--retain-source` re-run history and a fresh capture show done
+    /// A re-run that keeps the source, which history and a fresh capture show done
     /// (INV-16; pass 08 slice 1). Additive to v1.
     #[serde(skip_serializing_if = "Option::is_none")]
     retained_run_done: Option<RetainedRunDone<'a>>,
@@ -619,7 +619,7 @@ fn migrate_with(
         MigrationStart::Run(planned, note) => (planned, note),
     };
     // The script route (DP-049 (a)): the digest is checked against the plan
-    // `--yes` would run — after the `--retain-source` re-plan — whatever the
+    // `--yes` would run — after the re-plan of a run that keeps the source — whatever the
     // allowance, so a plan changed since it was shown stops here with stdout
     // empty (R2), and the check is exercised in this build.
     let tied = match (mode, digest) {
@@ -695,7 +695,13 @@ fn migrate_with(
         if let Some(why) = &note {
             write!(stdout, "{}", human::retained_run_not_recognised(ctx, why)).map_err(io)?;
         }
-        write!(stdout, "{}", human::plan(ctx, plan)).map_err(io)?;
+        write!(
+            stdout,
+            "{}{}",
+            human::plan(ctx, plan),
+            human::source_kept(ctx, plan)
+        )
+        .map_err(io)?;
         match &report {
             None => {
                 // The hint only where the input could be put to the gate: a

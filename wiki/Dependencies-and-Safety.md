@@ -60,8 +60,9 @@ in normal mode.
 
 Before anything is removed, MacPortsBrew resolves what **inside that same
 provider** depends on it. If removal would break them, it is blocked by default
-and explained — here as it appears in `plan curl --to macports`, read from
-the committed live capture:
+and explained — here as it appears in `plan curl --to macports --remove-source`,
+read from the committed live capture. A plan without `--remove-source` removes
+nothing, so dependents block nothing and the plan does not raise them:
 
 ```
   ! 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.

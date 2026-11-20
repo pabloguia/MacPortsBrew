@@ -2,8 +2,8 @@
 
 **What changed from version 1 (2026-11-04, work order 16 part H-1).** A new outcome, `COMPLETED_WITH_UNCHECKED`; `unchecked` on `PARTIAL_SUCCESS`; the dispositions `VERIFIED_WITH_UNCHECKED` and `SOURCE_KEPT_UNCHECKED`; the halt `DESTINATION_CHECK_FAILED`. `RunOutcome` has no `UNKNOWN`, so these are not additive. The `plan` it carries is `plan.v2`. Part H-2 adds `checkBases`.
 
-Emitted by `macportsbrew migrate <package> --to <provider> [--retain-source]
-[--yes] [--dry-run] --json`. Built in `crates/cli/src/app/migrate.rs`; the run's
+Emitted by `macportsbrew migrate <package> --to <provider> [--remove-source]
+[--yes] [--dry-run] --json` (`--retain-source` is accepted and ignored; SE-114). Built in `crates/cli/src/app/migrate.rs`; the run's
 types are in `crates/application/src/executor.rs` and
 `crates/cli/src/executor/mod.rs`. The compatibility rule is in
 [`README.md`](README.md).
@@ -37,8 +37,8 @@ check. Rendering from a snapshot file is allowed, and every answer it gives —
 | `schemaVersion` | integer | `2` |
 | `mode` | string | `RENDER` or `EXECUTE` |
 | `nothingToMove` | object, optional | `{ "package": string, "provider": string, "notDetected": [string] }`. Present exactly when there is nothing to move, and then `plan` and `execution` are absent. Exit 0 (INV-16). `notDetected` is always written: the other providers that were not detected, in identifier order; empty when every other provider was detected and read (DP-026) |
-| `retainedRunDone` | object, optional | `{ "package": string, "provider": string, "runId": string }`. Present exactly when a live `--retain-source` re-run is one this machine's history and a fresh capture both show done; then `plan` and `execution` are absent and nothing is written. Exit 0 (INV-16). Additive (pass 08). **Not reachable in this build**: nothing writes a record (the switch is off). Since work order 16 part F-3 a record is recognised only when every one of its `primaryExecutables` resolves, authoritatively, to the destination package ([`history.v4.md`](history.v4.md), Recognition) |
-| `retainedRunNotRecognised` | object, optional | `{ "reason": string, "runId"?: string }` beside a `plan`, when a live `--retain-source` re-run consulted history and history had something to say: a record for the migration that was not enough to call it done, or any record stamped after this run (`RECORD_FROM_THE_FUTURE`, which carries no `runId`). `reason` is one of `RECORD_NOT_CONFIRMED` (pass 08 slice 5, additive: the interrupted-run marker names the record, or could not be read), `LATEST_RUN_NOT_SUCCESS`, `LATEST_RUN_REMOVED_SOURCE`, `TIE`, `RECORD_FROM_THE_FUTURE`, `DESTINATION_NOT_ACTIVE`, `PRIMARY_IS_SHIM`, `PRIMARY_NOT_CONFIRMED`, and `EXECUTABLES_UNKNOWN` (work order 16 part F-3, additive: the fresh capture does not know the source package's executable list). Additive (pass 08) |
+| `retainedRunDone` | object, optional | `{ "package": string, "provider": string, "runId": string }`. Present exactly when a live re-run that keeps the source is one this machine's history and a fresh capture both show done; then `plan` and `execution` are absent and nothing is written. Exit 0 (INV-16). Additive (pass 08). **Not reachable in this build**: nothing writes a record (the switch is off). Since work order 16 part F-3 a record is recognised only when every one of its `primaryExecutables` resolves, authoritatively, to the destination package ([`history.v4.md`](history.v4.md), Recognition) |
+| `retainedRunNotRecognised` | object, optional | `{ "reason": string, "runId"?: string }` beside a `plan`, when a live re-run that keeps the source consulted history and history had something to say: a record for the migration that was not enough to call it done, or any record stamped after this run (`RECORD_FROM_THE_FUTURE`, which carries no `runId`). `reason` is one of `RECORD_NOT_CONFIRMED` (pass 08 slice 5, additive: the interrupted-run marker names the record, or could not be read), `LATEST_RUN_NOT_SUCCESS`, `LATEST_RUN_REMOVED_SOURCE`, `TIE`, `RECORD_FROM_THE_FUTURE`, `DESTINATION_NOT_ACTIVE`, `PRIMARY_IS_SHIM`, `PRIMARY_NOT_CONFIRMED`, and `EXECUTABLES_UNKNOWN` (work order 16 part F-3, additive: the fresh capture does not know the source package's executable list). Additive (pass 08) |
 | `plan` | `MigrationPlan`, optional | The plan, exactly as [`plan.v2.md`](plan.v2.md) documents it, less the `plan` command's root `concurrentProviderActivity`: the flag is written once, at this document's root. Present whenever a plan was built |
 | `planDigest` | string, optional | Present whenever `plan` is: `sha256:` and 64 lowercase hexadecimal digits, the digest `--yes --plan-digest` takes back to run exactly this plan. Taken over the same plan this document carries (home redaction happens at capture, not here), with a domain-separated prefix that carries the build's version: a digest is valid only for builds with the same version string and plan serialisation. **A fingerprint**: someone holding it can test a guess at the plan's content, so remove it before publishing a document, and remove it with any hand edit to `plan`; `doctor --report` never contains it. Additive (work order 16 part E-4) |
 | `warnings` | array, optional | As in [`plan.v2.md`](plan.v2.md): `["advanced.warning"]` when the plan's `enteredBy` is `ADVANCED` or `NAMED`, at this document's root, derived and never stored on the plan. Since 2026-10-27, additive (DP-037) |
@@ -214,10 +214,11 @@ run-time `PATH`, home-redacted the same way, is not the one the plan's decision
 used. In this build the gate still refuses every planner-built plan before step
 1, so no real plan reaches `SET_PRIMARY`.
 
-**When history is consulted.** Only by a live `migrate --retain-source` whose
+**When history is consulted.** Only by a live `migrate` that keeps the source
+(every one without `--remove-source`, since SE-114) whose
 planner built a plan with no `MANUAL_REVIEW` step — in either mode, so a dry run
 shows what `--yes` would do. `--replay` and `--from-snapshot` never read
-history (INV-15), a run without `--retain-source` never does, and every
+history (INV-15), a run with `--remove-source` never does, and every
 refusal, every manual review and *nothing to move* keeps its precedence. A
 history the store cannot trust is `HISTORY_UNUSABLE` (exit 8) with empty
 stdout, never read as "no record" ([`history.v4.md`](history.v4.md)); a run as

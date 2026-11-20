@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Recognising a `migrate --retain-source` re-run as already done
+//! Recognising a `migrate` re-run that keeps the source as already done
 //! (`recognise_retained_run`, `migration_start`; pass 08 slice 1). History is
 //! never trusted alone: a fresh capture must show the end state, and every
 //! case that cannot be ordered or confirmed fails closed — planned again, with
@@ -562,8 +562,10 @@ fn invariant_16_a_retained_run_whose_primary_is_the_shim_is_not_recognised_and_s
     }
 }
 
+/// A re-run that removes the source (`--remove-source`, since part K-3) is never
+/// recognised: only one that keeps it is.
 #[test]
-fn a_re_run_without_retain_source_is_never_recognised() {
+fn a_re_run_that_removes_the_source_is_never_recognised() {
     let snapshot = fresh(MP, &After::done(HB));
     let start = start(MP, &snapshot, Some(&view_of(vec![success(MP)])), false);
     assert!(matches!(start, MigrationStart::Run(_, None)), "{start:?}");

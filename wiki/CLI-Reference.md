@@ -59,7 +59,8 @@ Builds a migration plan. **Nothing is executed in this build.**
 | Flag | Effect |
 |---|---|
 | `--to <PROVIDER>` | Destination provider: `homebrew` or `macports`. Required; any other value is a usage error (exit 2) |
-| `--retain-source` | Keep the source package after migration |
+| `--remove-source` | Remove the source package once the destination is verified. Without it the source is kept and both stay installed |
+| `--retain-source` | Accepted and ignored, with a notice on stderr: the source is kept unless `--remove-source` is given. Deprecated. Given with `--remove-source` it is a usage error (exit 2) |
 
 Prints the ordered steps, the risks, and where a human would decide. Exits **4**
 when the plan contains a step needing human review — which is a normal outcome,
@@ -80,7 +81,8 @@ provider command is run.
 | Flag | Effect |
 |---|---|
 | `--to <PROVIDER>` | Destination provider: `homebrew` or `macports`. Required; any other value is a usage error (exit 2) |
-| `--retain-source` | Keep the source package after migration |
+| `--remove-source` | Remove the source package once the destination is verified. Without it the source is kept and both stay installed |
+| `--retain-source` | Accepted and ignored, with a notice on stderr: the source is kept unless `--remove-source` is given. Deprecated. Given with `--remove-source` it is a usage error (exit 2) |
 | `--yes` | Put the plan to the execution gate instead of only showing it. Nothing in this build prompts |
 | `--dry-run` | Show the plan and run nothing. Wins over `--yes` |
 | `--plan-digest <DIGEST>` | With `--yes`: go on to the execution gate only if `<DIGEST>` is the digest of the plan about to run, as `migrate` printed it. Any other digest stops before the gate (exit **4**, nothing on stdout); a malformed one, or one without `--yes`, is a usage error (exit **2**) |

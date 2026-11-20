@@ -96,6 +96,7 @@ const ALLOWED: &[&str] = &[
     "--replay",
     "--json",
     "--to",
+    "--remove-source",
     "--retain-source",
     "--today",
     "status",

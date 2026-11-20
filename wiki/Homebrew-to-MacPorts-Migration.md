@@ -53,17 +53,14 @@ see [Dependencies and Safety](Dependencies-and-Safety.md).)
 <!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json plan curl --to macports exit=4 -->
 ```
 Plan: move curl from homebrew to macports
-  This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source with --retain-source until you are sure. You run them at your own risk.
+  This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source until you are sure. You run them at your own risk.
   This plan goes against the recommendation (Needs a human decision).
 
 Risks detected
   ! No equivalent under macports reaches confidence level Strong: the best is at level None. Check whether macports has an equivalent before deciding.
-  ! 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
 
 Steps, in order
   1. Needs a human decision - No equivalent under macports reaches confidence level Strong: the best is at level None. Check whether macports has an equivalent before deciding.
-       Execution would stop here for a human decision (exit code 4).
-  2. Needs a human decision - 2 packages under homebrew depend on this one, and removing or moving it on its own can break them.
        Execution would stop here for a human decision (exit code 4).
 
 Possibly inconsistent: this was read from a recording or a snapshot file, which cannot show whether a package manager was changing the machine it came from while it was read.
@@ -119,8 +116,10 @@ this order, and the order is enforced rather than conventional:
 4. **Set primary** — decide which copy actually runs. See
    [Primary Provider](Primary-Provider.md).
 5. **Verify resolution** — confirm it does.
-6. **Remove source** — *optional*, and only reachable after step 3 passed.
-   `--retain-source` skips it entirely.
+6. **Remove source** — *only with `--remove-source`*, and only reachable after
+   step 3 passed. Without the flag the plan has no removal, removal check or
+   cleanup review: both copies stay installed, and a line after the steps says how
+   to ask for the removal (a plan that stops for a human decision does not offer it).
 7. **Verify removal.**
 8. **Cleanup review** — what was left behind, for you to decide about.
 9. **Record history** — designed; 0.1.0 keeps no history.
@@ -140,6 +139,8 @@ administrator rights. Homebrew's prefix subdirectories are user-owned, so
 formula operations do not
 ([`../docs/research/R-5-privilege-requirements.md`](../docs/research/R-5-privilege-requirements.md),
 2026-09-02, citing `guide.macports.org` and `docs.brew.sh/FAQ`).
+Keeping the Homebrew copy, the default, does not change this: the MacPorts
+install is what elevates.
 
 MacPortsBrew handles that by **enumerating** it: every step that would need
 elevation is listed in the plan as needing it, per operation, visible before
@@ -153,8 +154,8 @@ yourself, at your own risk. If you do, follow it in order, and keep the one
 rule that matters: **install and verify under MacPorts before removing anything
 from Homebrew.** Take `macportsbrew snapshot --out before.json` first, so you
 can see afterwards what changed. Leaving the Homebrew copy installed until you
-are sure is the safe pattern — it is what `--retain-source` will do once a
-release runs plans.
+are sure is the safe pattern — it is what a plan does unless you add
+`--remove-source`.
 
 ## The Intel case
 

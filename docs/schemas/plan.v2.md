@@ -31,8 +31,8 @@ once at its own root; see "What an executor inherits".
 | `source` | string | Provider id the package is held by |
 | `destination` | string | Provider id it would move to |
 | `destinationPackage` | string, optional | The name under the destination, when the mapping selected one |
-| `retainSource` | boolean | `--retain-source`: keep the source package after migrating |
-| `enteredBy` | `"DEFAULT_VIEW"` \| `"ADVANCED"` \| `"NAMED"`, optional | How the row the plan acts on was entered (DP-037, INV-13), decided by the **source row** the plan would remove, not by whether the unit is visible: `DEFAULT_VIEW` when that row is in the default view; `ADVANCED` when it is outside it and `--advanced` was given; `NAMED` when it is outside it and naming it was the only entry into advanced mode, for that package only. Since 2026-10-27, additive. Every plan this build writes carries it, `DEFAULT_VIEW` included; it is absent only in a document from before the field, and anything that chooses a confirmation level from a plan treats absence as the strictest level (work order 16 part C plan §9). A restore plan records it the same way, from the current snapshot |
+| `retainSource` | boolean | The source package is kept after migrating. `true` unless the plan was asked for with `--remove-source` (since SE-114; before it, `true` only with `--retain-source`). The field's name and meaning are unchanged |
+| `enteredBy` | `"DEFAULT_VIEW"` \| `"ADVANCED"` \| `"NAMED"`, optional | How the row the plan acts on was entered (DP-037, INV-13), decided by the **source row** the plan acts on, not by whether the unit is visible: `DEFAULT_VIEW` when that row is in the default view; `ADVANCED` when it is outside it and `--advanced` was given; `NAMED` when it is outside it and naming it was the only entry into advanced mode, for that package only. Since 2026-10-27, additive. Every plan this build writes carries it, `DEFAULT_VIEW` included; it is absent only in a document from before the field, and anything that chooses a confirmation level from a plan treats absence as the strictest level (work order 16 part C plan §9). A restore plan records it the same way, from the current snapshot |
 | `primaryAfter` | string | Which provider's copy resolves on `PATH` afterwards, as predicted from the snapshot: since F-3 the destination when the primary decision is `NOTHING_TO_CHANGE` or `NO_EXECUTABLES`, otherwise the source (a plan that stops at `MANUAL_REVIEW` carries no decision and keeps the source) |
 | `recommendation` | `Outcome` | What the policy engine recommends, independently of what was asked for |
 | `overrode` | `Outcome`, optional | Present when the requested direction differs from the recommendation. The override is recorded with the run |
@@ -369,7 +369,7 @@ comments:
    prefix and the in-memory plan's serialisation (never the redacted
    document), and `migrate --yes --plan-digest <d>` mints the same witness only
    when `<d>` is the digest of the plan it would run — after the
-   `--retain-source` re-plan, whatever the allowance. Any other digest is
+   re-plan of a run that keeps the source, whatever the allowance. Any other digest is
    `PLAN_NOT_SHOWN` (exit 4) with stdout empty; a malformed digest, or one
    without `--yes`, is `USAGE` (exit 2). A digest is valid only for builds with
    the same version string and plan serialisation. Tests:
@@ -520,7 +520,7 @@ comments:
     be placed before or after a dispatch. **The store landed 2026-10-04**
     (pass 08 slice 1, [`history.v4.md`](history.v4.md)) with the write
     predicate `application::history::must_record` (iff `mutationDispatched`)
-    and the `--retain-source` re-run recognition `04-migration-and-safety.md`
+    and the source-keeping re-run recognition `04-migration-and-safety.md`
     (History) states. **Still owed by the pass that dispatches mutations**,
     and named preconditions of its proposal: the call that writes a record on
     every way a run ends, with this obligation's test over success, partial,
@@ -639,9 +639,11 @@ that machine's tools; its shape, illustrative and unchecked:
 And the step the absence contract is about, whole, because the command and the
 check it satisfies are only meaningful together — this is what an executor
 inherits from item 3 above. Note `argv` carries **no package name**: the
-`htop` this plan removes appears nowhere in it.
+`htop` this plan removes appears nowhere in it. The plan is asked for with
+`--remove-source`, since work order 16 part K-3 (SE-114) the only way a plan carries the
+removal steps:
 
-<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports at=/steps/5 -->
+<!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports --remove-source at=/steps/5 -->
 ```json
 {
   "index": 6,
@@ -852,8 +854,8 @@ source, or whose availability is `UNKNOWN`, raises the non-blocking
 `destination_source_build` instead (DP-050).
 
 **`provider_configuration`** (since 2026-10-04; DP-027, ruled 2026-10-03). Raised for the plan's
-source and its destination — whether or not the plan ends up changing the source
-(`--retain-source`) — once per configuration file that sets a key the provider's
+source and its destination — whether the plan keeps the source (the default) or
+removes it (`--remove-source`) — once per configuration file that sets a key the provider's
 own reader accepts (`reason.provider_configuration_outranks`, parameters
 `provider`, `file`, `keys`) or that exists and could not be read
 (`reason.provider_configuration_unreadable`, `provider`, `file`), and once for a
@@ -874,9 +876,11 @@ mutating step that names no provider whenever any provider carries the risk.
 ## Worked example
 
 `macportsbrew plan curl --to macports --json` on the machine the committed live
-capture describes: no port reaches a strong enough mapping, and other formulae
-depend on `curl`. Every step is `MANUAL_REVIEW`, so the plan is entirely
-non-mutating and the command exits 4:
+capture describes: no port reaches a strong enough mapping. Other formulae
+depend on `curl`, but the plan keeps the source (`retainSource: true`), so they
+block nothing; asked for with `--remove-source`, they would be a second
+`MANUAL_REVIEW` (INV-04). The one step is `MANUAL_REVIEW`, so the plan is
+entirely non-mutating and the command exits 4:
 
 <!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan curl --to macports exit=4 -->
 ```json
@@ -888,7 +892,7 @@ non-mutating and the command exits 4:
   },
   "source": "homebrew",
   "destination": "macports",
-  "retainSource": false,
+  "retainSource": true,
   "enteredBy": "DEFAULT_VIEW",
   "primaryAfter": "homebrew",
   "recommendation": {
@@ -911,17 +915,6 @@ non-mutating and the command exits 4:
           "threshold": "STRONG"
         }
       }
-    },
-    {
-      "index": 2,
-      "kind": "MANUAL_REVIEW",
-      "reason": {
-        "id": "reason.reverse_dependencies_present",
-        "params": {
-          "count": "2",
-          "provider": "homebrew"
-        }
-      }
     }
   ],
   "risks": [
@@ -934,17 +927,6 @@ non-mutating and the command exits 4:
           "confidence": "NONE",
           "destination": "macports",
           "threshold": "STRONG"
-        }
-      },
-      "blocking": true
-    },
-    {
-      "id": "reverse_dependencies",
-      "reason": {
-        "id": "reason.reverse_dependencies_present",
-        "params": {
-          "count": "2",
-          "provider": "homebrew"
         }
       },
       "blocking": true

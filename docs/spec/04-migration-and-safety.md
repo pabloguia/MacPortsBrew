@@ -13,8 +13,8 @@ DISCOVER -> ASSESS -> MAP -> DEPENDENCY CHECK -> REVERSE DEPENDENCY CHECK
 -> PLAN -> HUMAN REVIEW
 -> INSTALL DESTINATION -> VERIFY DESTINATION
 -> ACTIVATE (primary) -> VERIFY RESOLUTION
--> [optional] REMOVE SOURCE -> VERIFY REMOVAL
--> [optional] CLEANUP REVIEW
+-> [--remove-source only] REMOVE SOURCE -> VERIFY REMOVAL
+-> [--remove-source only] CLEANUP REVIEW
 -> RECORD HISTORY
 ```
 
@@ -238,12 +238,15 @@ dependencies (INV-04), never touching a `STATEFUL` or `SERVICE` package's data
 or services (INV-19). Undo is a migration in the other direction, not a
 special case (INV-17). Executing it is `restore --run <id>` without `--plan`,
 which plans, shows the plan, confirms and executes — the same path `migrate`
-takes, and available in the same pass as the executor. A run made with
-`--retain-source` is the cheap case: nothing is reinstalled — the plan
+takes, and available in the same pass as the executor. A run that kept its
+source is the cheap case, and since SE-114 the common one, because a migration
+keeps the source unless `--remove-source` is given: nothing is reinstalled — the plan
 verifies the retained source package per the verification contract, restores
 it as the primary if the run had changed that, and only then removes the
 destination package. The order is the same as for any migration (INV-01);
-what is cheap is the first step, not its absence.
+what is cheap is the first step, not its absence. `restore` decides removal
+from the record and takes no `--remove-source`; a removing restore has no
+script route until restore execution is designed (SE-114).
 
 **MUST.** Scope. `--run <id>` touches only the packages that run changed, and
 reverts, through the procedures in `05-environment-and-primary-provider.md`,
@@ -489,13 +492,15 @@ claimed closed. **Met (work order 16 part S-1):** the destination is read again,
 with its `VERIFY_DESTINATION`'s own commands and after its configuration is
 re-checked, immediately before each `REMOVE_SOURCE` command and before the lock
 and source-configuration re-checks; a re-read that does not certify halts the
-removal (`DESTINATION_NOT_REVERIFIED`). **Not yet met:** it will be bounded by making removal opt-in
-(`--remove-source`, with a confirmation stronger than an install's) and by
+removal (`DESTINATION_NOT_REVERIFIED`). **Met (work order 16 part K-3):** removal is
+opt-in (`--remove-source`, SE-114). **Not yet met:** it will be bounded further by a
+confirmation for removal stronger than an install's (parts K-4, K-5) and by
 dispatching `REMOVE_SOURCE` only when the re-read ran, DP-030's probe
-answered, and all six destination checks were evaluated for that package. The
-re-read (part S), the probe (part G) and DP-051's four checks (part H, all observed
-since H-5) exist; the opt-in does not yet — work order 16 part K builds it — and the
-switch stays off until it does and the owner rules on part L's proposal.
+answered, and all six destination checks were evaluated for that package (K-6). The
+re-read (part S), the probe (part G), DP-051's four checks (part H, all observed
+since H-5) and the opt-in (part K-3) exist; the stronger confirmation and the witness
+do not yet, and the switch stays off until they do and the owner rules on part L's
+proposal.
 
 ## Privilege
 
@@ -715,7 +720,8 @@ and the wiring tripwires check it on every build — `plan.v2.md` obligation 12.
 A record not known to be durable keeps the marker, never exits 0, is never
 deleted and is never offered for restore.
 
-**MUST.** A `--retain-source` re-run is recognised as done only when the latest
+**MUST.** A re-run that keeps the source — the default since SE-114, which
+`--retain-source` asked for before it — is recognised as done only when the latest
 record for the same package, source, destination and destination package is the
 only one at its stamp, is **confirmed** (the marker, read at planning and again
 under the lock, does not name it and was readable), is a retain-source `SUCCESS`, no record is stamped after

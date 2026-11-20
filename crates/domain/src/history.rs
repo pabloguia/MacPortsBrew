@@ -70,7 +70,8 @@ pub struct RunSubject {
     pub action: Outcome,
     /// The recommendation it overrode, when it did.
     pub overrode: Option<Outcome>,
-    /// Whether the source package was to be kept (`--retain-source`).
+    /// Whether the source package was to be kept: the default, unless the run
+    /// was asked for with `--remove-source` (since work order 16 part K-3).
     pub retain_source: bool,
     /// Which provider was **observed** to resolve the package's executables
     /// afterwards (`history.v3`, SG-12): the destination when the run's

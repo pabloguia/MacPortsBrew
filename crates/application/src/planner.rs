@@ -165,7 +165,7 @@ pub enum MigrationStart {
         Box<crate::executor::PlannedRun>,
         Option<crate::history::NotRecognised>,
     ),
-    /// A `--retain-source` re-run that history and a fresh capture both show
+    /// A re-run that keeps the source, which history and a fresh capture both show
     /// done (INV-16): nothing is planned, nothing is written
     /// ([`crate::history::recognise_retained_run`]).
     RetainedRunDone {
@@ -228,7 +228,7 @@ pub enum MigrationStart {
 /// a candidate. A copy under a name no mapping connects is not seen; and from
 /// a snapshot file the answer is about that input, not the machine.
 ///
-/// **A `--retain-source` re-run.** After one, the source still holds the
+/// **A re-run that keeps the source.** After one, the source still holds the
 /// package, so `plan_outcome` builds a plan again. With a consulted
 /// `history`, that plan is replaced by [`MigrationStart::RetainedRunDone`]
 /// when [`crate::history::recognise_retained_run`] recognises it — and only
