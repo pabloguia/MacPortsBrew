@@ -28,12 +28,15 @@ macportsbrew status               machine + provider dashboard
 macportsbrew analyze [pkg...]     inventory + mapping + assessment + recommendations
 macportsbrew list                 packages (--provider, --advanced)
 macportsbrew explain <pkg>        full recommendation derivation
-macportsbrew plan <pkg> --to <provider> [--retain-source]   build a migration plan (no mutation)
-macportsbrew migrate <pkg> --to <provider> [--retain-source] [--yes [--plan-digest <d>]]
+macportsbrew plan <pkg> --to <provider> [--remove-source]   build a migration plan (no mutation)
+macportsbrew migrate <pkg> --to <provider> [--remove-source] [--yes [--plan-digest <d>]]
                                   show a plan; --yes executes it once a person at a terminal has
                                   confirmed the plan shown, or --plan-digest names the plan a
                                   script was shown (--yes never answers a question)
                                   [this build: the gate refuses every plan]
+                                  plan and migrate keep the source unless --remove-source asks
+                                  for its removal (SE-114; --retain-source is accepted, ignored
+                                  and deprecated)
 macportsbrew primary <pkg> <provider>       package-level selection [later pass]
 macportsbrew provider-priority <provider>   global priority         [later pass]
 macportsbrew providers            detect / install a provider (consent required)

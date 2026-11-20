@@ -935,6 +935,7 @@ fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
             "htop",
             "--to",
             "macports",
+            "--remove-source",
         ],
     );
     assert_eq!(planned.status.code(), Some(8), "the planner refuses it");
@@ -952,6 +953,28 @@ fn a_home_redacted_prefix_is_refused_by_the_planner_and_not_by_the_boundary() {
     assert!(
         !stderr.contains("names no directory this tool can resolve"),
         "the superseded generic message must not be what answered: {stderr}"
+    );
+
+    // Without `--remove-source` the source keeps its package and no step runs
+    // under its prefix, so the same plan is built (part K-3, DP-048 (c)): what
+    // `doctor.provider_prefix_is_not_absolute` tells the user.
+    let kept = run(
+        &scratch,
+        &[
+            "--json",
+            "--from-snapshot",
+            home_rooted.to_str().expect("path"),
+            "plan",
+            "htop",
+            "--to",
+            "macports",
+        ],
+    );
+    assert_eq!(
+        kept.status.code(),
+        Some(0),
+        "a plan that keeps the source is built: {}",
+        String::from_utf8_lossy(&kept.stderr)
     );
 }
 
@@ -2532,6 +2555,7 @@ fn invariant_06_a_read_is_never_summarised_as_needing_administrator_rights() {
             "htop",
             "--to",
             "homebrew",
+            "--remove-source",
             "--today",
             TODAY,
         ],

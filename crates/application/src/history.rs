@@ -17,7 +17,7 @@
 //! the call that writes through it lands with the mutations.
 //!
 //! [`recognise_retained_run`] is the other pure rule here: whether a
-//! `migrate --retain-source` re-run is one history already shows done
+//! `migrate` re-run that keeps the source is one history already shows done
 //! (INV-16). It never trusts a record alone — a fresh capture must show the
 //! end state — and it fails closed on everything it cannot order or confirm,
 //! saying why ([`NotRecognised`]).
@@ -366,8 +366,8 @@ pub fn restorability(
 /// What `migrate` knows of history for this run.
 #[derive(Clone, Copy, Debug)]
 pub enum HistoryConsultation<'a> {
-    /// History was not consulted: a replay, a snapshot file, a run without
-    /// `--retain-source`, or this build's wiring (INV-15).
+    /// History was not consulted: a replay, a snapshot file, a run with
+    /// `--remove-source`, or this build's wiring (INV-15).
     NotConsulted,
     /// History was read for this migration.
     Consulted {

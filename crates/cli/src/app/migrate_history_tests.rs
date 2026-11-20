@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The live branch of `migrate --retain-source` (pass 08 slice 1, H3).
+//! The live branch of a `migrate` that keeps the source (pass 08 slice 1, H3),
+//! which since work order 16 part K-3 is every `migrate` without
+//! `--remove-source`: the command lines below carry no flag at all.
 //! Every binary-level test runs under `--replay`, which never consults
 //! history, so this is where reading history, recognising a re-run and
 //! rendering the answer are exercised: a context is built from the committed
@@ -43,7 +45,7 @@ fn cli(package: &str, to: &str, json: bool) -> Cli {
     if json {
         args.push("--json".into());
     }
-    args.extend(["migrate", package, "--to", to, "--retain-source"].map(String::from));
+    args.extend(["migrate", package, "--to", to].map(String::from));
     Cli::try_parse_from(args).expect("the arguments parse")
 }
 
@@ -382,7 +384,18 @@ fn history_is_read_only_by_a_live_retained_run() {
     .unwrap();
     assert!(!called.get(), "a replay read history");
 
-    // A live run that does not retain the source.
+    // The default command line keeps the source (part K-3, DP-048 (c)), so a
+    // re-run of it is one history is consulted for (INV-16).
+    let Some(super::super::Command::Migrate { remove_source, .. }) = &cli_r.command else {
+        panic!("a migrate command line");
+    };
+    assert_eq!(
+        super::super::source_fate(*remove_source),
+        SourceFate::Keep,
+        "a migrate without --remove-source keeps the source"
+    );
+
+    // A live run that removes the source.
     let ctx = live(&cli_r);
     let plain = PlanRequest {
         source: SourceFate::Remove,
@@ -399,7 +412,7 @@ fn history_is_read_only_by_a_live_retained_run() {
         &reader,
     )
     .unwrap();
-    assert!(!called.get(), "a run without --retain-source read history");
+    assert!(!called.get(), "a run with --remove-source read history");
 
     // A live retained run does.
     migrate_with(
@@ -472,7 +485,7 @@ fn cli_from_snapshot(package: &str, to: &str, json: bool) -> Cli {
     if json {
         args.push("--json".into());
     }
-    args.extend(["migrate", package, "--to", to, "--retain-source"].map(String::from));
+    args.extend(["migrate", package, "--to", to].map(String::from));
     Cli::try_parse_from(args).expect("the arguments parse")
 }
 

@@ -238,12 +238,15 @@ dependencies (INV-04), never touching a `STATEFUL` or `SERVICE` package's data
 or services (INV-19). Undo is a migration in the other direction, not a
 special case (INV-17). Executing it is `restore --run <id>` without `--plan`,
 which plans, shows the plan, confirms and executes — the same path `migrate`
-takes, and available in the same pass as the executor. A run made with
-`--retain-source` is the cheap case: nothing is reinstalled — the plan
+takes, and available in the same pass as the executor. A run that kept its
+source is the cheap case, and since SE-114 the common one, because a migration
+keeps the source unless `--remove-source` is given: nothing is reinstalled — the plan
 verifies the retained source package per the verification contract, restores
 it as the primary if the run had changed that, and only then removes the
 destination package. The order is the same as for any migration (INV-01);
-what is cheap is the first step, not its absence.
+what is cheap is the first step, not its absence. `restore` decides removal
+from the record and takes no `--remove-source`; a removing restore has no
+script route until restore execution is designed (SE-114).
 
 **MUST.** Scope. `--run <id>` touches only the packages that run changed, and
 reverts, through the procedures in `05-environment-and-primary-provider.md`,
@@ -715,7 +718,8 @@ and the wiring tripwires check it on every build — `plan.v2.md` obligation 12.
 A record not known to be durable keeps the marker, never exits 0, is never
 deleted and is never offered for restore.
 
-**MUST.** A `--retain-source` re-run is recognised as done only when the latest
+**MUST.** A re-run that keeps the source — the default since SE-114, which
+`--retain-source` asked for before it — is recognised as done only when the latest
 record for the same package, source, destination and destination package is the
 only one at its stamp, is **confirmed** (the marker, read at planning and again
 under the lock, does not name it and was readable), is a retain-source `SUCCESS`, no record is stamped after

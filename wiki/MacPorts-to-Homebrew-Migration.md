@@ -89,7 +89,7 @@ macportsbrew --from-snapshot fixtures/snapshots/both-providers-intel-macos26-liv
 <!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json migrate htop --to homebrew -->
 ```
 Plan: move htop from macports to homebrew
-  This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source with --retain-source until you are sure. You run them at your own risk.
+  This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source until you are sure: a plan removes it only when built with --remove-source. You run them at your own risk.
   This plan goes against the recommendation (Keep both, homebrew first).
 
 Steps, in order
@@ -106,17 +106,11 @@ Steps, in order
   4. Set the primary - Decide, from this PATH, whether homebrew's copy already runs. This release changes no primary: this step sets nothing, and where the copy does not already run the plan is refused before any step.
        ! which executables the package installs is not known
        This decision used the PATH this run saw. Check `command -v <name>` in your shell; `hash -r` clears a stale entry.
-  5. Remove from the source - Remove htop from macports. This happens only after the destination is verified.
-       $ /opt/local/bin/port uninstall htop  [elevation required: The default MacPorts prefix /opt/local is created by the installer and owned by root (guide.macports.org, read 2026-09-02).]
-  6. Verify the removal - Verify the removal.
-       $ /opt/local/bin/port -q installed  [passes when this list does NOT name the package; refused unless it exited cleanly, was not truncated and came back non-empty]
-       ? the source no longer reports it installed
-  7. Review what is left behind - Show cleanup candidates from the provider's own mechanism for review; nothing is removed automatically.
-  8. Record the run - Record what was done. This version executes nothing, so it records no run; `history` and `restore --plan` read the runs a later version records. Take your own before-snapshot (`macportsbrew snapshot --out before.json`).
+  5. Record the run - Record what was done. This version executes nothing, so it records no run; `history` and `restore --plan` read the runs a later version records. Take your own before-snapshot (`macportsbrew snapshot --out before.json`).
 
-Steps that need administrator rights: 5.
+The macports copy of htop stays installed beside the new one. To remove it once the destination is verified, run the same command again with --remove-source.
 
-Plan digest: sha256:bf63a98b0d244359d1cd7367d6cbfc9298d45d72f9598481dab82022f7092d16
+Plan digest: sha256:beb30356b05c63ab214e8ac0d76ea78bd300c6045a4a93f4982c5bf29d91dd9e
 
 Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which refuses every plan this build produces.
 
@@ -124,10 +118,12 @@ Possibly inconsistent: this was read from a recording or a snapshot file, which 
 ```
 
 Read it the way you would read the other direction's: steps in order, each
-command with how to check it, the one step that needs administrator rights
-named, and nothing removed from MacPorts until step 3 has verified the Homebrew
-copy. Step 3's probe stays unchecked here, so the source is kept and step 5 is not
-reached in this plan. Step 4 sets nothing. This capture does not know htop's
+command with how to check it, and the MacPorts copy kept — without
+`--remove-source` the plan ends by recording the run, and its last line says how
+to ask for the removal. With `--remove-source` it adds the removal, its
+verification and the cleanup review after step 3 has verified the Homebrew copy,
+and the removal is the one step that needs administrator rights. Step 4 sets
+nothing. This capture does not know htop's
 executables, so the plan has no Verify resolution step.
 Live, the last line says what one sample of the providers' own locks answered.
 Here it says a snapshot file cannot show that. `--json` carries the same answer as
@@ -193,8 +189,8 @@ Identical to the other direction, because it is the same planner:
    cannot prove what dyld loads.
 4. **Set primary** — see [Primary Provider](Primary-Provider.md).
 5. **Verify resolution.**
-6. **Remove source** — optional, only reachable after step 3 passed;
-   `--retain-source` skips it.
+6. **Remove source** — only with `--remove-source`, and only reachable after
+   step 3 passed; without the flag the plan has no steps 6 to 8.
 7. **Verify removal.**
 8. **Cleanup review.**
 9. **Record history** — designed; 0.1.0 keeps no history.
@@ -215,8 +211,10 @@ does**, because `/opt/local` is root-owned
 ([`../docs/research/R-5-privilege-requirements.md`](../docs/research/R-5-privilege-requirements.md),
 2026-09-02).
 
-So a MacPorts-to-Homebrew plan typically elevates on the *removal* step rather
-than the *install* step — the mirror image of the other direction. The plan
+So a MacPorts-to-Homebrew plan asked for with `--remove-source` typically
+elevates on the *removal* step rather than the *install* step — the mirror image
+of the other direction; one that keeps the source, the default, needs no
+elevation at all. The plan
 lists which steps those are, per operation, before anything runs. Analysis and
 planning never elevate.
 
@@ -227,8 +225,8 @@ yourself, at your own risk. If you do, follow it in order, and keep the one
 rule that matters: **install and verify under Homebrew before removing anything
 from MacPorts.** Take `macportsbrew snapshot --out before.json` first, so you
 can see afterwards what changed. Leaving the MacPorts copy installed until you
-are sure is the safe pattern — it is what `--retain-source` will do once a
-release runs plans.
+are sure is the safe pattern — it is what a plan does unless you add
+`--remove-source`.
 
 ## Variants have no Homebrew equivalent
 

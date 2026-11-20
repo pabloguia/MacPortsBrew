@@ -66,7 +66,8 @@ version 2 never established which executables its primary was about.
 
 ## Recognition
 
-A `--retain-source` re-run is recognised as already done only when all of these
+A re-run that keeps the source (the default since SE-114; before it, `--retain-source`)
+is recognised as already done only when all of these
 hold, besides version 2's conditions:
 
 - the fresh snapshot's source list is `KNOWN` (else `EXECUTABLES_UNKNOWN`) and

@@ -158,10 +158,23 @@ fn from_snapshot(
     package: &str,
     to: &str,
 ) -> Output {
+    from_snapshot_with(scratch, file, extra, package, to, &[])
+}
+
+/// [`from_snapshot`], with `flags` after the subcommand's arguments.
+fn from_snapshot_with(
+    scratch: &Scratch,
+    file: &Path,
+    extra: &[&str],
+    package: &str,
+    to: &str,
+    flags: &[&str],
+) -> Output {
     let file = file.to_str().expect("UTF-8");
     let mut argv = vec!["--from-snapshot", file];
     argv.extend_from_slice(extra);
     argv.extend_from_slice(&["migrate", package, "--to", to, "--today", TODAY]);
+    argv.extend_from_slice(flags);
     run(scratch, &argv)
 }
 
@@ -205,14 +218,30 @@ fn migrate_dry_run_renders_every_command_including_elevated_ones() {
     // question, so a plan with commands is built from a capture (part D).
     let scratch = Scratch::new("dry-run-renders");
     let file = live_snapshot();
-    let json = from_snapshot(&scratch, &file, &["--json", "--dry-run"], "python@3.12", MP);
+    // `--remove-source`, so the removal's commands are among those rendered.
+    let removing = ["--remove-source"];
+    let json = from_snapshot_with(
+        &scratch,
+        &file,
+        &["--json", "--dry-run"],
+        "python@3.12",
+        MP,
+        &removing,
+    );
     assert_eq!(json.status.code(), Some(0), "{}", stderr(&json));
     let doc = document(&json);
     // `migrate.v2` (work order 16 part H).
     assert_eq!(doc["schemaVersion"], 2);
     assert_eq!(doc["mode"], "RENDER");
     assert!(doc.get("execution").is_none(), "a render runs nothing");
-    let human = from_snapshot(&scratch, &file, &["--dry-run"], "python@3.12", MP);
+    let human = from_snapshot_with(
+        &scratch,
+        &file,
+        &["--dry-run"],
+        "python@3.12",
+        MP,
+        &removing,
+    );
     assert_eq!(human.status.code(), Some(0), "{}", stderr(&human));
     let text = stdout(&human);
     let mut commands = 0;
@@ -713,7 +742,14 @@ fn migrate_yes_against_a_recording_dispatches_no_mutating_invocation() {
             Recording::from_json(&std::fs::read_to_string(fixture(fixture_name)).expect("reads"))
                 .expect("parses");
         // The plan's commands, from the document `migrate` renders.
-        let shown = from_snapshot(&scratch, &live_snapshot(), &["--json"], package, to);
+        let shown = from_snapshot_with(
+            &scratch,
+            &live_snapshot(),
+            &["--json"],
+            package,
+            to,
+            &["--remove-source"],
+        );
         let doc = document(&shown);
         let commands: Vec<(String, Vec<String>)> = doc["plan"]["steps"]
             .as_array()
@@ -1519,6 +1555,7 @@ fn invariant_17_a_macports_to_homebrew_plan_is_built_from_a_live_capture() {
                 "htop",
                 "--to",
                 to,
+                "--remove-source",
                 "--json",
             ],
         );
@@ -1670,10 +1707,10 @@ fn invariant_02_a_digest_of_another_plan_dispatches_nothing_and_takes_no_lock() 
 #[test]
 fn the_digest_migrate_shows_is_the_one_yes_checks() {
     // Two processes: the digest one prints is the digest the next accepts,
-    // with and without --retain-source, in both renderings.
+    // with and without --remove-source, in both renderings.
     let scratch = Scratch::new("digest-roundtrip");
     let file = fixture(BOTH);
-    for retain in [&[][..], &["--retain-source"][..]] {
+    for retain in [&[][..], &["--remove-source"][..]] {
         let shown = migrate_with_flags(&scratch, &file, &["--json"], REPLAYED_SERVICE, MP, retain);
         let digest = digest_of(&shown);
         let human = migrate_with_flags(&scratch, &file, &[], REPLAYED_SERVICE, MP, retain);
@@ -1698,7 +1735,7 @@ fn the_digest_migrate_shows_is_the_one_yes_checks() {
         &["--json"],
         REPLAYED_SERVICE,
         MP,
-        &["--retain-source"],
+        &[],
     ));
     let removed = digest_of(&migrate_with_flags(
         &scratch,
@@ -1706,9 +1743,124 @@ fn the_digest_migrate_shows_is_the_one_yes_checks() {
         &["--json"],
         REPLAYED_SERVICE,
         MP,
-        &[],
+        &["--remove-source"],
     ));
-    assert_ne!(kept, removed, "retaining the source is another plan");
+    assert_ne!(kept, removed, "removing the source is another plan");
+}
+
+/// INV-18, part K-3 (DP-048 (c)): `migrate` without `--remove-source` plans
+/// coexistence — over the committed live capture in both directions and over a
+/// committed recording — and `--remove-source` is what adds the removal.
+#[test]
+fn invariant_18_migrate_without_remove_source_plans_coexistence() {
+    let scratch = Scratch::new("coexistence");
+    let removal = ["REMOVE_SOURCE", "VERIFY_REMOVAL", "CLEANUP_REVIEW"];
+    let kinds = |out: &Output| -> (bool, Vec<String>) {
+        let doc = document(out);
+        (
+            doc["plan"]["retainSource"].as_bool().expect("retainSource"),
+            doc["plan"]["steps"]
+                .as_array()
+                .expect("steps")
+                .iter()
+                .map(|s| s["kind"].as_str().expect("kind").to_string())
+                .collect(),
+        )
+    };
+    let live = live_snapshot();
+    for to in [HB, MP] {
+        let kept = from_snapshot(&scratch, &live, &["--json"], "htop", to);
+        assert_eq!(kept.status.code(), Some(0), "{to}: {}", stderr(&kept));
+        let (retained, steps) = kinds(&kept);
+        assert!(retained, "{to}: {steps:?}");
+        assert!(
+            !steps.iter().any(|k| removal.contains(&k.as_str())),
+            "{to}: {steps:?}"
+        );
+        assert!(
+            stdout(&from_snapshot(&scratch, &live, &[], "htop", to))
+                .contains("To remove it once the destination is verified"),
+            "{to}: the plan says how to ask for the removal"
+        );
+        let removing = from_snapshot_with(
+            &scratch,
+            &live,
+            &["--json"],
+            "htop",
+            to,
+            &["--remove-source"],
+        );
+        assert_eq!(
+            removing.status.code(),
+            Some(0),
+            "{to}: {}",
+            stderr(&removing)
+        );
+        let (retained, steps) = kinds(&removing);
+        assert!(!retained, "{to}: {steps:?}");
+        assert!(
+            steps.iter().any(|k| k == "REMOVE_SOURCE"),
+            "{to}: {steps:?}"
+        );
+    }
+    let recorded = migrate(&scratch, &fixture(BOTH), &["--json"], REPLAYED_SERVICE, MP);
+    let (retained, steps) = kinds(&recorded);
+    assert!(retained, "{steps:?}");
+    assert!(
+        !steps.iter().any(|k| removal.contains(&k.as_str())),
+        "{steps:?}"
+    );
+}
+
+/// Part K, D1: `--retain-source` is an accepted no-op. The plan, its `--json`
+/// and its digest are the same bytes with and without it, in both renderings,
+/// and the deprecation notice is on stderr only.
+#[test]
+fn retain_source_changes_no_byte_of_the_plan_and_says_so_on_stderr() {
+    let scratch = Scratch::new("retain-noop");
+    let file = fixture(BOTH);
+    for global in [&["--json"][..], &[][..]] {
+        let plain = migrate_with_flags(&scratch, &file, global, REPLAYED_SERVICE, MP, &[]);
+        let flagged = migrate_with_flags(
+            &scratch,
+            &file,
+            global,
+            REPLAYED_SERVICE,
+            MP,
+            &["--retain-source"],
+        );
+        assert_eq!(plain.status.code(), flagged.status.code(), "{global:?}");
+        assert_eq!(plain.stdout, flagged.stdout, "{global:?}: stdout differs");
+        let notice = "--retain-source is no longer needed and is ignored";
+        assert!(stderr(&flagged).contains(notice), "{}", stderr(&flagged));
+        assert!(!stderr(&plain).contains(notice), "{}", stderr(&plain));
+        assert!(!stdout(&flagged).contains(notice), "{}", stdout(&flagged));
+    }
+}
+
+/// Part K, D1: the two flags contradict each other, so asking for both is a
+/// usage error, before anything is built.
+#[test]
+fn remove_source_and_retain_source_together_are_a_usage_error() {
+    let scratch = Scratch::new("fate-conflict");
+    let file = fixture(BOTH);
+    for command in ["migrate", "plan"] {
+        let out = run(
+            &scratch,
+            &[
+                "--replay",
+                file.to_str().expect("UTF-8"),
+                command,
+                REPLAYED_SERVICE,
+                "--to",
+                MP,
+                "--remove-source",
+                "--retain-source",
+            ],
+        );
+        assert_eq!(out.status.code(), Some(2), "{command}: {}", stderr(&out));
+        assert!(out.stdout.is_empty(), "{command}: {}", stdout(&out));
+    }
 }
 
 #[test]

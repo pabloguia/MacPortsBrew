@@ -125,8 +125,13 @@ pub enum Command {
         /// Destination provider, by the id `status` lists it under.
         #[arg(long, value_parser = known_provider)]
         to: String,
-        /// Keep the source package after migration.
+        /// Remove the source package once the destination is verified. Without
+        /// it the source is kept, and both stay installed.
         #[arg(long)]
+        remove_source: bool,
+        /// Accepted and ignored: the source is kept unless --remove-source is
+        /// given. Deprecated; it will be removed in a later release.
+        #[arg(long, conflicts_with = "remove_source")]
         retain_source: bool,
     },
     /// Show a migration plan; with --yes, put it to the execution gate. The
@@ -137,8 +142,13 @@ pub enum Command {
         /// Destination provider, by the id `status` lists it under.
         #[arg(long, value_parser = known_provider)]
         to: String,
-        /// Keep the source package after migration.
+        /// Remove the source package once the destination is verified. Without
+        /// it the source is kept, and both stay installed.
         #[arg(long)]
+        remove_source: bool,
+        /// Accepted and ignored: the source is kept unless --remove-source is
+        /// given. Deprecated; it will be removed in a later release.
+        #[arg(long, conflicts_with = "remove_source")]
         retain_source: bool,
         /// With --yes: go on to the execution gate only if the plan's digest
         /// is this one, as `migrate` printed it (`sha256:` and 64 lowercase
@@ -287,14 +297,27 @@ fn calendar_date(value: &str) -> Result<String, String> {
 }
 
 /// The fate a command line asks for the source package. The one place the
-/// flags become a [`SourceFate`] (part K, D2): today an absent
-/// `--retain-source` still means removal; part K-3 changes this function and
-/// nothing else to make removal opt-in.
-pub(crate) const fn source_fate(retain_source: bool) -> SourceFate {
-    if retain_source {
-        SourceFate::Keep
-    } else {
+/// flags become a [`SourceFate`] (part K, D2; DP-048 (c)): the source is kept
+/// unless `--remove-source` is given. `--retain-source` is accepted and
+/// ignored (D1), so it takes no part here.
+pub(crate) const fn source_fate(remove_source: bool) -> SourceFate {
+    if remove_source {
         SourceFate::Remove
+    } else {
+        SourceFate::Keep
+    }
+}
+
+/// D1: `--retain-source` asks for what is now the default. Say so on stderr
+/// only, so a plan, its `--json` and its digest are the same bytes with and
+/// without the flag.
+fn retain_source_notice(ctx: &Context, retain_source: bool, stderr: &mut dyn Write) {
+    if retain_source {
+        let _ = writeln!(
+            stderr,
+            "{}",
+            ctx.messages.render_id("cli.retain_source_deprecated")
+        );
     }
 }
 
@@ -472,8 +495,10 @@ fn run_inner(
         Command::Plan {
             package,
             to,
+            remove_source,
             retain_source,
         } => {
+            retain_source_notice(&ctx, *retain_source, stderr);
             let plan = macportsbrew_application::build_plan(
                 &ctx.snapshot,
                 &ctx.policy,
@@ -481,7 +506,7 @@ fn run_inner(
                 &PlanRequest {
                     package: package.clone(),
                     to: macportsbrew_domain::ProviderId::new(to),
-                    source: source_fate(*retain_source),
+                    source: source_fate(*remove_source),
                 },
                 // The planner names no provider; the registry is what knows
                 // which ones a complete input must carry.
@@ -512,24 +537,28 @@ fn run_inner(
         Command::Migrate {
             package,
             to,
+            remove_source,
             retain_source,
             plan_digest,
-        } => migrate::migrate(
-            &ctx,
-            cli,
-            &PlanRequest {
-                package: package.clone(),
-                to: macportsbrew_domain::ProviderId::new(to),
-                source: source_fate(*retain_source),
-            },
-            plan_digest
-                .as_deref()
-                .map(|d| migrate::check_plan_digest(cli, d))
-                .transpose()?,
-            &options(BTreeSet::new()),
-            stdout,
-            stderr,
-        ),
+        } => {
+            retain_source_notice(&ctx, *retain_source, stderr);
+            migrate::migrate(
+                &ctx,
+                cli,
+                &PlanRequest {
+                    package: package.clone(),
+                    to: macportsbrew_domain::ProviderId::new(to),
+                    source: source_fate(*remove_source),
+                },
+                plan_digest
+                    .as_deref()
+                    .map(|d| migrate::check_plan_digest(cli, d))
+                    .transpose()?,
+                &options(BTreeSet::new()),
+                stdout,
+                stderr,
+            )
+        }
         Command::Doctor { report, deep } => {
             if *deep && !cli.json {
                 let _ = writeln!(
@@ -718,13 +747,12 @@ fn json<T: serde::Serialize>(value: &T) -> Result<String, DomainError> {
 mod tests {
     use super::*;
 
-    /// Pins today's mapping of the flag (part K, D2): an absent
-    /// `--retain-source` still removes. Part K-3 makes removal opt-in by
-    /// changing `source_fate`, and must change this test with it.
+    /// Pins the mapping of the flag (part K, D2; DP-048 (c)): only
+    /// `--remove-source` removes; its absence keeps the source.
     #[test]
-    fn an_absent_retain_source_still_means_removal() {
-        assert_eq!(source_fate(false), SourceFate::Remove);
-        assert_eq!(source_fate(true), SourceFate::Keep);
+    fn only_remove_source_means_removal() {
+        assert_eq!(source_fate(true), SourceFate::Remove);
+        assert_eq!(source_fate(false), SourceFate::Keep);
     }
 
     #[test]

@@ -394,7 +394,9 @@ fn a_hostile_prefix_in_a_snapshot_is_rendered_as_one_quoted_word() {
     let out = Command::new(BIN)
         .arg("--from-snapshot")
         .arg(&file)
-        .args(["plan", "htop", "--to", "homebrew"])
+        // `--remove-source`: the source's prefix reaches the plan's commands
+        // through its removal, which a plan without it does not carry.
+        .args(["plan", "htop", "--to", "homebrew", "--remove-source"])
         .env("LC_ALL", "C")
         .env_remove("MACPORTSBREW_LANG")
         .output()

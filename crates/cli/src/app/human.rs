@@ -585,6 +585,23 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
             let _ = writeln!(out, "       {}", label(ctx, "plan.stops_here"));
         }
     }
+    // Coexistence is the default outcome (INV-18; part K, D8): a plan that keeps
+    // the source says so, and how to ask for its removal. A plan that stops at
+    // manual review is not offered a removal it cannot reach.
+    if plan.retain_source && !plan.requires_manual_review() {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "{}",
+            ctx.messages.render(
+                "plan.source_kept",
+                &params(&[
+                    ("package", plan.package.name.clone()),
+                    ("source", plan.source.to_string()),
+                ])
+            )
+        );
+    }
     // `plan.elevated_steps` is every step whose elevation is not `None`, which
     // is the conservative set and the right one for a machine-readable field and
     // for gating consent. Saying "these need administrator rights" about all of
@@ -850,7 +867,7 @@ pub fn nothing_to_move(
     out
 }
 
-/// `migrate --retain-source` when history and a fresh capture show the
+/// `migrate` that keeps the source when history and a fresh capture show the
 /// migration done (INV-16): nothing planned, nothing changed.
 pub fn retained_run_done(
     ctx: &Context,
@@ -870,7 +887,7 @@ pub fn retained_run_done(
     out
 }
 
-/// `migrate --retain-source`, before the plan, when history had a record to
+/// `migrate` that keeps the source, before the plan, when history had a record to
 /// say something about and it was not enough: why the migration is planned
 /// again rather than reported done. Exhaustive, with literal keys, so a new
 /// reason is a compile error here and every key is seen rendered.

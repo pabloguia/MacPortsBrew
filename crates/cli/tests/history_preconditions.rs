@@ -2527,21 +2527,24 @@ fn the_shell_never_derives_a_command() {
     }
 }
 
-/// Fails while the switch is on (work order 16 part S, V3): removal is not yet
-/// opt-in. DP-048 (c) bounds the residual window by making removal opt-in
+/// Fails while the switch is on (work order 16 part S, V3): DP-048 (c) is not
+/// yet whole. It bounds the residual window by making removal opt-in
 /// (`--remove-source`, with a confirmation stronger than an install's) and by
 /// dispatching `REMOVE_SOURCE` only when the re-read ran, DP-030's probe
 /// answered and all six destination checks were evaluated. It replaces slice 6
-/// part D's planned flip tripwire; work order 16 part K turns it positive.
+/// part D's planned flip tripwire. Part K-3 made removal opt-in
+/// (`invariant_18_migrate_without_remove_source_plans_coexistence`); the
+/// stronger confirmation (K-4, K-5) and the removal witness (K-6) are still
+/// owed, and K-6 turns this positive.
 #[test]
 fn the_switch_needs_removal_opt_in() {
     let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
     assert!(
         !switch,
-        "removal is not opt-in: DP-048 (c) requires --remove-source with a confirmation \
-         stronger than an install's, and REMOVE_SOURCE dispatched only when the re-read ran, \
-         DP-030's probe answered and all six destination checks were evaluated; work order 16 \
-         part K builds it (SE-107)"
+        "DP-048 (c) is not whole: removal is opt-in since part K-3, but its confirmation \
+         stronger than an install's (K-4, K-5) and REMOVE_SOURCE dispatched only with a \
+         witness that the re-read ran, DP-030's probe answered and all six destination checks \
+         were evaluated (K-6) are still owed (SE-107, SE-114)"
     );
 }
 

@@ -251,7 +251,7 @@ fn migrate_mapping_names(
     let Some(super::Command::Migrate {
         package,
         to,
-        retain_source,
+        remove_source,
         ..
     }) = &cli.command
     else {
@@ -268,7 +268,7 @@ fn migrate_mapping_names(
         &macportsbrew_application::PlanRequest {
             package: package.clone(),
             to: macportsbrew_domain::ProviderId::new(to),
-            source: super::source_fate(*retain_source),
+            source: super::source_fate(*remove_source),
         },
         &macportsbrew_adapters::registry::known_provider_ids(),
     )
