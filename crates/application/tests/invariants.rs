@@ -2233,6 +2233,85 @@ fn invariant_17_a_dependency_source_row_is_named_entry_in_either_direction() {
     }
 }
 
+/// Work order 16 part K, D5: the confirmation level is a function of the
+/// plan, with no direction in it. In both directions a removal of a top-level
+/// row in the default view is `REMOVAL`; a removal of a dependency source row
+/// is `ADVANCED_REMOVAL`, with the same entry and ownership recorded; and
+/// keeping the source is `PLAN`.
+#[test]
+fn invariant_17_confirmation_levels_are_direction_neutral() {
+    let keep = |snap: &Snapshot, to: &str| {
+        build_plan(
+            snap,
+            &policy(),
+            &options(),
+            &PlanRequest {
+                package: "tool".into(),
+                to: ProviderId::new(to),
+                source: SourceFate::Keep,
+            },
+            &snap.providers.keys().cloned().collect::<Vec<_>>(),
+        )
+        .unwrap()
+    };
+    let mut shapes = Vec::new();
+    for (source, to) in [(HB, MP), (MP, HB)] {
+        let snap = both_present();
+        let plain = plan_with(&snap, "tool", to, false);
+        assert_eq!(plain.source.as_str(), source);
+        assert_eq!(
+            (
+                plain.entered_by,
+                plain.source_ownership,
+                plain.confirmation_level()
+            ),
+            (
+                Some(EntryMode::DefaultView),
+                Some(macportsbrew_domain::Ownership::TopLevel),
+                ConfirmationLevel::Removal
+            ),
+            "toward {to}"
+        );
+        assert_eq!(
+            keep(&snap, to).confirmation_level(),
+            ConfirmationLevel::Plan
+        );
+
+        let mut dependent = both_present();
+        let side = dependent
+            .providers
+            .get_mut(&ProviderId::new(source))
+            .unwrap();
+        side.inventory.requested.names.remove("tool");
+        for p in &mut side.inventory.installed {
+            if p.identity.name == "tool" {
+                p.requested = Some(false);
+            }
+        }
+        let advanced = plan_with(&dependent, "tool", to, false);
+        assert_eq!(advanced.entered_by, Some(EntryMode::Named), "toward {to}");
+        assert!(
+            !matches!(
+                advanced.source_ownership,
+                None | Some(macportsbrew_domain::Ownership::TopLevel)
+            ),
+            "toward {to}: {:?}",
+            advanced.source_ownership
+        );
+        assert_eq!(
+            advanced.confirmation_level(),
+            ConfirmationLevel::AdvancedRemoval,
+            "toward {to}"
+        );
+        assert_eq!(
+            keep(&dependent, to).confirmation_level(),
+            ConfirmationLevel::Plan
+        );
+        shapes.push((advanced.entered_by, advanced.source_ownership));
+    }
+    assert_eq!(shapes[0], shapes[1], "the same shape either way round");
+}
+
 #[test]
 fn every_plan_the_planner_produces_records_its_entry() {
     let snap = both_present();

@@ -247,7 +247,8 @@ which in this build refuses with the document on stdout. Under a mutation
 allowance and without `--plan-digest`, the plan's confirmation is asked before
 anything runs, and a refusal there writes nothing to stdout either: `USER_ABORTED` (6, declined), `USAGE`
 (2, no terminal to confirm at), `PLAN_NOT_SHOWN` (4, the plan to run is not the
-one confirmed); the error's identifier, on stderr, tells them apart. The
+one confirmed, or, since work order 16 part K-4, it was confirmed below the
+level it needs: a removal confirmed only as an install would be); the error's identifier, on stderr, tells them apart. The
 elevation question (wired in part E-3, reachable after part J) is asked under
 the lock before anything is written, and a stop there writes nothing to stdout
 either: `USER_ABORTED` (6, declined), `INTERNAL` (1, an answer the prompt never

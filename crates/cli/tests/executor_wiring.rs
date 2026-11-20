@@ -3321,6 +3321,59 @@ fn invariant_02_the_run_refuses_a_plan_confirmed_at_a_lower_level() {
             );
         }
     }
+    // A `REMOVAL` witness on an `ADVANCED_REMOVAL` plan: Q0 and Q1 answered,
+    // Q2 not.
+    let direction = Direction::toward_macports();
+    let advanced = clear(
+        direction
+            .plan_of(&direction.snapshot)
+            .map_plan(|p| p.entered_by = Some(EntryMode::Named)),
+        Some(MutationAllowance::forced_in_tests()),
+    )
+    .unwrap_or_else(|(_, report)| panic!("the gate refused: {:?}", report.refusals()));
+    assert_eq!(
+        advanced.run().plan().confirmation_level(),
+        ConfirmationLevel::AdvancedRemoval
+    );
+    let witness = confirm_removal(
+        shown_at_plan(&advanced),
+        &ConsentCode::from_bytes([0, 0, 1]),
+        "remove source 000001",
+    )
+    .expect("Q1");
+    assert_eq!(witness.level(), ConfirmationLevel::Removal);
+    let scratch = Scratch::new("lower-level-advanced");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let setup = unchanged(&direction, &scratch);
+    let plan = advanced.run().plan().clone();
+    let result = run_with_mutations(
+        &advanced,
+        || Reads(Box::leak(Box::new(plan))),
+        |_: &RunLock| AllHold,
+        MutatingRun {
+            resolutions: &Resolves::of(advanced.run().plan()),
+            locks: &LocksFree,
+            live: setup.live,
+            state: &scratch.state,
+            euid: scratch.euid,
+            start: scratch.start(),
+            site: &site,
+            recapture: &*setup.recapture,
+            consent: &never_asked,
+            reread: setup.reread,
+            read_back: setup.read_back,
+            observer: &seen,
+            shown: witness,
+        },
+        &HomeRedaction::Recorded,
+    );
+    assert!(
+        matches!(&result, Err(e) if e.id == ErrorId::PlanNotShown),
+        "REMOVAL on ADVANCED_REMOVAL: {result:?}"
+    );
+    assert!(seen.all().is_empty());
+    assert!(site.handed.borrow().is_empty());
 }
 
 #[test]
@@ -3361,13 +3414,22 @@ fn invariant_02_a_removal_needs_its_own_echoed_digest() {
         let elsewhere_run = elsewhere.plan_of(&elsewhere.snapshot);
         let foreign = tie(&elsewhere_run, &PlanDigest::of(elsewhere_run.plan())).expect("its own");
         assert!(tie_removal(foreign, &run, &own).is_err());
-        // An already raised witness is not raised again.
-        assert!(tie_removal(raised, &run, &own).is_err());
+        // An already raised witness is not raised again, and says why.
+        let again = tie_removal(raised, &run, &own).expect_err("raised once");
+        assert_eq!(again.id, ErrorId::PlanNotShown);
+        assert!(again.detail.contains("already confirmed"), "{again:?}");
+        // A plan that keeps the source has no removal to confirm.
+        let kept = elsewhere.plan_of(&elsewhere.snapshot);
+        assert!(!kept.plan().removes_source());
+        let witness = tie(&kept, &PlanDigest::of(kept.plan())).expect("its own digest");
+        let refused = tie_removal(witness, &kept, &RemovalDigest::of(kept.plan()))
+            .expect_err("nothing to remove");
+        assert_eq!((refused.id, refused.exit_code()), (ErrorId::Usage, 2));
     }
 }
 
 #[test]
-fn a_script_cannot_raise_an_advanced_removal() {
+fn invariant_02_a_script_cannot_confirm_an_advanced_removal() {
     // D5: `ADVANCED_REMOVAL` has no script route. Even with its own plan digest
     // and its own removal digest, `tie_removal` refuses it as a usage error
     // (exit 2): an echoed value cannot show that a person saw the warning.

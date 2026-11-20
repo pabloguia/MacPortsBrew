@@ -270,6 +270,14 @@ it**, `REMOVAL` and `ADVANCED_REMOVAL`, and 06's paragraph says it the same way
   `DEPENDENCY` or `ORPHAN`, and `ADVANCED` or `NAMED` with `TOP_LEVEL` (*rev.
   SG-M2*). Both are documented in `migrate.v2.md`'s `gateRefusals` and the
   CHANGELOG in K-4, and listed in `every_gate_refusal`.
+  *(As built, K-4; SE-114.)* Both are raised only whenever mutations would
+  be dispatched and never for a plan carrying `MANUAL_REVIEW`: the planner
+  does build a `--remove-source` plan blocked into review with
+  `retainSource: false` and no removal step. And `ADVANCED` or `NAMED` with
+  `TOP_LEVEL` is **not** refused: the planner builds it for a source row
+  attached by a weak mapping (`analysis.rs`'s `advanced_only`), the pair is
+  consistent, and its level is the strictest. Only `DEFAULT_VIEW` with
+  `DEPENDENCY` or `ORPHAN` is refused.
 - **"Stronger" is a checkable property:** whatever confirms a level also
   confirms every lower one, and something that confirms the lower one does not
   confirm it. Each interactive level asks every question of the level below

@@ -366,8 +366,11 @@ pub fn tie(run: &PlannedRun, echoed: &PlanDigest) -> Result<ShownPlan, DomainErr
 ///   [`ConfirmationLevel::AdvancedRemoval`]: an echoed value cannot show that
 ///   a person saw why the row needs the strictest confirmation (INV-13), so
 ///   that level has no script route.
+/// - [`ErrorId::Usage`] (exit 2) for a plan that keeps the source: there is
+///   no removal to confirm, and a removal digest given for one is a mistake.
 /// - [`ErrorId::PlanNotShown`] (exit 4) when `shown` is not a `PLAN` witness
-///   for `run`'s plan, or `echoed` is not its removal digest.
+///   for `run`'s plan, or `echoed` is not its removal digest. Each has its own
+///   detail.
 pub fn tie_removal(
     shown: ShownPlan,
     run: &PlannedRun,
@@ -380,11 +383,23 @@ pub fn tie_removal(
             "this removal needs a person at a terminal to confirm it; --removal-digest cannot",
         ));
     }
+    if !plan.removes_source() {
+        return Err(DomainError::new(
+            ErrorId::Usage,
+            "this plan keeps the source, so it has no removal to confirm",
+        ));
+    }
     let digest_matches = RemovalDigest::of(plan) == *echoed;
     if !shown.covers(plan) {
         return Err(DomainError::new(
             ErrorId::PlanNotShown,
             "the removal digest was given for a plan other than the one tied to --plan-digest",
+        ));
+    }
+    if shown.level != ConfirmationLevel::Plan {
+        return Err(DomainError::new(
+            ErrorId::PlanNotShown,
+            "the removal was already confirmed for this plan",
         ));
     }
     raise(
