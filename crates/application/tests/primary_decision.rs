@@ -13,7 +13,7 @@
 use macportsbrew_application::primary::{
     decide, destination_index, system_tools_keeping_their_names, DirectoryIndex, PrimaryQuestion,
 };
-use macportsbrew_application::{build_plan, AnalysisOptions, PlanRequest};
+use macportsbrew_application::{build_plan, AnalysisOptions, PlanRequest, SourceFate};
 use macportsbrew_domain::{
     ExecutableList, ExecutableName, ExecutableOwner, Placement, PrimaryDecision, PrimaryReason,
     ProviderId, Resolution, ResolutionState, Snapshot, StepKind, VerificationCheck,
@@ -748,7 +748,7 @@ fn plan(snap: &Snapshot, package: &str, to: &str) -> macportsbrew_domain::Migrat
         &PlanRequest {
             package: package.into(),
             to: id(to),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )
@@ -914,7 +914,7 @@ fn the_path_a_decision_used_is_home_redacted_in_plan_history_and_report() {
         &PlanRequest {
             package: "htop".into(),
             to: id(HB),
-            retain_source: true,
+            source: SourceFate::Keep,
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )
@@ -999,7 +999,7 @@ fn primary_after_is_the_source_when_resolution_did_not_hold() {
         &PlanRequest {
             package: "htop".into(),
             to: id(HB),
-            retain_source: true,
+            source: SourceFate::Keep,
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )

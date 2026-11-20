@@ -25,7 +25,7 @@ use macportsbrew_adapters::process::{
 use macportsbrew_adapters::registry::{self, PlanReadError, RegistryContext};
 use macportsbrew_application::{
     evaluable_in_this_build, execution_refusals, plan_run, provider_commands, AnalysisOptions,
-    Disposition, HaltReason, PlanRequest, PlannedRun, Question, RunOutcome,
+    Disposition, HaltReason, PlanRequest, PlannedRun, Question, RunOutcome, SourceFate,
 };
 use macportsbrew_domain::DestinationCheck;
 use macportsbrew_domain::{
@@ -385,7 +385,11 @@ fn planned(snap: &Snapshot, package: &str, to: &str, retain: bool) -> PlannedRun
         &PlanRequest {
             package: package.into(),
             to: ProviderId::new(to),
-            retain_source: retain,
+            source: if retain {
+                SourceFate::Keep
+            } else {
+                SourceFate::Remove
+            },
         },
         &registry::known_provider_ids(),
     )

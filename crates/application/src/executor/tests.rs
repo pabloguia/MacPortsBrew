@@ -9,7 +9,7 @@
 use super::*;
 use crate::analysis::AnalysisOptions;
 use crate::execution_gate::evaluable_in_this_build;
-use crate::planner::{plan_run, PlanRequest};
+use crate::planner::{plan_run, PlanRequest, SourceFate};
 use macportsbrew_domain::PrimaryReason;
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence,
@@ -246,7 +246,7 @@ fn planned(snap: &Snapshot, package: &str, to: &str) -> PlannedRun {
         &PlanRequest {
             package: package.into(),
             to: ProviderId::new(to),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )
@@ -1400,7 +1400,7 @@ fn invariant_19_a_service_answer_that_became_unknown_under_the_lock_refuses_the_
         &PlanRequest {
             package: "gnu-sed".into(),
             to: ProviderId::new(MP),
-            retain_source: false,
+            source: SourceFate::Remove,
         },
         &now.providers.keys().cloned().collect::<Vec<_>>(),
     )

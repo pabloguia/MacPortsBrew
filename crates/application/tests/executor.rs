@@ -9,7 +9,7 @@
 
 use macportsbrew_application::{
     build_plan, execution_refusals, next_action, outcome_of, Action, AnalysisOptions, CheckKind,
-    Disposition, HaltReason, PlanRequest, RunOutcome, StepRecord, Unevaluable,
+    Disposition, HaltReason, PlanRequest, RunOutcome, SourceFate, StepRecord, Unevaluable,
     PARTIAL_SUCCESS_EXIT_CODE,
 };
 use macportsbrew_domain::{
@@ -179,7 +179,11 @@ fn plan_for(snap: &Snapshot, package: &str, to: &str, retain: bool) -> Migration
         &PlanRequest {
             package: package.into(),
             to: ProviderId::new(to),
-            retain_source: retain,
+            source: if retain {
+                SourceFate::Keep
+            } else {
+                SourceFate::Remove
+            },
         },
         &snap.providers.keys().cloned().collect::<Vec<_>>(),
     )

@@ -51,6 +51,29 @@ pub const REASON_IDS: &[&str] = &[
 /// both to refuse a step that would change it.
 pub const PROVIDER_CONFIGURATION_RISK: &str = "provider_configuration";
 
+/// What a request asks to happen to the source package once the destination
+/// is verified (part K, D2).
+///
+/// An enum rather than a `bool`, and deliberately without a `Default`: every
+/// site that builds a request names the fate, so a change of default is a
+/// change at each site the compiler points at, never a silent inversion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceFate {
+    /// The source stays installed; the plan carries no removal step.
+    Keep,
+    /// The source is removed after the destination is verified (INV-01).
+    Remove,
+}
+
+impl SourceFate {
+    /// Whether the source is kept: the value the plan records as
+    /// `retain_source`.
+    #[must_use]
+    pub const fn keeps(self) -> bool {
+        matches!(self, Self::Keep)
+    }
+}
+
 /// What the user asked for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlanRequest {
@@ -58,8 +81,8 @@ pub struct PlanRequest {
     pub package: String,
     /// Destination provider.
     pub to: ProviderId,
-    /// Keep the source package (`--retain-source`).
-    pub retain_source: bool,
+    /// What happens to the source package.
+    pub source: SourceFate,
 }
 
 /// What planning a request produced, when it produced anything.
@@ -684,7 +707,7 @@ pub fn plan_outcome(
             );
         push_block(&mut risks, &mut manual, "mapping", reason);
     }
-    if !request.retain_source && source_row.reverse_dependency_count > 0 {
+    if request.source == SourceFate::Remove && source_row.reverse_dependency_count > 0 {
         push_block(
             &mut risks,
             &mut manual,
@@ -1045,7 +1068,7 @@ pub fn plan_outcome(
         } else {
             source.clone()
         };
-        if !request.retain_source {
+        if request.source == SourceFate::Remove {
             let src_snapshot = &snapshot.providers[&source];
             steps.push(next(
                 StepKind::RemoveSource,
@@ -1125,7 +1148,7 @@ pub fn plan_outcome(
         source,
         destination: request.to.clone(),
         destination_package,
-        retain_source: request.retain_source,
+        retain_source: request.source.keeps(),
         entered_by: Some(entered_by),
         primary_after,
         recommendation: Outcome::MigrateTo {

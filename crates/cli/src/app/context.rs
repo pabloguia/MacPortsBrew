@@ -268,7 +268,7 @@ fn migrate_mapping_names(
         &macportsbrew_application::PlanRequest {
             package: package.clone(),
             to: macportsbrew_domain::ProviderId::new(to),
-            retain_source: *retain_source,
+            source: super::source_fate(*retain_source),
         },
         &macportsbrew_adapters::registry::known_provider_ids(),
     )

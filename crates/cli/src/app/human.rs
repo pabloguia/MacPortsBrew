@@ -2251,7 +2251,7 @@ mod tests {
             &macportsbrew_application::PlanRequest {
                 package: "htop".into(),
                 to: ProviderId::new("macports"),
-                retain_source: false,
+                source: macportsbrew_application::SourceFate::Remove,
             },
             &macportsbrew_adapters::registry::known_provider_ids(),
         )

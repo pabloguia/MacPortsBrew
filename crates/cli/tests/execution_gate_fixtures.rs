@@ -13,7 +13,7 @@
 //! which is how placeholder plans are reached too.
 
 use macportsbrew_application::{
-    build_plan, execution_refusals, AnalysisOptions, ExecutionRefusal, PlanRequest,
+    build_plan, execution_refusals, AnalysisOptions, ExecutionRefusal, PlanRequest, SourceFate,
 };
 use macportsbrew_domain::{ProviderId, Snapshot};
 use macportsbrew_policy::PolicyData;
@@ -122,7 +122,11 @@ fn check_snapshot(
                         &PlanRequest {
                             package: (*name).to_string(),
                             to: to.clone(),
-                            retain_source: retain,
+                            source: if retain {
+                                SourceFate::Keep
+                            } else {
+                                SourceFate::Remove
+                            },
                         },
                         &macportsbrew_adapters::registry::known_provider_ids(),
                     ) else {
