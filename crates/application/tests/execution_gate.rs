@@ -235,7 +235,9 @@ fn step_of(refusal: &ExecutionRefusal) -> u32 {
         | ExecutionRefusal::NoRecordHistoryAtEnd
         | ExecutionRefusal::SameProviderOnBothSides
         | ExecutionRefusal::PlanNotDryRunOnly
-        | ExecutionRefusal::PrimaryDecisionMissing => 0,
+        | ExecutionRefusal::PrimaryDecisionMissing
+        | ExecutionRefusal::RetentionDisagreesWithSteps
+        | ExecutionRefusal::EntryDisagreesWithOwnership => 0,
         ExecutionRefusal::ManualReview { step }
         | ExecutionRefusal::NoSnapshotBeforeFirstMutation { step }
         | ExecutionRefusal::CheckNotEvaluableInThisBuild { step, .. }

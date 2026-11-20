@@ -46,6 +46,7 @@ fn plan(name: &str, semantic: SuccessSemantic) -> MigrationPlan {
         destination_package: Some(name.into()),
         retain_source: true,
         entered_by: Some(macportsbrew_domain::EntryMode::DefaultView),
+        source_ownership: Some(macportsbrew_domain::Ownership::TopLevel),
         primary_after: ProviderId::new("dst-provider"),
         recommendation: Outcome::MigrateTo {
             provider: ProviderId::new("dst-provider"),

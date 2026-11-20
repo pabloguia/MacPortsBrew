@@ -34,6 +34,7 @@ fn plan(source_name: &str, destination_name: Option<&str>) -> MigrationPlan {
         destination_package: destination_name.map(Into::into),
         retain_source: false,
         entered_by: Some(macportsbrew_domain::EntryMode::DefaultView),
+        source_ownership: Some(macportsbrew_domain::Ownership::TopLevel),
         primary_after: ProviderId::new(DESTINATION),
         recommendation: Outcome::MigrateTo {
             provider: ProviderId::new(DESTINATION),

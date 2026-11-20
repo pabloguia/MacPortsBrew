@@ -1150,6 +1150,7 @@ pub fn plan_outcome(
         destination_package,
         retain_source: request.source.keeps(),
         entered_by: Some(entered_by),
+        source_ownership: Some(source_row.ownership),
         primary_after,
         recommendation: Outcome::MigrateTo {
             provider: request.to.clone(),

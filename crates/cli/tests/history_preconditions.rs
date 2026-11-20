@@ -2288,7 +2288,8 @@ fn the_switch_needs_manual_review_for_an_unavailable_artifact() {
 
 /// A positive structural check, held whatever the switch is (work order 16
 /// part E, §6, E-2): the run loop refuses a plan the confirmation does not
-/// cover before it probes the history store or takes the lock; `migrate`
+/// admit — not the plan shown, or confirmed below its own level (part K, D5) —
+/// before it probes the history store or takes the lock; `migrate`
 /// confirms the plan after the gate and before the state directory, and hands
 /// the witness to the loop; a `ShownPlan` is built in one file only; and both
 /// routes DP-049 ruled in are there: the interactive confirmation (b) and,
@@ -2310,7 +2311,7 @@ fn tie_violations(executor: &[SourceFile]) -> Vec<String> {
         .collect();
     match locking.as_slice() {
         [code] => match (
-            code.find("io.shown.covers("),
+            code.find("io.shown.admits("),
             code.find("history_store::probe("),
         ) {
             (Some(tie), Some(probe)) if tie < probe => {}

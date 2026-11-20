@@ -110,7 +110,7 @@ Steps, in order
 
 The macports copy of htop stays installed beside the new one. To remove it once the destination is verified, run the command again with --remove-source (and without --retain-source).
 
-Plan digest: sha256:beb30356b05c63ab214e8ac0d76ea78bd300c6045a4a93f4982c5bf29d91dd9e
+Plan digest: sha256:231f09ffbc23e8e11f6a572fc9456dfbb8163a41881c6029370ede90246df276
 
 Shown only; nothing was run. With --yes (and without --dry-run) the plan is put to the execution gate, which refuses every plan this build produces.
 

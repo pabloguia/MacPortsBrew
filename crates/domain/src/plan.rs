@@ -14,6 +14,7 @@
 //! no-mutation grep over `src/` stays meaningful.
 
 use crate::executable::ExecutableName;
+use crate::ownership::Ownership;
 use crate::package::PackageIdentity;
 use crate::primary::PrimaryDecision;
 use crate::provider::ProviderId;
@@ -511,6 +512,27 @@ impl EntryMode {
     }
 }
 
+/// How strongly a plan must be confirmed before it runs (work order 16 part
+/// K, D5; DP-037, INV-13). Ordered by inclusion: whatever confirms a level
+/// confirms every lower one, and nothing that confirms a lower one confirms
+/// it.
+///
+/// Never stored on a plan: always derived from it, by
+/// [`MigrationPlan::confirmation_level`], so a document cannot claim a lower
+/// level than its own steps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ConfirmationLevel {
+    /// No removal: the level an install gets.
+    Plan,
+    /// A removal of a source row in the default view that the provider's own
+    /// record says the user asked for.
+    Removal,
+    /// A removal of any other source row, or one whose entry or ownership
+    /// the plan does not record.
+    AdvancedRemoval,
+}
+
 /// The plan for one package.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -536,6 +558,13 @@ pub struct MigrationPlan {
     /// the strictest (work order 16, part C plan §9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entered_by: Option<EntryMode>,
+    /// The ownership of the source row, the row a removal would act on
+    /// (work order 16 part K, D5). Every plan this build produces carries
+    /// `Some`, and `TopLevel` is written out, never collapsed into absence.
+    /// `None` exists only so a document from before the field loads; the
+    /// confirmation level treats it as the strictest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ownership: Option<Ownership>,
     /// Which provider becomes primary afterwards.
     pub primary_after: ProviderId,
     /// The recommendation this plan follows, and whether the user overrode
@@ -616,6 +645,58 @@ impl MigrationPlan {
     /// True when any step would change the machine.
     pub fn has_mutating_steps(&self) -> bool {
         self.steps.iter().any(|s| s.kind.is_mutating())
+    }
+
+    /// True when any step belongs to a removal: `REMOVE_SOURCE`,
+    /// `VERIFY_REMOVAL` or `CLEANUP_REVIEW`.
+    #[must_use]
+    pub fn has_removal_steps(&self) -> bool {
+        self.steps.iter().any(|s| {
+            matches!(
+                s.kind,
+                StepKind::RemoveSource | StepKind::VerifyRemoval | StepKind::CleanupReview
+            )
+        })
+    }
+
+    /// Whether the plan removes the source: `retainSource` is false **or** any
+    /// step belongs to a removal. Either signal is enough, so a plan whose two
+    /// say different things is treated as removing (D5).
+    #[must_use]
+    pub fn removes_source(&self) -> bool {
+        !self.retain_source || self.has_removal_steps()
+    }
+
+    /// How strongly this plan must be confirmed (work order 16 part K, D5).
+    ///
+    /// A plan that keeps the source is [`ConfirmationLevel::Plan`]. A removal
+    /// is [`ConfirmationLevel::Removal`] only for a source row entered from the
+    /// default view **and** recorded as the user's own request; every other
+    /// pair, absences included, is [`ConfirmationLevel::AdvancedRemoval`].
+    /// The match has no wildcard arm, so a new variant of either enum does not
+    /// compile until it is placed.
+    #[must_use]
+    pub fn confirmation_level(&self) -> ConfirmationLevel {
+        if !self.removes_source() {
+            return ConfirmationLevel::Plan;
+        }
+        match (self.entered_by, self.source_ownership) {
+            (Some(EntryMode::DefaultView), Some(Ownership::TopLevel)) => ConfirmationLevel::Removal,
+            (
+                Some(EntryMode::DefaultView),
+                Some(Ownership::Dependency | Ownership::Orphan | Ownership::Unknown) | None,
+            )
+            | (
+                Some(EntryMode::Advanced | EntryMode::Named) | None,
+                Some(
+                    Ownership::TopLevel
+                    | Ownership::Dependency
+                    | Ownership::Orphan
+                    | Ownership::Unknown,
+                )
+                | None,
+            ) => ConfirmationLevel::AdvancedRemoval,
+        }
     }
 
     /// Steps that carry a command known to need administrator rights.
@@ -1106,6 +1187,7 @@ mod tests {
             destination_package: Some("x".into()),
             retain_source: false,
             entered_by: Some(EntryMode::DefaultView),
+            source_ownership: Some(Ownership::TopLevel),
             primary_after: ProviderId::new("b"),
             recommendation: Outcome::MigrateTo {
                 provider: ProviderId::new("b"),
@@ -1212,5 +1294,133 @@ mod tests {
         let bare = step(1, StepKind::VerifyRemoval);
         assert!(bare.commands.is_empty());
         assert!(plan(vec![bare]).steps_with_unknown_success().is_empty());
+    }
+
+    /// Every pair of the two fields the level is derived from, absences
+    /// included.
+    fn every_pair() -> Vec<(Option<EntryMode>, Option<Ownership>)> {
+        let entries = [
+            None,
+            Some(EntryMode::DefaultView),
+            Some(EntryMode::Advanced),
+            Some(EntryMode::Named),
+        ];
+        let ownerships = [
+            None,
+            Some(Ownership::TopLevel),
+            Some(Ownership::Dependency),
+            Some(Ownership::Orphan),
+            Some(Ownership::Unknown),
+        ];
+        entries
+            .iter()
+            .flat_map(|e| ownerships.iter().map(move |o| (*e, *o)))
+            .collect()
+    }
+
+    #[test]
+    fn invariant_13_every_entry_and_ownership_pair_but_one_is_the_strictest() {
+        // Work order 16 part K, D5: only a removal of a default-view row the
+        // provider records as the user's own request is `REMOVAL`; every other
+        // pair, absences included, is `ADVANCED_REMOVAL`; and a plan that keeps
+        // the source is `PLAN` whatever the pair.
+        let removing = [
+            StepKind::SnapshotBefore,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::RemoveSource,
+            StepKind::VerifyRemoval,
+            StepKind::RecordHistory,
+        ];
+        let keeping = [
+            StepKind::SnapshotBefore,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::RecordHistory,
+        ];
+        let pairs = every_pair();
+        assert_eq!(pairs.len(), 20);
+        for (entered_by, source_ownership) in pairs {
+            let mut removal = plan_of(&removing);
+            removal.entered_by = entered_by;
+            removal.source_ownership = source_ownership;
+            let expected = if (entered_by, source_ownership)
+                == (Some(EntryMode::DefaultView), Some(Ownership::TopLevel))
+            {
+                ConfirmationLevel::Removal
+            } else {
+                ConfirmationLevel::AdvancedRemoval
+            };
+            assert_eq!(
+                removal.confirmation_level(),
+                expected,
+                "{entered_by:?}, {source_ownership:?}"
+            );
+            let mut kept = plan_of(&keeping);
+            kept.retain_source = true;
+            kept.entered_by = entered_by;
+            kept.source_ownership = source_ownership;
+            assert_eq!(
+                kept.confirmation_level(),
+                ConfirmationLevel::Plan,
+                "{entered_by:?}, {source_ownership:?}"
+            );
+        }
+        // Ordered by inclusion.
+        assert!(ConfirmationLevel::Plan < ConfirmationLevel::Removal);
+        assert!(ConfirmationLevel::Removal < ConfirmationLevel::AdvancedRemoval);
+    }
+
+    #[test]
+    fn any_removal_signal_raises_the_level() {
+        // "A removal" is `retainSource: false` or any removal step: a plan whose
+        // two signals disagree is treated as removing (D5; mutant 10).
+        let keeping = [
+            StepKind::SnapshotBefore,
+            StepKind::AddDestination,
+            StepKind::VerifyDestination,
+            StepKind::RecordHistory,
+        ];
+        let mut retained = plan_of(&keeping);
+        retained.retain_source = true;
+        assert!(!retained.removes_source());
+        assert_eq!(retained.confirmation_level(), ConfirmationLevel::Plan);
+
+        let mut flag_only = plan_of(&keeping);
+        flag_only.retain_source = false;
+        assert!(flag_only.removes_source());
+        assert_eq!(flag_only.confirmation_level(), ConfirmationLevel::Removal);
+
+        for kind in [
+            StepKind::RemoveSource,
+            StepKind::VerifyRemoval,
+            StepKind::CleanupReview,
+        ] {
+            let mut kinds = keeping.to_vec();
+            kinds.insert(3, kind);
+            let mut step_only = plan_of(&kinds);
+            step_only.retain_source = true;
+            assert!(step_only.has_removal_steps(), "{kind:?}");
+            assert!(step_only.removes_source(), "{kind:?}");
+            assert_eq!(
+                step_only.confirmation_level(),
+                ConfirmationLevel::Removal,
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn source_ownership_is_written_out_and_absence_stays_absence() {
+        // `TOP_LEVEL` is never collapsed into absence (D3; mutant 20b), and a
+        // document from before the field loads with `None`.
+        let written = serde_json::to_value(plan(vec![])).unwrap();
+        assert_eq!(written["sourceOwnership"], "TOP_LEVEL");
+        let mut absent = plan(vec![]);
+        absent.source_ownership = None;
+        let written = serde_json::to_value(&absent).unwrap();
+        assert!(written.get("sourceOwnership").is_none());
+        let read: MigrationPlan = serde_json::from_value(written).unwrap();
+        assert_eq!(read.source_ownership, None);
     }
 }

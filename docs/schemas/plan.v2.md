@@ -33,6 +33,7 @@ once at its own root; see "What an executor inherits".
 | `destinationPackage` | string, optional | The name under the destination, when the mapping selected one |
 | `retainSource` | boolean | The source package is kept after migrating. `true` unless the plan was asked for with `--remove-source` (since SE-114; before it, `true` only with `--retain-source`). The field's name and meaning are unchanged |
 | `enteredBy` | `"DEFAULT_VIEW"` \| `"ADVANCED"` \| `"NAMED"`, optional | How the row the plan acts on was entered (DP-037, INV-13), decided by the **source row** the plan acts on, not by whether the unit is visible: `DEFAULT_VIEW` when that row is in the default view; `ADVANCED` when it is outside it and `--advanced` was given; `NAMED` when it is outside it and naming it was the only entry into advanced mode, for that package only. Since 2026-10-27, additive. Every plan this build writes carries it, `DEFAULT_VIEW` included; it is absent only in a document from before the field, and anything that chooses a confirmation level from a plan treats absence as the strictest level (work order 16 part C plan §9). A restore plan records it the same way, from the current snapshot |
+| `sourceOwnership` | `"TOP_LEVEL"` \| `"DEPENDENCY"` \| `"ORPHAN"` \| `"UNKNOWN"`, optional | The ownership of the **source row**, the row a removal acts on, as the provider's own record of intent gives it (Homebrew's `installed_on_request`, MacPorts' registry `requested` flag). Since 2026-11-20 (work order 16 part K-4), additive. Every plan this build writes carries it, `TOP_LEVEL` included, never collapsed into absence; it is absent only in a document from before the field. Together with `enteredBy` it decides the confirmation a removal needs: only `DEFAULT_VIEW` with `TOP_LEVEL` is the plain removal level, and every other pair, absence included, is the strictest (SE-114). It is digested with the rest of the plan, so an ownership that moves between showing and running refuses the run |
 | `primaryAfter` | string | Which provider's copy resolves on `PATH` afterwards, as predicted from the snapshot: since F-3 the destination when the primary decision is `NOTHING_TO_CHANGE` or `NO_EXECUTABLES`, otherwise the source (a plan that stops at `MANUAL_REVIEW` carries no decision and keeps the source) |
 | `recommendation` | `Outcome` | What the policy engine recommends, independently of what was asked for |
 | `overrode` | `Outcome`, optional | Present when the requested direction differs from the recommendation. The override is recorded with the run |
@@ -894,6 +895,7 @@ entirely non-mutating and the command exits 4:
   "destination": "macports",
   "retainSource": true,
   "enteredBy": "DEFAULT_VIEW",
+  "sourceOwnership": "TOP_LEVEL",
   "primaryAfter": "homebrew",
   "recommendation": {
     "kind": "MIGRATE_TO",

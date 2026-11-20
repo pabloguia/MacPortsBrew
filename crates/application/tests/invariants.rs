@@ -12,11 +12,12 @@ use macportsbrew_application::{
 use macportsbrew_domain::{
     is_build_flag, Architecture, ArtifactAvailability, AvailabilityAssessment,
     AvailabilityEvidence, Capability, CapabilityState, CommandLineTools, CommandTarget,
-    ConcurrencyFlag, DependencyEdge, Elevation, EntryMode, EnvironmentSnapshot, ExecutableOwner,
-    InstalledPackage, Machine, MacosVersion, MigrationPlan, Outcome, PackageIdentity, PackageKind,
-    PackageMetadata, Provenance, ProviderCapabilities, ProviderDetection, ProviderId,
-    ProviderInventory, ProviderPresence, ProviderSnapshot, RequestedSet, Resolution, Snapshot,
-    StepKind, SuccessSemantic, Translation, VerificationCheck, Version, SNAPSHOT_SCHEMA_VERSION,
+    ConcurrencyFlag, ConfirmationLevel, DependencyEdge, Elevation, EntryMode, EnvironmentSnapshot,
+    ExecutableOwner, InstalledPackage, Machine, MacosVersion, MigrationPlan, Outcome,
+    PackageIdentity, PackageKind, PackageMetadata, Provenance, ProviderCapabilities,
+    ProviderDetection, ProviderId, ProviderInventory, ProviderPresence, ProviderSnapshot,
+    RequestedSet, Resolution, Snapshot, StepKind, SuccessSemantic, Translation, VerificationCheck,
+    Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
@@ -2133,16 +2134,59 @@ fn plan_with(snap: &Snapshot, package: &str, to: &str, advanced: bool) -> Migrat
 }
 
 /// INV-13 and DP-037. A dependency named without `--advanced` is entered by
-/// naming it: the plan records `NAMED`, and the gate refuses it. **The
-/// stronger confirmation half is pending until work order 16 part K**, which
-/// defines the confirmation levels; the ledger lists it there as blocking.
-/// Until then the closest present truth is asserted: nothing can execute it.
+/// naming it: the plan records `NAMED` and the source row's ownership, and its
+/// removal needs the strictest confirmation (work order 16 part K, D5): above a
+/// default-view removal, which is above an install. Keeping the source needs
+/// only the plan's own confirmation, whatever the row. The run's refusal of a
+/// lower witness is `admits`', tested in `plan_tie.rs` and
+/// `executor_wiring.rs`.
 #[test]
 fn invariant_13_a_named_dependency_warns_and_needs_the_stronger_confirmation() {
     let snap = both_present();
     let named = plan_with(&snap, "dep", MP, false);
     assert_eq!(named.entered_by, Some(EntryMode::Named));
+    assert_ne!(
+        named.source_ownership,
+        Some(macportsbrew_domain::Ownership::TopLevel)
+    );
+    assert!(named.source_ownership.is_some(), "written by every plan");
     assert!(!execution_refusals(&named).refusals().is_empty());
+    let default_removal = plan_with(&snap, "tool", MP, false);
+    assert_eq!(
+        default_removal.source_ownership,
+        Some(macportsbrew_domain::Ownership::TopLevel)
+    );
+    assert_eq!(
+        named.confirmation_level(),
+        ConfirmationLevel::AdvancedRemoval
+    );
+    assert_eq!(
+        default_removal.confirmation_level(),
+        ConfirmationLevel::Removal
+    );
+    assert!(named.confirmation_level() > default_removal.confirmation_level());
+    let keeping = |package: &str| {
+        build_plan(
+            &snap,
+            &policy(),
+            &options(),
+            &PlanRequest {
+                package: package.into(),
+                to: ProviderId::new(MP),
+                source: SourceFate::Keep,
+            },
+            &snap.providers.keys().cloned().collect::<Vec<_>>(),
+        )
+        .unwrap()
+    };
+    for package in ["dep", "tool"] {
+        assert_eq!(
+            keeping(package).confirmation_level(),
+            ConfirmationLevel::Plan,
+            "{package}"
+        );
+    }
+    assert!(default_removal.confirmation_level() > ConfirmationLevel::Plan);
     assert_eq!(
         plan_with(&snap, "dep", MP, true).entered_by,
         Some(EntryMode::Advanced)
