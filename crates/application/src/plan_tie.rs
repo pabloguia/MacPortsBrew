@@ -378,10 +378,7 @@ pub fn tie_removal(
 ) -> Result<ShownPlan, DomainError> {
     let plan = run.plan();
     if plan.confirmation_level() == ConfirmationLevel::AdvancedRemoval {
-        return Err(DomainError::new(
-            ErrorId::Usage,
-            "this removal needs a person at a terminal to confirm it; --removal-digest cannot",
-        ));
+        return Err(no_script_route());
     }
     if !plan.removes_source() {
         return Err(DomainError::new(
@@ -414,6 +411,97 @@ pub fn tie_removal(
             "its removal digest is not the one given to --removal-digest",
         )
     })
+}
+
+/// `ADVANCED_REMOVAL` has no script route (D5, SR-L2): an echoed value cannot
+/// show that a person saw why the row needs the strictest confirmation
+/// (INV-13), so the route is structurally unable to confirm it: exit 2, like a
+/// missing terminal.
+fn no_script_route() -> DomainError {
+    DomainError::new(
+        ErrorId::Usage,
+        "this removal needs a person at a terminal to confirm it; no digest given to --yes can",
+    )
+}
+
+/// The script route's witness at the level `run`'s plan needs (D5): `shown`,
+/// the `PLAN` witness [`tie`] minted for `run`, kept as it is for a plan that
+/// keeps the source, and raised by [`tie_removal`] for a removal.
+///
+/// # Errors
+///
+/// - [`ErrorId::Usage`] (exit 2) for a plan at
+///   [`ConfirmationLevel::AdvancedRemoval`], whether or not a removal digest
+///   was given, and for a removal digest given for a plan that keeps the
+///   source.
+/// - [`ErrorId::PlanNotShown`] (exit 4) for a `REMOVAL` plan without its
+///   removal digest, or with another one: a script written for installs, one
+///   that echoes `.planDigest` back alone, can never remove anything.
+pub fn tie_to_plan_level(
+    shown: ShownPlan,
+    run: &PlannedRun,
+    removal: Option<&RemovalDigest>,
+) -> Result<ShownPlan, DomainError> {
+    match (run.plan().confirmation_level(), removal) {
+        (ConfirmationLevel::AdvancedRemoval, _) => Err(no_script_route()),
+        (ConfirmationLevel::Plan, None) => Ok(shown),
+        (ConfirmationLevel::Plan | ConfirmationLevel::Removal, Some(echoed)) => {
+            tie_removal(shown, run, echoed)
+        }
+        (ConfirmationLevel::Removal, None) => Err(DomainError::new(
+            ErrorId::PlanNotShown,
+            "it removes the source, and its removal digest was not given to --removal-digest",
+        )),
+    }
+}
+
+/// Why a removal needs the strictest confirmation, for Q2 to say (D5): `None`
+/// for a plan below [`ConfirmationLevel::AdvancedRemoval`]. Decided here, from
+/// the plan alone, so the prompt only renders it (SE-092). Exhaustive over
+/// both fields, absences included, with no wildcard arm.
+#[must_use]
+pub fn advanced_removal_reason(plan: &MigrationPlan) -> Option<AdvancedRemovalReason> {
+    use macportsbrew_domain::{EntryMode as E, Ownership as O};
+    if plan.confirmation_level() != ConfirmationLevel::AdvancedRemoval {
+        return None;
+    }
+    Some(match (plan.entered_by, plan.source_ownership) {
+        (Some(E::Named), Some(O::TopLevel | O::Dependency | O::Orphan | O::Unknown) | None) => {
+            AdvancedRemovalReason::Named
+        }
+        (Some(E::Advanced), Some(O::TopLevel | O::Dependency | O::Orphan | O::Unknown) | None) => {
+            AdvancedRemovalReason::Advanced
+        }
+        (None, Some(O::TopLevel | O::Dependency | O::Orphan | O::Unknown) | None)
+        | (Some(E::DefaultView), None) => AdvancedRemovalReason::NotRecorded,
+        (Some(E::DefaultView), Some(O::Unknown)) => AdvancedRemovalReason::IntentUnknown,
+        (Some(E::DefaultView), Some(O::Dependency | O::Orphan)) => {
+            AdvancedRemovalReason::NotRequested
+        }
+        // Below the strictest level, returned above; kept so the match stays
+        // total without a wildcard.
+        (Some(E::DefaultView), Some(O::TopLevel)) => return None,
+    })
+}
+
+/// What Q2 says about the source row (D5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdvancedRemovalReason {
+    /// Outside the default view, entered only by naming it.
+    Named,
+    /// Outside the default view, entered with `--advanced`.
+    Advanced,
+    /// In the default view, but the provider records nothing about whether
+    /// the user asked for it (an `UNKNOWN` ownership). No advanced-mode
+    /// warning: the row is in the default view (*rev. SG-L2*).
+    IntentUnknown,
+    /// In the default view, but recorded as a dependency or an orphan. The
+    /// gate refuses this pair (`ENTRY_DISAGREES_WITH_OWNERSHIP`) before the
+    /// question is asked, so it is never shown in this build.
+    NotRequested,
+    /// The plan records how the row was entered, or its ownership, as absent:
+    /// a plan from before the fields.
+    NotRecorded,
 }
 
 /// The error a refused plan question ends the run with (work order 16 part E,
@@ -520,6 +608,52 @@ mod tests {
         }
         // Another plan is never admitted, at any level.
         assert!(!at(removal.clone(), AdvancedRemoval).admits(&advanced));
+    }
+
+    #[test]
+    fn q2_has_a_reason_exactly_when_the_plan_is_at_the_strictest_level() {
+        use macportsbrew_domain::{EntryMode as E, Ownership as O};
+        use AdvancedRemovalReason as R;
+        let entries = [
+            None,
+            Some(E::DefaultView),
+            Some(E::Advanced),
+            Some(E::Named),
+        ];
+        let owners = [
+            None,
+            Some(O::TopLevel),
+            Some(O::Dependency),
+            Some(O::Orphan),
+            Some(O::Unknown),
+        ];
+        for entered_by in entries {
+            for source_ownership in owners {
+                for retain_source in [true, false] {
+                    let mut plan = a_plan(retain_source);
+                    plan.entered_by = entered_by;
+                    plan.source_ownership = source_ownership;
+                    let reason = advanced_removal_reason(&plan);
+                    assert_eq!(
+                        reason.is_some(),
+                        plan.confirmation_level() == ConfirmationLevel::AdvancedRemoval,
+                        "{entered_by:?} {source_ownership:?} {retain_source}"
+                    );
+                    if retain_source {
+                        continue;
+                    }
+                    let expected = match (entered_by, source_ownership) {
+                        (Some(E::Named), _) => Some(R::Named),
+                        (Some(E::Advanced), _) => Some(R::Advanced),
+                        (None, _) | (_, None) => Some(R::NotRecorded),
+                        (_, Some(O::Unknown)) => Some(R::IntentUnknown),
+                        (_, Some(O::Dependency | O::Orphan)) => Some(R::NotRequested),
+                        (_, Some(O::TopLevel)) => None,
+                    };
+                    assert_eq!(reason, expected, "{entered_by:?} {source_ownership:?}");
+                }
+            }
+        }
     }
 
     #[test]

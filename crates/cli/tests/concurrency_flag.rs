@@ -354,7 +354,11 @@ fn the_plan_document_appends_the_flag_after_every_field_it_already_had() {
     );
     assert_eq!(keys.first().map(|k| k.as_str()), Some("schemaVersion"));
     assert!(
-        stdout(&out).contains("  \"dryRunOnly\": true,\n  \"concurrentProviderActivity\": {"),
+        // `confirmation` (work order 16 part K, D5) is derived at the
+        // document root after the plan, before the flag.
+        stdout(&out).contains(
+            "  \"dryRunOnly\": true,\n  \"confirmation\": \"PLAN\",\n  \"concurrentProviderActivity\": {"
+        ),
         "{}",
         stdout(&out)
     );

@@ -49,6 +49,7 @@ as root, for a value that is not a run id (usage, exit 2), and for
 | `nothingToRestore` | Present instead of `plan` when there is nothing to put back: `RUN_CHANGED_NOTHING` (the run dispatched no mutating step) or `ALREADY_RESTORED` (the machine is as the run found it). Exit 0 (INV-16) |
 | `plan` | The `plan.v2` plan, unchanged. Absent with `nothingToRestore` |
 | `warnings` | As in [`plan.v2.md`](plan.v2.md): `["advanced.warning"]` when the plan's `enteredBy` is `ADVANCED` or `NAMED`; omitted otherwise. Since 2026-10-27, additive (DP-037) |
+| `confirmation` | As in [`plan.v2.md`](plan.v2.md): present whenever `plan` is, the level the restore plan's own steps derive, never lower (work order 16 part K, D4 and D5). A removing restore has no script route: `restore` takes no `--plan-digest`. Since 2026-11-20, additive |
 | `execution` | With `EXECUTE` only: `outcome`, and the `gateRefusals` that ended it, exactly as [`migrate.v2`](migrate.v2.md) states them |
 
 New values may be added to `notes` and `reason` without a version bump

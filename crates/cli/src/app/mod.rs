@@ -155,6 +155,17 @@ pub enum Command {
         /// hex digits).
         #[arg(long, value_name = "DIGEST")]
         plan_digest: Option<String>,
+        /// With --yes, --plan-digest and --remove-source: the removal's own
+        /// digest, as `migrate` printed it beside the plan digest. A removal
+        /// outside the default view, or of a package not recorded as yours,
+        /// has none: it is confirmed only at a terminal.
+        #[arg(
+            long,
+            value_name = "DIGEST",
+            requires = "plan_digest",
+            requires = "remove_source"
+        )]
+        removal_digest: Option<String>,
     },
     /// Structural checks: prefixes, PATH order, leaked build variables.
     Doctor {
@@ -359,11 +370,17 @@ fn run_inner(
     // A malformed or misplaced `--plan-digest` is a usage error in every mode,
     // before anything is printed (work order 16 part E-4).
     if let Some(Command::Migrate {
-        plan_digest: Some(digest),
+        plan_digest,
+        removal_digest,
         ..
     }) = &cli.command
     {
-        migrate::check_plan_digest(cli, digest)?;
+        if let Some(digest) = plan_digest {
+            migrate::check_plan_digest(cli, digest)?;
+        }
+        if let Some(digest) = removal_digest {
+            migrate::check_removal_digest(cli, digest)?;
+        }
     }
     // `history` reads this machine's own state directory and asks no provider,
     // so it takes no capture and builds no `Context`.
@@ -478,6 +495,7 @@ fn run_inner(
                 let document = Flagged {
                     body: &explanation,
                     warnings: Vec::new(),
+                    confirmation: None,
                     concurrent_provider_activity: concurrency,
                 };
                 writeln!(stdout, "{}", json(&document)?).map_err(io)?;
@@ -518,6 +536,7 @@ fn run_inner(
                 let document = Flagged {
                     body: &plan,
                     warnings: plan_warnings(&plan),
+                    confirmation: Some(plan.confirmation_level()),
                     concurrent_provider_activity: concurrency,
                 };
                 writeln!(stdout, "{}", json(&document)?).map_err(io)?;
@@ -546,6 +565,7 @@ fn run_inner(
             remove_source,
             retain_source,
             plan_digest,
+            removal_digest,
         } => {
             retain_source_notice(&ctx, *retain_source, stderr);
             migrate::migrate(
@@ -556,10 +576,16 @@ fn run_inner(
                     to: macportsbrew_domain::ProviderId::new(to),
                     source: source_fate(*remove_source),
                 },
-                plan_digest
-                    .as_deref()
-                    .map(|d| migrate::check_plan_digest(cli, d))
-                    .transpose()?,
+                migrate::Echoed {
+                    plan: plan_digest
+                        .as_deref()
+                        .map(|d| migrate::check_plan_digest(cli, d))
+                        .transpose()?,
+                    removal: removal_digest
+                        .as_deref()
+                        .map(|d| migrate::check_removal_digest(cli, d))
+                        .transpose()?,
+                },
                 &options(BTreeSet::new()),
                 stdout,
                 stderr,
@@ -606,6 +632,7 @@ fn run_inner(
                 let document = Flagged {
                     body: &doc,
                     warnings: Vec::new(),
+                    confirmation: None,
                     concurrent_provider_activity: concurrency,
                 };
                 writeln!(stdout, "{}", json(&document)?).map_err(io)?;
@@ -699,6 +726,11 @@ struct Flagged<'a, T: serde::Serialize> {
     /// DP-037: derived from a plan's `enteredBy`, never stored on it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     warnings: Vec<PlanWarning>,
+    /// A plan's confirmation level, derived when the document is written and
+    /// never stored on the plan (work order 16 part K, D5); absent for the
+    /// other payloads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirmation: Option<macportsbrew_domain::ConfirmationLevel>,
     concurrent_provider_activity: ConcurrencyFlag,
 }
 

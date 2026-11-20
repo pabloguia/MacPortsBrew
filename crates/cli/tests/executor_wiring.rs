@@ -2781,6 +2781,258 @@ fn the_plan_question_is_asked_only_at_two_terminals() {
     }
 }
 
+/// [`confirm_with`] with one code per question, drawn in order, and the
+/// answers typed one per line.
+fn confirm_seq(
+    cleared: &GateClear,
+    typed: &str,
+    codes: &[Option<[u8; 3]>],
+) -> (
+    Result<ShownPlan, macportsbrew_application::ConsentRefusal>,
+    String,
+    u64,
+) {
+    let mut input = std::io::Cursor::new(typed.as_bytes().to_vec());
+    let mut prompt = Vec::new();
+    let mut next = codes.iter().copied();
+    let mut draw = || next.next().flatten();
+    let render = |p: &MigrationPlan| format!("THE PLAN ({} steps)\n", p.steps.len());
+    let result = macportsbrew::consent::confirm_plan(
+        cleared,
+        &render,
+        macportsbrew::consent::ConsentStreams {
+            input_is_terminal: true,
+            prompt_is_terminal: true,
+            input: &mut input,
+            prompt: &mut prompt,
+            code: &mut draw,
+        },
+        &macportsbrew::i18n::Messages::english(),
+    );
+    (
+        result,
+        String::from_utf8(prompt).expect("utf-8"),
+        input.position(),
+    )
+}
+
+/// The planner's removing plan toward MacPorts, edited, then cleared.
+fn cleared_removal(edit: impl FnOnce(&mut MigrationPlan)) -> GateClear {
+    let direction = Direction::toward_macports();
+    clear(
+        direction.plan_of(&direction.snapshot).map_plan(edit),
+        Some(MutationAllowance::forced_in_tests()),
+    )
+    .unwrap_or_else(|(_, report)| panic!("the gate refused: {:?}", report.refusals()))
+}
+
+const Q0: [u8; 3] = [0xab, 0xcd, 0xef];
+const Q1: [u8; 3] = [0x12, 0x34, 0x56];
+const Q2: [u8; 3] = [0x65, 0x43, 0x21];
+
+#[test]
+fn invariant_02_a_removal_is_asked_after_the_plan_with_a_code_of_its_own() {
+    // Work order 16 part K, D5; mutants 21 (Q1 skipped), 22 (Q1 reuses Q0's
+    // code) and 24 (the plan phrase accepted for Q1).
+    use macportsbrew_application::ConsentRefusal;
+    let cleared = cleared_removal(|_| {});
+    let plan = cleared.run().plan();
+    assert_eq!(plan.confirmation_level(), ConfirmationLevel::Removal);
+    let codes = [Some(Q0), Some(Q1), Some(Q2)];
+    let both = "run plan abcdef\nremove source 123456\n";
+    let (result, prompt, read) = confirm_seq(&cleared, both, &codes);
+    let shown = result.expect("Q0 and Q1 answered");
+    assert_eq!(shown.level(), ConfirmationLevel::Removal);
+    assert!(shown.admits(plan));
+    assert_eq!(
+        read,
+        both.len() as u64,
+        "two answers read, no third question"
+    );
+    assert!(!prompt.contains("confirm advanced removal"), "{prompt}");
+    // Q1 is asked after Q0's answer, and lists every removal step.
+    let q1 = prompt.find("also removes the source").expect("Q1 asked");
+    assert!(prompt.find("run plan abcdef").expect("Q0") < q1, "{prompt}");
+    let removals = plan
+        .steps
+        .iter()
+        .filter(|s| s.kind == StepKind::RemoveSource)
+        .count();
+    assert!(removals > 0);
+    assert_eq!(
+        prompt.lines().filter(|l| l.starts_with("  step ")).count(),
+        removals,
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains(&format!(
+            "removes {} from {}",
+            plan.package.name,
+            plan.source.as_str()
+        )),
+        "{prompt}"
+    );
+    assert!(prompt.contains("remove source 123456"), "{prompt}");
+    for typed in [
+        // Q1 answered with Q0's code, with the plan phrase, or not at all.
+        "run plan abcdef\nremove source abcdef\n",
+        "run plan abcdef\nrun plan 123456\n",
+        "run plan abcdef\nrun plan abcdef\n",
+        "run plan abcdef\n",
+        "run plan abcdef\nremove source 123456 \n",
+    ] {
+        let (result, prompt, _) = confirm_seq(&cleared, typed, &codes);
+        assert_eq!(
+            result.map(|_| ()),
+            Err(ConsentRefusal::Declined),
+            "{typed:?}"
+        );
+        assert!(prompt.contains("Not allowed"), "{prompt}");
+    }
+    // No code for Q1: nothing more is asked and nothing is read.
+    let (result, prompt, read) = confirm_seq(&cleared, both, &[Some(Q0), None]);
+    assert_eq!(result.map(|_| ()), Err(ConsentRefusal::CodeUnavailable));
+    assert_eq!(read, "run plan abcdef\n".len() as u64);
+    assert!(!prompt.contains("also removes the source"), "{prompt}");
+    // A plan that keeps the source asks Q0 alone.
+    let kept = Direction::toward_homebrew().cleared();
+    assert_eq!(
+        kept.run().plan().confirmation_level(),
+        ConfirmationLevel::Plan
+    );
+    let (result, prompt, read) = confirm_seq(&kept, both, &codes);
+    assert_eq!(result.expect("Q0").level(), ConfirmationLevel::Plan);
+    assert_eq!(read, "run plan abcdef\n".len() as u64);
+    assert!(!prompt.contains("also removes the source"), "{prompt}");
+}
+
+/// A case of Q2: its name, the edit that makes the plan, and the texts Q2
+/// shows and must not show.
+type AdvancedCase<'a> = (
+    &'a str,
+    fn(&mut MigrationPlan),
+    &'a [&'a str],
+    &'a [&'a str],
+);
+
+#[test]
+fn invariant_13_an_advanced_removal_asks_why_and_needs_its_own_phrase() {
+    // D5's Q2, per reason; mutants 23 (Q2 skipped for `NAMED`, unknown
+    // ownership or an absent field), 28b (`advanced.warning` for unknown
+    // intent), and a second kill for 17 (no route to `ADVANCED_REMOVAL`
+    // without Q2).
+    use macportsbrew_application::ConsentRefusal;
+    let warning = "Advanced mode shows dependencies";
+    let named = "is outside the default view";
+    let unknown = "records nothing about whether";
+    let unrecorded = "does not record how";
+    let cases: [AdvancedCase<'_>; 5] = [
+        (
+            "named",
+            |p| p.entered_by = Some(EntryMode::Named),
+            &[warning, named],
+            &[unknown, unrecorded],
+        ),
+        (
+            "advanced",
+            |p| p.entered_by = Some(EntryMode::Advanced),
+            &[warning],
+            &[named, unknown, unrecorded],
+        ),
+        (
+            "unknown intent",
+            |p| p.source_ownership = Some(Ownership::Unknown),
+            &[unknown],
+            &[warning, named, unrecorded],
+        ),
+        (
+            "no entry recorded",
+            |p| p.entered_by = None,
+            &[unrecorded],
+            &[warning, named, unknown],
+        ),
+        (
+            "no ownership recorded",
+            |p| p.source_ownership = None,
+            &[unrecorded],
+            &[warning, named, unknown],
+        ),
+    ];
+    let codes = [Some(Q0), Some(Q1), Some(Q2)];
+    let all = "run plan abcdef\nremove source 123456\nconfirm advanced removal 654321\n";
+    for (case, edit, said, unsaid) in cases {
+        let cleared = cleared_removal(edit);
+        let plan = cleared.run().plan();
+        assert_eq!(
+            plan.confirmation_level(),
+            ConfirmationLevel::AdvancedRemoval,
+            "{case}"
+        );
+        let (result, prompt, read) = confirm_seq(&cleared, all, &codes);
+        let shown = result.unwrap_or_else(|e| panic!("{case}: {e:?}\n{prompt}"));
+        assert_eq!(shown.level(), ConfirmationLevel::AdvancedRemoval, "{case}");
+        assert!(shown.admits(plan), "{case}");
+        assert_eq!(read, all.len() as u64, "{case}");
+        let q2 = prompt
+            .find("confirm advanced removal 654321")
+            .expect("Q2 asked");
+        assert!(
+            prompt.find("remove source 123456").expect("Q1") < q2,
+            "{case}"
+        );
+        for text in said {
+            let at = prompt
+                .find(text)
+                .unwrap_or_else(|| panic!("{case}: {text}\n{prompt}"));
+            assert!(
+                at > prompt.find("remove source 123456").expect("Q1"),
+                "{case}: {text}"
+            );
+        }
+        for text in unsaid {
+            assert!(!prompt.contains(text), "{case}: {text}\n{prompt}");
+        }
+        for typed in [
+            // Stopping after Q1, Q2 with Q1's code, or with Q1's phrase.
+            "run plan abcdef\nremove source 123456\n",
+            "run plan abcdef\nremove source 123456\nconfirm advanced removal 123456\n",
+            "run plan abcdef\nremove source 123456\nremove source 654321\n",
+            // Q2's phrase in place of Q1's.
+            "run plan abcdef\nconfirm advanced removal 123456\nconfirm advanced removal 654321\n",
+        ] {
+            let (result, _, _) = confirm_seq(&cleared, typed, &codes);
+            assert_eq!(
+                result.map(|_| ()),
+                Err(ConsentRefusal::Declined),
+                "{case}: {typed:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn what_q1_shows_of_a_provider_value_is_escaped() {
+    // Mutant 28: the package and provider are the provider's values, so Q1
+    // escapes them as every rendered provider value is
+    // (`crates/cli/tests/hostile_text.rs`). The gate refuses an unsafe name
+    // before Q1 is asked, so the text is checked on the plan itself.
+    let direction = Direction::toward_macports();
+    let mut plan = direction.plan_of(&direction.snapshot).plan().clone();
+    plan.package.name = "evil\u{1b}[2J\u{7}name".to_string();
+    for step in &mut plan.steps {
+        if step.kind == StepKind::RemoveSource {
+            step.provider = Some(ProviderId::new("brew\u{1b}]0;x\u{7}"));
+        }
+    }
+    let shown =
+        macportsbrew::consent::removal_steps(&plan, &macportsbrew::i18n::Messages::english());
+    assert!(shown.contains("evil") && shown.contains("brew"), "{shown}");
+    assert!(
+        !shown.contains('\u{1b}') && !shown.contains('\u{7}'),
+        "{shown:?}"
+    );
+}
+
 #[test]
 fn invariant_02_the_plan_is_shown_on_standard_error_before_it_is_confirmed() {
     let cleared = Direction::toward_homebrew().cleared();

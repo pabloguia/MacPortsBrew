@@ -47,6 +47,10 @@ const MACPORTS_ONLY: &str = "macports-only-intel-macos12";
 /// part D): this one answers `YES` and plans, to `MANUAL_REVIEW`; one that
 /// declares none answers `UNKNOWN` and is refused (`htop`).
 const REPLAYED_SERVICE: &str = "emacs";
+/// A formula in the default view, recorded as installed on request, whose
+/// `--remove-source` plan toward MacPorts is at the `REMOVAL` level (work order
+/// 16 part K, D5); it stops at manual review, so nothing runs.
+const REMOVAL_LEVEL: &str = "postgresql@17";
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1083,8 +1087,9 @@ fn invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown() {
     assert!(at("Some(shown) => shown,") < at("None => confirm_the_plan("));
     assert!(at("None => confirm_the_plan(") < at("state_and_user("));
     assert!(
-        source.contains("Some(tie(&planned, &echoed)?)"),
-        "the script route's witness comes from `tie`, and a mismatch stops the run"
+        source.contains("tie(&planned, &digest)?,") && source.contains("Some(tie_to_plan_level("),
+        "the script route's witness comes from `tie`, raised to the plan's level, and a \
+         mismatch stops the run"
     );
     assert!(
         body.contains("            shown,\n"),
@@ -1696,27 +1701,99 @@ fn invariant_02_a_digest_of_another_plan_dispatches_nothing_and_takes_no_lock() 
 #[test]
 fn the_digest_migrate_shows_is_the_one_yes_checks() {
     // Two processes: the digest one prints is the digest the next accepts,
-    // with and without --remove-source, in both renderings.
+    // at each confirmation level, in both renderings (work order 16 part K,
+    // D5): a plan that keeps the source by its plan digest alone; a `REMOVAL`
+    // plan by its plan digest and its own removal digest, the plan digest
+    // alone refused; an `ADVANCED_REMOVAL` plan never, refused at the tie point
+    // with stdout empty.
     let scratch = Scratch::new("digest-roundtrip");
     let file = fixture(BOTH);
-    for retain in [&[][..], &["--remove-source"][..]] {
-        let shown = migrate_with_flags(&scratch, &file, &["--json"], REPLAYED_SERVICE, MP, retain);
+    for (package, flags, level) in [
+        (REPLAYED_SERVICE, &[][..], "PLAN"),
+        (
+            REPLAYED_SERVICE,
+            &["--remove-source"][..],
+            "ADVANCED_REMOVAL",
+        ),
+        (REMOVAL_LEVEL, &["--remove-source"][..], "REMOVAL"),
+    ] {
+        let shown = migrate_with_flags(&scratch, &file, &["--json"], package, MP, flags);
+        assert_eq!(
+            document(&shown)["confirmation"],
+            level,
+            "{package} {flags:?}"
+        );
         let digest = digest_of(&shown);
-        let human = migrate_with_flags(&scratch, &file, &[], REPLAYED_SERVICE, MP, retain);
+        let human = migrate_with_flags(&scratch, &file, &[], package, MP, flags);
         assert!(
             stdout(&human).contains(&format!("Plan digest: {digest}\nTo put exactly this plan")),
             "{}",
             stdout(&human)
         );
-        let mut flags = retain.to_vec();
-        flags.extend_from_slice(&["--yes", "--plan-digest", &digest]);
-        let run = migrate_with_flags(&scratch, &file, &["--json"], REPLAYED_SERVICE, MP, &flags);
+        let removal = document(&shown)["removalDigest"]
+            .as_str()
+            .map(str::to_string);
+        assert_eq!(removal.is_some(), level == "REMOVAL", "{package} {flags:?}");
+        assert_eq!(
+            stdout(&human).contains("Removal digest: "),
+            level == "REMOVAL",
+            "{}",
+            stdout(&human)
+        );
+        let mut yes = flags.to_vec();
+        yes.extend_from_slice(&["--yes", "--plan-digest", &digest]);
+        let alone = migrate_with_flags(&scratch, &file, &["--json"], package, MP, &yes);
+        match level {
+            "ADVANCED_REMOVAL" => {
+                // No script route, whatever is echoed: exit 2, stdout empty.
+                assert_eq!(alone.status.code(), Some(2), "{}", stderr(&alone));
+                assert!(alone.stdout.is_empty(), "{}", stdout(&alone));
+                assert!(
+                    stderr(&alone).contains("at a terminal"),
+                    "{}",
+                    stderr(&alone)
+                );
+                let mut both = yes.clone();
+                both.extend_from_slice(&["--removal-digest", &digest]);
+                let refused = migrate_with_flags(&scratch, &file, &["--json"], package, MP, &both);
+                assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
+                assert!(refused.stdout.is_empty());
+                continue;
+            }
+            "REMOVAL" => {
+                // A script written for installs cannot remove anything.
+                assert_eq!(alone.status.code(), Some(4), "{}", stderr(&alone));
+                assert!(alone.stdout.is_empty(), "{}", stdout(&alone));
+                assert!(
+                    stderr(&alone).contains("--removal-digest"),
+                    "{}",
+                    stderr(&alone)
+                );
+                let removal = removal.as_deref().expect("a removal digest");
+                assert!(
+                    stdout(&human).contains(&format!("Removal digest: {removal}\n")),
+                    "{}",
+                    stdout(&human)
+                );
+                // The plan digest given where the removal digest goes.
+                let mut swapped = yes.clone();
+                swapped.extend_from_slice(&["--removal-digest", &digest]);
+                let refused =
+                    migrate_with_flags(&scratch, &file, &["--json"], package, MP, &swapped);
+                assert_eq!(refused.status.code(), Some(4), "{}", stderr(&refused));
+                assert!(refused.stdout.is_empty());
+                yes.extend_from_slice(&["--removal-digest", removal]);
+            }
+            _ => {}
+        }
+        let run = migrate_with_flags(&scratch, &file, &["--json"], package, MP, &yes);
         assert_eq!(
             document(&run)["execution"]["outcome"]["outcome"],
             "REFUSED",
-            "{retain:?}: the matching digest reached the gate"
+            "{package} {flags:?}: the matching digest reached the gate"
         );
         assert_eq!(document(&run)["plan"], document(&shown)["plan"]);
+        assert_eq!(document(&run)["confirmation"], level);
     }
     let kept = digest_of(&migrate_with_flags(
         &scratch,
@@ -1735,6 +1812,46 @@ fn the_digest_migrate_shows_is_the_one_yes_checks() {
         &["--remove-source"],
     ));
     assert_ne!(kept, removed, "removing the source is another plan");
+}
+
+/// `--removal-digest` needs `--yes`, `--plan-digest` and `--remove-source`
+/// (work order 16 part K, D5; mutant 25), and a malformed one is refused like a
+/// malformed plan digest: each a usage error before anything is printed.
+#[test]
+fn the_removal_digest_needs_the_flags_that_make_a_removal_run() {
+    let scratch = Scratch::new("removal-digest-usage");
+    let file = fixture(BOTH);
+    let digest = format!("sha256:{}", "0".repeat(64));
+    for flags in [
+        vec!["--removal-digest", &digest],
+        vec![
+            "--yes",
+            "--plan-digest",
+            &digest,
+            "--removal-digest",
+            &digest,
+        ],
+        vec!["--remove-source", "--yes", "--removal-digest", &digest],
+        vec![
+            "--remove-source",
+            "--plan-digest",
+            &digest,
+            "--removal-digest",
+            &digest,
+        ],
+        vec![
+            "--remove-source",
+            "--yes",
+            "--plan-digest",
+            &digest,
+            "--removal-digest",
+            "sha256:ABC",
+        ],
+    ] {
+        let out = migrate_with_flags(&scratch, &file, &["--json"], REMOVAL_LEVEL, MP, &flags);
+        assert_eq!(out.status.code(), Some(2), "{flags:?}: {}", stderr(&out));
+        assert!(out.stdout.is_empty(), "{flags:?}: {}", stdout(&out));
+    }
 }
 
 /// INV-18, part K-3 (DP-048 (c)): `migrate` without `--remove-source` plans

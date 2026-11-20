@@ -2342,13 +2342,18 @@ fn tie_violations(executor: &[SourceFile]) -> Vec<String> {
     if !migrate.contains("crate::consent::confirm_plan(") {
         violations.push("migrate does not ask through consent::confirm_plan".to_string());
     }
-    // DP-049 (a): the digest is tied, its failure propagated, before the plan
-    // is handed to the run loop.
+    // DP-049 (a): the digest is tied, its failure propagated, and the witness
+    // raised to the plan's own level by its removal digest (part K, D5),
+    // whose refusal is propagated too, before the plan is handed to the run
+    // loop.
     match (
-        migrate.find("Some(tie(&planned, &echoed)?)"),
+        migrate.find("Some(tie_to_plan_level("),
+        migrate.find("tie(&planned, &digest)?,"),
+        migrate.find("echoed.removal.as_ref(),\n        )?)"),
         migrate.rfind("execute_mutating("),
     ) {
-        (Some(tie), Some(run)) if tie < run => {}
+        (Some(level), Some(tie), Some(raised), Some(run))
+            if level < tie && tie < raised && raised < run => {}
         _ => violations
             .push("migrate does not tie --plan-digest to the plan before executing it".to_string()),
     }

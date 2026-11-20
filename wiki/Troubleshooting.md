@@ -185,7 +185,11 @@ and lists why; nothing runs and nothing changes.
 **Exit 4 with nothing on stdout from `migrate --yes --plan-digest`** means the
 plan built now is not the one that digest names (`PLAN_NOT_SHOWN`): something
 changed since you ran `migrate`. Run `migrate` again, review the plan, and pass
-the digest it prints now.
+the digest it prints now. For a plan that removes the source, the same exit
+also means the removal digest was missing or was not the one `migrate` printed:
+pass it with `--removal-digest`. **Exit 2** from `--plan-digest` on a removal
+outside the default view means that removal has no script route; confirm it at
+a terminal.
 
 `"error: exit status 1"` is never acceptable output from this tool. If you see
 something like it, that is a bug worth reporting.

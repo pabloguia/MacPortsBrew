@@ -29,10 +29,12 @@ macportsbrew analyze [pkg...]     inventory + mapping + assessment + recommendat
 macportsbrew list                 packages (--provider, --advanced)
 macportsbrew explain <pkg>        full recommendation derivation
 macportsbrew plan <pkg> --to <provider> [--remove-source]   build a migration plan (no mutation)
-macportsbrew migrate <pkg> --to <provider> [--remove-source] [--yes [--plan-digest <d>]]
+macportsbrew migrate <pkg> --to <provider> [--remove-source]
+                    [--yes [--plan-digest <d> [--removal-digest <r>]]]
                                   show a plan; --yes executes it once a person at a terminal has
-                                  confirmed the plan shown, or --plan-digest names the plan a
-                                  script was shown (--yes never answers a question)
+                                  confirmed the plan shown, at the plan's confirmation level, or
+                                  --plan-digest names the plan a script was shown, and
+                                  --removal-digest its removal (--yes never answers a question)
                                   [this build: the gate refuses every plan]
                                   plan and migrate keep the source unless --remove-source asks
                                   for its removal (SE-114; --retain-source is accepted, ignored
@@ -95,13 +97,19 @@ prompts go to stderr. Non-TTY output is plain, unstyled and stable.
 
 Exit 6 (`USER_ABORTED`) is a person declining a question that must be
 answered before anything runs: the plan's confirmation, and an elevated step's,
-wired in part E-3 and reachable after part J. A plan about to run that is not the one confirmed is a
-safety stop (`PLAN_NOT_SHOWN`, exit 4) — under `--plan-digest`, a digest that is
-not the plan's, in every build — and `migrate --yes` with no terminal to
-confirm at and no `--plan-digest` is a usage error (exit 2); stdout is empty in
-all three (work order 16 part E, SE-111). `--plan-digest` is a `migrate` flag:
-the digest `migrate` printed as `planDigest`, so a script runs exactly the plan
-it was shown; malformed, or without `--yes`, it is a usage error.
+wired in part E-3 and reachable after part J. A plan about to run that is not the one confirmed, **or was confirmed below
+its own confirmation level**, is a safety stop (`PLAN_NOT_SHOWN`, exit 4) —
+under `--plan-digest`, a digest that is not the plan's, and for a `REMOVAL`
+plan a removal digest missing or not its own, in every build — and
+`migrate --yes` with no terminal to confirm at and no `--plan-digest` is a
+usage error (exit 2), as is `--plan-digest` for an `ADVANCED_REMOVAL` plan,
+which has no script route; stdout is empty in all of them (work order 16
+parts E and K, SE-111, SE-114). `--plan-digest` is a `migrate` flag: the digest
+`migrate` printed as `planDigest`, so a script runs exactly the plan it was
+shown; malformed, or without `--yes`, it is a usage error. `--removal-digest`
+is the removal's own digest, printed as `removalDigest` beside it for a
+`REMOVAL` plan only; it needs `--yes`, `--plan-digest` and `--remove-source`,
+and malformed or without them it is a usage error.
 
 A restore that cannot proceed because the run's snapshot is missing or
 unreadable exits 8; a restore plan that contains a `MANUAL_REVIEW` step exits
@@ -230,12 +238,30 @@ not by whether the unit is listed — and `--advanced` was not given, the
 warning is shown, the plan records `enteredBy: NAMED` (`ADVANCED` with
 `--advanced`, `DEFAULT_VIEW` otherwise), and `--json` carries
 `warnings: ["advanced.warning"]`. The named package's own dependencies are
-never added. The stronger confirmation below is defined with the confirmation
-levels in work order 16 part K; until then no plan executes.
+never added.
+
+**Confirmation levels** (work order 16 part K, D5; SE-114). `PLAN` is the
+level an install gets, and K defines the two above it; a plan's level is
+derived from the plan alone, never stored on it, and written as
+`confirmation` in every document that carries a plan:
+
+| Level | When | At a terminal | A script |
+|---|---|---|---|
+| `PLAN` | the source is kept | `run plan <code>` | `--plan-digest` |
+| `REMOVAL` | a removal of a row entered from the default view and recorded by its provider as the user's own request | then `remove source <code>`, after the removal steps are listed | `--plan-digest` and `--removal-digest` |
+| `ADVANCED_REMOVAL` | every other removal: entered in advanced mode or by naming it, recorded as a dependency, an orphan or with no record of intent, or a plan that does not record those fields | then `confirm advanced removal <code>`, after why the row needs it | none: a usage error (exit 2) |
+
+Each level asks every question of the level below plus one, each with a code
+drawn for it alone, so whatever confirms a level confirms every lower one and
+nothing that confirms a lower one confirms it; that is what "stronger" means
+below. The phrases are ASCII and never translated. Until the switch is
+flipped (part L's proposal) no plan executes.
 
 **MUST.** In advanced mode: reverse dependencies are still checked (INV-04);
 dependencies are still never preselected; destructive actions require a stronger
-confirmation than in normal mode; and the other provider is still never treated
+confirmation than in normal mode — the removal of a row outside the default
+view is `ADVANCED_REMOVAL`, strictly above a default-view removal's
+`REMOVAL`, which is strictly above an install's `PLAN`; and the other provider is still never treated
 as satisfying a dependency (INV-08).
 
 ## Project language
