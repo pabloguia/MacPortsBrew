@@ -718,6 +718,15 @@ fn json<T: serde::Serialize>(value: &T) -> Result<String, DomainError> {
 mod tests {
     use super::*;
 
+    /// Pins today's mapping of the flag (part K, D2): an absent
+    /// `--retain-source` still removes. Part K-3 makes removal opt-in by
+    /// changing `source_fate`, and must change this test with it.
+    #[test]
+    fn an_absent_retain_source_still_means_removal() {
+        assert_eq!(source_fate(false), SourceFate::Remove);
+        assert_eq!(source_fate(true), SourceFate::Keep);
+    }
+
     #[test]
     fn invariant_06_the_tool_refuses_to_run_wholly_as_root() {
         let refused = refuse_if_root(Some(0)).unwrap_err();
