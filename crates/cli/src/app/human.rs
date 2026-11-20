@@ -1824,6 +1824,12 @@ fn gate_refusal_line(ctx: &Context, refusal: &ExecutionRefusal) -> String {
         ExecutionRefusal::ExecutableListsDisagree { step: s } => {
             step("migrate.refusal.executable_lists_disagree", *s)
         }
+        ExecutionRefusal::RetentionDisagreesWithSteps => {
+            label(ctx, "migrate.refusal.retention_disagrees_with_steps")
+        }
+        ExecutionRefusal::EntryDisagreesWithOwnership => {
+            label(ctx, "migrate.refusal.entry_disagrees_with_ownership")
+        }
     }
 }
 
@@ -1992,9 +1998,11 @@ mod tests {
                 ExecutionRefusal::ExecutableListsDisagree { .. } => 29,
                 ExecutionRefusal::DestinationContractIncomplete { .. } => 30,
                 ExecutionRefusal::ProbeIsNotTheTables { .. } => 31,
+                ExecutionRefusal::RetentionDisagreesWithSteps => 32,
+                ExecutionRefusal::EntryDisagreesWithOwnership => 33,
             }
         }
-        const VARIANTS: usize = 32;
+        const VARIANTS: usize = 34;
         let all = vec![
             ExecutionRefusal::SchemaVersionNotThisBuilds {
                 found: 2,
@@ -2055,6 +2063,8 @@ mod tests {
             ExecutionRefusal::ExecutableListsDisagree { step: 5 },
             ExecutionRefusal::DestinationContractIncomplete { step: 3 },
             ExecutionRefusal::ProbeIsNotTheTables { step: 3 },
+            ExecutionRefusal::RetentionDisagreesWithSteps,
+            ExecutionRefusal::EntryDisagreesWithOwnership,
         ];
         let mut filled = [false; VARIANTS];
         for refusal in &all {

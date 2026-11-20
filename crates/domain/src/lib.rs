@@ -75,8 +75,8 @@ pub use package::{
     ServiceDefinition,
 };
 pub use plan::{
-    CommandTarget, Elevation, EntryMode, MigrationPlan, MigrationStep, PlanCommand, PlanRisk,
-    StepKind, SuccessSemantic, VerificationCheck,
+    CommandTarget, ConfirmationLevel, Elevation, EntryMode, MigrationPlan, MigrationStep,
+    PlanCommand, PlanRisk, StepKind, SuccessSemantic, VerificationCheck,
 };
 pub use primary::{PrimaryDecision, PrimaryReason};
 pub use provider::{

@@ -139,6 +139,8 @@ stdout — never *nothing to move* (SE-092, S6 addendum).
 
 `gateRefusals` may name `DESTINATION_CONTRACT_INCOMPLETE` (`step`) and `PROBE_IS_NOT_THE_TABLES` (`step`), [`plan.v2.md`](plan.v2.md) obligation 6.
 
+Since work order 16 part K-4 (2026-11-20, SE-114), `gateRefusals` may also name two refusals about the plan as a whole, raised only whenever mutations would be dispatched and never for a plan carrying `MANUAL_REVIEW`, which acts on nothing and is refused anyway. Neither is reachable from a plan this planner builds; both are defence in depth. `RETENTION_DISAGREES_WITH_STEPS`: `retainSource` is `false` with no `REMOVE_SOURCE` step, or `true` with a `REMOVE_SOURCE`, `VERIFY_REMOVAL` or `CLEANUP_REVIEW` step, so the run's history could not say what it did. `ENTRY_DISAGREES_WITH_OWNERSHIP`: `enteredBy` is `DEFAULT_VIEW` and `sourceOwnership` is `DEPENDENCY` or `ORPHAN`, which the default view does not show. Neither carries a field. Additive under this version: nothing has been released under it.
+
 ### `StepRecord`
 
 | Field | Type | Notes |
@@ -245,7 +247,8 @@ which in this build refuses with the document on stdout. Under a mutation
 allowance and without `--plan-digest`, the plan's confirmation is asked before
 anything runs, and a refusal there writes nothing to stdout either: `USER_ABORTED` (6, declined), `USAGE`
 (2, no terminal to confirm at), `PLAN_NOT_SHOWN` (4, the plan to run is not the
-one confirmed); the error's identifier, on stderr, tells them apart. The
+one confirmed, or, since work order 16 part K-4, it was confirmed below the
+level it needs: a removal confirmed only as an install would be); the error's identifier, on stderr, tells them apart. The
 elevation question (wired in part E-3, reachable after part J) is asked under
 the lock before anything is written, and a stop there writes nothing to stdout
 either: `USER_ABORTED` (6, declined), `INTERNAL` (1, an answer the prompt never

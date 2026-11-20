@@ -1622,17 +1622,25 @@ fn a_shown_plan_is_minted_only_by_confirm_shown_and_asked_only_by_the_consent_mo
                 "for ShownPlan",
                 "PlanDigest(",
                 "for PlanDigest",
+                "RemovalDigest(",
+                "for RemovalDigest",
             ] {
                 assert!(!text.contains(banned), "{file}: {banned}");
             }
             if path != prompt {
-                assert!(
-                    !text.contains("confirm_shown("),
-                    "{file} calls confirm_shown"
-                );
+                // The questions above the plan's own (work order 16 part K,
+                // D5) are asked where the plan question is, and nowhere else.
+                for question in [
+                    "confirm_shown(",
+                    "confirm_removal(",
+                    "confirm_advanced_removal(",
+                ] {
+                    assert!(!text.contains(question), "{file} calls {question}");
+                }
             }
             if path != migrate {
                 assert!(!calls_tie(&text), "{file} calls tie");
+                assert!(!text.contains("tie_removal("), "{file} calls tie_removal");
             }
         }
     }

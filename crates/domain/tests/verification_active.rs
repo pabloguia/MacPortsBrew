@@ -57,6 +57,7 @@ fn plan(source_name: &str, destination_name: &str, command: &PlanCommand) -> Mig
         destination_package: Some(destination_name.into()),
         retain_source: false,
         entered_by: Some(macportsbrew_domain::EntryMode::DefaultView),
+        source_ownership: Some(macportsbrew_domain::Ownership::TopLevel),
         primary_after: ProviderId::new(DESTINATION),
         recommendation: Outcome::MigrateTo {
             provider: ProviderId::new(DESTINATION),

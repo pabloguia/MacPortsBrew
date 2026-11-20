@@ -59,9 +59,9 @@ use macportsbrew_domain::plan::{
     PLAN_SCHEMA_VERSION, THIS_BUILD_DISPATCHES_MUTATIONS, THIS_BUILD_OBSERVES_LIVENESS_PROBE,
 };
 use macportsbrew_domain::{
-    expectation_for, Elevation, ErrorId, ExecutableName, ExpectationError, MigrationPlan,
-    MigrationStep, PackageKind, PrimaryDecision, PrimaryReason, ProviderId, StepKind,
-    SuccessSemantic, VerificationCheck,
+    expectation_for, Elevation, EntryMode, ErrorId, ExecutableName, ExpectationError,
+    MigrationPlan, MigrationStep, Ownership, PackageKind, PrimaryDecision, PrimaryReason,
+    ProviderId, StepKind, SuccessSemantic, VerificationCheck,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -363,6 +363,26 @@ pub enum ExecutionRefusal {
         /// The step.
         step: u32,
     },
+    /// Whenever mutations would be dispatched: `retainSource` and the steps
+    /// disagree (work order 16 part K, D5) — `false` with no `REMOVE_SOURCE`,
+    /// or `true` with a `REMOVE_SOURCE`, `VERIFY_REMOVAL` or `CLEANUP_REVIEW` —
+    /// so the history the run would record could not say what it did.
+    /// Defence in depth: this planner builds neither. Not raised for a plan
+    /// carrying `MANUAL_REVIEW`, which acts on nothing and is refused anyway:
+    /// such a plan built with `--remove-source` keeps `retainSource: false` and
+    /// has no removal step. The confirmation level does not depend on it:
+    /// either signal alone makes a plan a removal.
+    RetentionDisagreesWithSteps,
+    /// Whenever mutations would be dispatched: `enteredBy: DEFAULT_VIEW` with a
+    /// source row whose `sourceOwnership` is `DEPENDENCY` or `ORPHAN` (D5):
+    /// only a row the default view shows can be entered from it, so the plan's
+    /// two fields contradict each other. Defence in depth: this planner never
+    /// builds the pair, and the level is already the strictest for it. Not
+    /// raised for a plan carrying `MANUAL_REVIEW`, as above. `ADVANCED` or
+    /// `NAMED` with `TOP_LEVEL` is not refused: the planner builds it for a
+    /// source row attached by a mapping too weak to vote it into the default
+    /// view, and its level is the strictest.
+    EntryDisagreesWithOwnership,
 }
 
 impl ExecutionRefusal {
@@ -404,6 +424,8 @@ impl ExecutionRefusal {
             Self::ExecutableListsDisagree { step } => (*step, 29),
             Self::DestinationContractIncomplete { step } => (*step, 30),
             Self::ProbeIsNotTheTables { step } => (*step, 31),
+            Self::RetentionDisagreesWithSteps => (0, 32),
+            Self::EntryDisagreesWithOwnership => (0, 33),
         }
     }
 }
@@ -879,6 +901,30 @@ fn refusals(
     for step in &plan.steps {
         if step.kind == StepKind::ManualReview {
             refusals.push(ExecutionRefusal::ManualReview { step: step.index });
+        }
+    }
+    // D5: whenever something would run, the fields a confirmation level and a
+    // history record are derived from must agree with each other and with the
+    // steps. A plan carrying `MANUAL_REVIEW` is refused above and acts on
+    // nothing, and the planner builds one with `retainSource: false` and no
+    // removal step, so it is not judged here.
+    if dispatches && !plan.requires_manual_review() {
+        let removes = plan.steps.iter().any(|s| s.kind == StepKind::RemoveSource);
+        let disagrees = if plan.retain_source {
+            plan.has_removal_steps()
+        } else {
+            !removes
+        };
+        if disagrees {
+            refusals.push(ExecutionRefusal::RetentionDisagreesWithSteps);
+        }
+        if plan.entered_by == Some(EntryMode::DefaultView)
+            && matches!(
+                plan.source_ownership,
+                Some(Ownership::Dependency | Ownership::Orphan)
+            )
+        {
+            refusals.push(ExecutionRefusal::EntryDisagreesWithOwnership);
         }
     }
     let placeholders = plan.steps_with_placeholders();

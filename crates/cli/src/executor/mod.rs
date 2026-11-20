@@ -894,13 +894,15 @@ pub fn run_with_mutations<S: ReadSite, D: DestinationSite, M: MutationSite>(
     }
     let planned = cleared.run();
     let plan = planned.plan();
-    // The plan that runs is the plan shown, before anything is probed, locked
-    // or written (DP-049; INV-02). Under the lock `plan_still_holds` is plan
-    // equality too, so what runs equals what was confirmed.
-    if !io.shown.covers(plan) {
+    // The plan that runs is the plan shown, confirmed at a level at least its
+    // own, before anything is probed, locked or written (DP-049; INV-02; work
+    // order 16 part K, D5). Under the lock `plan_still_holds` is plan equality
+    // too, so what runs equals what was confirmed, `sourceOwnership` included.
+    if !io.shown.admits(plan) {
         return Err(DomainError::new(
             ErrorId::PlanNotShown,
-            "the plan cleared for this run differs from the plan that was confirmed",
+            "the plan cleared for this run differs from the plan that was confirmed, or was \
+             confirmed at a lower level than it needs",
         ));
     }
     let (state, euid) = (io.state, io.euid);

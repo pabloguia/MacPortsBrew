@@ -270,6 +270,14 @@ it**, `REMOVAL` and `ADVANCED_REMOVAL`, and 06's paragraph says it the same way
   `DEPENDENCY` or `ORPHAN`, and `ADVANCED` or `NAMED` with `TOP_LEVEL` (*rev.
   SG-M2*). Both are documented in `migrate.v2.md`'s `gateRefusals` and the
   CHANGELOG in K-4, and listed in `every_gate_refusal`.
+  *(As built, K-4; SE-114.)* Both are raised only whenever mutations would
+  be dispatched and never for a plan carrying `MANUAL_REVIEW`: the planner
+  does build a `--remove-source` plan blocked into review with
+  `retainSource: false` and no removal step. And `ADVANCED` or `NAMED` with
+  `TOP_LEVEL` is **not** refused: the planner builds it for a source row
+  attached by a weak mapping (`analysis.rs`'s `advanced_only`), the pair is
+  consistent, and its level is the strictest. Only `DEFAULT_VIEW` with
+  `DEPENDENCY` or `ORPHAN` is refused.
 - **"Stronger" is a checkable property:** whatever confirms a level also
   confirms every lower one, and something that confirms the lower one does not
   confirm it. Each interactive level asks every question of the level below
@@ -740,3 +748,7 @@ Nothing blocks K. Two items may appear:
 | spec-guardian (K-3) | `83634b5` | **approve with changes.** 1 `plan.source_kept` reached `restore`'s output, advising a flag it does not take (D4); 2 INV-16's test not named after the invariant; 3 the home-rooted destination test lost its removing case; 4 the notice untested on `plan`; 5 the tripwire names K-6, the row K-8; 6 SE-109's compatibility line stale, SE-114 lacked the v0.1.0 sentence; 7 stale comments | All folded in `c0710b1`: `human::source_kept` for `plan` and `migrate` only, the banner names no flag, `a_restore_that_keeps_what_the_run_added_never_advises_remove_source`; `invariant_16_a_default_re_run_consults_history_and_remove_source_does_not`; the loop over `--remove-source`; the notice test over both commands; K-8; SE-109 superseded, SE-114 extended |
 | docs-auditor (K-3) | `83634b5` | **no blocking defect.** H1 Dependencies-and-Safety's dependents line named a command that no longer prints it; H2 04 said the opt-in was not built; M1-M5, L1-L8 wording | All folded in `c0710b1` but L4's FAQ line, left as true of `explain` |
 | mutation proof (K-3) | `83634b5` | Mutants (3)-(10) killed, two-site ones split: **5p** (`--retain-source` read as Remove at the `plan` site only) and **7a** (history skipped in the re-plan under the lock, `migrate.rs:292`) survived | 5p killed by `c0710b1`'s notice test over `plan`. **7a stands, handed to K-6:** the re-plan runs only past the execution gate, which refuses every plan in this build, so no test reaches it without the run-loop harness K-6 builds for the witness |
+| spec-guardian (K-4) | `21eaa85` | **approve with changes.** No invariant violated; both deviations (refusals scoped to dispatching, non-`MANUAL_REVIEW` plans; `NAMED`/`ADVANCED` with `TOP_LEVEL` not refused) correct and recorded. 1 INV-02's test lacked a `REMOVAL` witness on an `ADVANCED_REMOVAL` plan; 2 no direction-neutrality test for the levels; 3 the script-refusal test not named after its invariant; 4 SE-114's second deviation argued by planner behaviour, not pair consistency, and its `MANUAL_REVIEW` remark unconditional | All folded in `7a2f5ee`: the `REMOVAL`-on-`NAMED` case in `invariant_02_the_run_refuses_a_plan_confirmed_at_a_lower_level`; `invariant_17_confirmation_levels_are_direction_neutral`; `invariant_02_a_script_cannot_confirm_an_advanced_removal`; SE-114 reworded, the remark conditional on today's two providers; an "as built, K-4" note under D5 |
+| security-reviewer (K-4) | `21eaa85` | **sound.** L1 and informational notes only; no injection, elevation or state-integrity finding | L1 and the infos folded in `7a2f5ee` |
+| docs-auditor (K-4) | `21eaa85` | M1, M2 and lows on `plan.v2.md`, `migrate.v2.md`, the CHANGELOG and SE-114 wording; L2 04's "Not yet met"; L5 `tie_removal`'s `Usage` framing | M1, M2 and the lows folded in `7a2f5ee`. **L2 handed to K-6** (04's sentence changes with the witness); **L5 handed to K-5** (the CLI surface that prints it) |
+| mutation proof (K-4) | `21eaa85` | Mutants 10-21 (12a-d, 15a/b, 19a/b, 20/20a-c counted apart): **all killed**, every one compiling. 18 killed by behaviour as well as by the domain-string assertion. Thin kills, one test each: 15b, 17, 20a, 20c | Accepted as adequate in writing. K-5's CLI tests for Q1/Q2 add a second kill for 17 and 20c (the phrase refused at the wrong level); 20a's second kill is K-6's run harness, where a `(DEFAULT_VIEW, DEPENDENCY)` plan can reach dispatch |

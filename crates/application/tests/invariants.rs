@@ -12,11 +12,12 @@ use macportsbrew_application::{
 use macportsbrew_domain::{
     is_build_flag, Architecture, ArtifactAvailability, AvailabilityAssessment,
     AvailabilityEvidence, Capability, CapabilityState, CommandLineTools, CommandTarget,
-    ConcurrencyFlag, DependencyEdge, Elevation, EntryMode, EnvironmentSnapshot, ExecutableOwner,
-    InstalledPackage, Machine, MacosVersion, MigrationPlan, Outcome, PackageIdentity, PackageKind,
-    PackageMetadata, Provenance, ProviderCapabilities, ProviderDetection, ProviderId,
-    ProviderInventory, ProviderPresence, ProviderSnapshot, RequestedSet, Resolution, Snapshot,
-    StepKind, SuccessSemantic, Translation, VerificationCheck, Version, SNAPSHOT_SCHEMA_VERSION,
+    ConcurrencyFlag, ConfirmationLevel, DependencyEdge, Elevation, EntryMode, EnvironmentSnapshot,
+    ExecutableOwner, InstalledPackage, Machine, MacosVersion, MigrationPlan, Outcome,
+    PackageIdentity, PackageKind, PackageMetadata, Provenance, ProviderCapabilities,
+    ProviderDetection, ProviderId, ProviderInventory, ProviderPresence, ProviderSnapshot,
+    RequestedSet, Resolution, Snapshot, StepKind, SuccessSemantic, Translation, VerificationCheck,
+    Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::collections::{BTreeMap, BTreeSet};
@@ -2133,16 +2134,59 @@ fn plan_with(snap: &Snapshot, package: &str, to: &str, advanced: bool) -> Migrat
 }
 
 /// INV-13 and DP-037. A dependency named without `--advanced` is entered by
-/// naming it: the plan records `NAMED`, and the gate refuses it. **The
-/// stronger confirmation half is pending until work order 16 part K**, which
-/// defines the confirmation levels; the ledger lists it there as blocking.
-/// Until then the closest present truth is asserted: nothing can execute it.
+/// naming it: the plan records `NAMED` and the source row's ownership, and its
+/// removal needs the strictest confirmation (work order 16 part K, D5): above a
+/// default-view removal, which is above an install. Keeping the source needs
+/// only the plan's own confirmation, whatever the row. The run's refusal of a
+/// lower witness is `admits`', tested in `plan_tie.rs` and
+/// `executor_wiring.rs`.
 #[test]
 fn invariant_13_a_named_dependency_warns_and_needs_the_stronger_confirmation() {
     let snap = both_present();
     let named = plan_with(&snap, "dep", MP, false);
     assert_eq!(named.entered_by, Some(EntryMode::Named));
+    assert_ne!(
+        named.source_ownership,
+        Some(macportsbrew_domain::Ownership::TopLevel)
+    );
+    assert!(named.source_ownership.is_some(), "written by every plan");
     assert!(!execution_refusals(&named).refusals().is_empty());
+    let default_removal = plan_with(&snap, "tool", MP, false);
+    assert_eq!(
+        default_removal.source_ownership,
+        Some(macportsbrew_domain::Ownership::TopLevel)
+    );
+    assert_eq!(
+        named.confirmation_level(),
+        ConfirmationLevel::AdvancedRemoval
+    );
+    assert_eq!(
+        default_removal.confirmation_level(),
+        ConfirmationLevel::Removal
+    );
+    assert!(named.confirmation_level() > default_removal.confirmation_level());
+    let keeping = |package: &str| {
+        build_plan(
+            &snap,
+            &policy(),
+            &options(),
+            &PlanRequest {
+                package: package.into(),
+                to: ProviderId::new(MP),
+                source: SourceFate::Keep,
+            },
+            &snap.providers.keys().cloned().collect::<Vec<_>>(),
+        )
+        .unwrap()
+    };
+    for package in ["dep", "tool"] {
+        assert_eq!(
+            keeping(package).confirmation_level(),
+            ConfirmationLevel::Plan,
+            "{package}"
+        );
+    }
+    assert!(default_removal.confirmation_level() > ConfirmationLevel::Plan);
     assert_eq!(
         plan_with(&snap, "dep", MP, true).entered_by,
         Some(EntryMode::Advanced)
@@ -2187,6 +2231,85 @@ fn invariant_17_a_dependency_source_row_is_named_entry_in_either_direction() {
             "source {dependency_side} holds a dependency"
         );
     }
+}
+
+/// Work order 16 part K, D5: the confirmation level is a function of the
+/// plan, with no direction in it. In both directions a removal of a top-level
+/// row in the default view is `REMOVAL`; a removal of a dependency source row
+/// is `ADVANCED_REMOVAL`, with the same entry and ownership recorded; and
+/// keeping the source is `PLAN`.
+#[test]
+fn invariant_17_confirmation_levels_are_direction_neutral() {
+    let keep = |snap: &Snapshot, to: &str| {
+        build_plan(
+            snap,
+            &policy(),
+            &options(),
+            &PlanRequest {
+                package: "tool".into(),
+                to: ProviderId::new(to),
+                source: SourceFate::Keep,
+            },
+            &snap.providers.keys().cloned().collect::<Vec<_>>(),
+        )
+        .unwrap()
+    };
+    let mut shapes = Vec::new();
+    for (source, to) in [(HB, MP), (MP, HB)] {
+        let snap = both_present();
+        let plain = plan_with(&snap, "tool", to, false);
+        assert_eq!(plain.source.as_str(), source);
+        assert_eq!(
+            (
+                plain.entered_by,
+                plain.source_ownership,
+                plain.confirmation_level()
+            ),
+            (
+                Some(EntryMode::DefaultView),
+                Some(macportsbrew_domain::Ownership::TopLevel),
+                ConfirmationLevel::Removal
+            ),
+            "toward {to}"
+        );
+        assert_eq!(
+            keep(&snap, to).confirmation_level(),
+            ConfirmationLevel::Plan
+        );
+
+        let mut dependent = both_present();
+        let side = dependent
+            .providers
+            .get_mut(&ProviderId::new(source))
+            .unwrap();
+        side.inventory.requested.names.remove("tool");
+        for p in &mut side.inventory.installed {
+            if p.identity.name == "tool" {
+                p.requested = Some(false);
+            }
+        }
+        let advanced = plan_with(&dependent, "tool", to, false);
+        assert_eq!(advanced.entered_by, Some(EntryMode::Named), "toward {to}");
+        assert!(
+            !matches!(
+                advanced.source_ownership,
+                None | Some(macportsbrew_domain::Ownership::TopLevel)
+            ),
+            "toward {to}: {:?}",
+            advanced.source_ownership
+        );
+        assert_eq!(
+            advanced.confirmation_level(),
+            ConfirmationLevel::AdvancedRemoval,
+            "toward {to}"
+        );
+        assert_eq!(
+            keep(&dependent, to).confirmation_level(),
+            ConfirmationLevel::Plan
+        );
+        shapes.push((advanced.entered_by, advanced.source_ownership));
+    }
+    assert_eq!(shapes[0], shapes[1], "the same shape either way round");
 }
 
 #[test]

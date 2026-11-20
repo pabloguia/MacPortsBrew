@@ -36,23 +36,25 @@ use macportsbrew_adapters::persistence::StateDir;
 use macportsbrew_adapters::persistence::{snapshot_file_name, snapshot_store};
 use macportsbrew_adapters::process::{ExitStatus, Invocation};
 use macportsbrew_adapters::registry::{self, PlanReadError};
+use macportsbrew_application::{advanced_removal_phrase, removal_phrase};
 use macportsbrew_application::{
-    clear, confirm_shown, evaluable_in_this_build, plan_run, tie, AnalysisOptions,
-    ConfigurationRechecked, ConsentCode, ConsentDecision, ConsentGiven, Disposition,
-    ElevationRequest, GateClear, HaltReason, MutationAllowance, PlanDigest, PlanRequest,
-    PlannedRun, Precondition, Question, RunOutcome, ShownPlan, SourceFate,
-    PARTIAL_SUCCESS_EXIT_CODE, TEST_PROBE_EXECUTABLE,
+    clear, confirm_advanced_removal, confirm_removal, confirm_shown, evaluable_in_this_build,
+    execution_refusals_for, plan_run, tie, tie_removal, AnalysisOptions, ConfigurationRechecked,
+    ConsentCode, ConsentDecision, ConsentGiven, Disposition, ElevationRequest, ExecutionRefusal,
+    GateClear, HaltReason, MutationAllowance, PlanDigest, PlanRequest, PlannedRun, Precondition,
+    Question, RemovalDigest, RunOutcome, ShownPlan, SourceFate, PARTIAL_SUCCESS_EXIT_CODE,
+    TEST_PROBE_EXECUTABLE,
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
     CapabilityState, CheckAnswer, CommandEnd, CommandLineTools, ConcurrentProviderActivity,
-    ConfigurationFile, ConfigurationScope, DomainError, EnvironmentSnapshot, ErrorId,
-    ExecutableName, ExecutableOwner, HomeRedaction, InstalledPackage, Machine, MacosVersion,
-    MigrationPlan, PackageIdentity, PackageKind, PackageMetadata, PlanCommand, Provenance,
-    ProviderCapabilities, ProviderConfiguration, ProviderDetection, ProviderId, ProviderInventory,
-    ProviderLockProbe, ProviderPresence, ProviderSnapshot, RequestedSet, Resolution,
-    ResolutionState, RunStart, Snapshot, StepKind, SuccessSemantic, Translation, UndeterminedCause,
-    VerificationCheck, Version, SNAPSHOT_SCHEMA_VERSION,
+    ConfigurationFile, ConfigurationScope, ConfirmationLevel, DomainError, EntryMode,
+    EnvironmentSnapshot, ErrorId, ExecutableName, ExecutableOwner, HomeRedaction, InstalledPackage,
+    Machine, MacosVersion, MigrationPlan, Ownership, PackageIdentity, PackageKind, PackageMetadata,
+    PlanCommand, Provenance, ProviderCapabilities, ProviderConfiguration, ProviderDetection,
+    ProviderId, ProviderInventory, ProviderLockProbe, ProviderPresence, ProviderSnapshot,
+    RequestedSet, Resolution, ResolutionState, RunStart, Snapshot, StepKind, SuccessSemantic,
+    Translation, UndeterminedCause, VerificationCheck, Version, SNAPSHOT_SCHEMA_VERSION,
 };
 use macportsbrew_policy::PolicyData;
 use std::cell::RefCell;
@@ -711,8 +713,34 @@ impl ProviderLockProbe for LocksFree {
 }
 
 /// The witness that `cleared`'s plan was shown and confirmed, minted the only
-/// way there is: the exact phrase with its code.
+/// way there is: the exact phrase with its code, then each question of a
+/// higher level the plan derives (work order 16 part K, D5), each with its own
+/// code.
 fn shown(cleared: &GateClear) -> ShownPlan {
+    let witness = shown_at_plan(cleared);
+    let level = cleared.run().plan().confirmation_level();
+    if level == ConfirmationLevel::Plan {
+        return witness;
+    }
+    let witness = confirm_removal(
+        witness,
+        &ConsentCode::from_bytes([0, 0, 1]),
+        "remove source 000001",
+    )
+    .expect("the exact removal phrase confirms the removal");
+    if level == ConfirmationLevel::Removal {
+        return witness;
+    }
+    confirm_advanced_removal(
+        witness,
+        &ConsentCode::from_bytes([0, 0, 2]),
+        "confirm advanced removal 000002",
+    )
+    .expect("the exact advanced phrase confirms the advanced removal")
+}
+
+/// The witness at `PLAN` alone: Q0 answered, no question above it.
+fn shown_at_plan(cleared: &GateClear) -> ShownPlan {
     confirm_shown(
         cleared,
         &ConsentCode::from_bytes([0, 0, 0]),
@@ -2834,8 +2862,7 @@ fn invariant_17_the_tie_behaves_alike_in_both_directions() {
 /// edit — and with it a check that the digest covers it.
 fn every_field_edited(plan: &MigrationPlan) -> Vec<(&'static str, MigrationPlan)> {
     use macportsbrew_domain::{
-        CommandTarget, Elevation, EntryMode, MigrationStep, Outcome, PlanRisk, Reason,
-        VerificationCheck,
+        CommandTarget, Elevation, MigrationStep, Outcome, PlanRisk, Reason, VerificationCheck,
     };
     let MigrationPlan {
         schema_version: _,
@@ -2845,6 +2872,7 @@ fn every_field_edited(plan: &MigrationPlan) -> Vec<(&'static str, MigrationPlan)
         destination_package: _,
         retain_source: _,
         entered_by: _,
+        source_ownership: _,
         primary_after: _,
         recommendation: _,
         overrode: _,
@@ -2913,6 +2941,21 @@ fn every_field_edited(plan: &MigrationPlan) -> Vec<(&'static str, MigrationPlan)
                     EntryMode::Named
                 });
             }),
+        ),
+        (
+            "sourceOwnership",
+            edit(&|p| {
+                p.source_ownership = Some(if p.source_ownership == Some(Ownership::TopLevel) {
+                    Ownership::Unknown
+                } else {
+                    Ownership::TopLevel
+                });
+            }),
+        ),
+        // `TOP_LEVEL` is written out, never collapsed into absence (K, D3).
+        (
+            "sourceOwnership absent",
+            edit(&|p| p.source_ownership = None),
         ),
         (
             "primaryAfter",
@@ -3097,8 +3140,9 @@ fn plan_digest_is_pinned_for_a_fixed_plan() {
 // liveness skip where it recorded a probe with a `flag`. Moved by H-2: the policy
 // version went to `2026.11.04-1` with `liveness-probes.toml`. Moved by H-4:
 // the policy version went to `2026.11.04-4` when a probe row was removed.
+// Moved by K-4: the plan carries `sourceOwnership` (work order 16 part K, D3).
 const PINNED_DIGEST: &str =
-    "sha256:675c9527c12f665ef32b4397fb4d4e317a6254953029063ab14328559e1168f0";
+    "sha256:c7dc4b2e44a4a9f21c941a9839d3fda7be0e175e9d952f25646a7749a76c63f2";
 
 #[test]
 fn a_plan_digest_reads_back_as_written_and_nothing_else() {
@@ -3165,6 +3209,14 @@ fn invariant_17_a_digest_tie_behaves_alike_in_both_directions() {
             let witness_run = witness.cleared();
             let digest = PlanDigest::of(witness_run.run().plan());
             let tied = tie(witness_run.run(), &digest).expect("its own digest");
+            // A removal: the script route raises the witness with the plan's
+            // own removal digest (work order 16 part K, D5).
+            let tied = if witness_run.run().plan().removes_source() {
+                let removal = RemovalDigest::of(witness_run.run().plan());
+                tie_removal(tied, witness_run.run(), &removal).expect("its removal digest")
+            } else {
+                tied
+            };
             let plan = cleared.run().plan().clone();
             let result = run_with_mutations(
                 &cleared,
@@ -3195,4 +3247,350 @@ fn invariant_17_a_digest_tie_behaves_alike_in_both_directions() {
             assert_eq!(seen.all().contains(&Boundary::Probed), !refused);
         }
     }
+}
+
+#[test]
+fn invariant_02_the_run_refuses_a_plan_confirmed_at_a_lower_level() {
+    // Work order 16 part K, D5: the plan shown is not enough; a removal must
+    // have been confirmed at its own level. A `PLAN` witness on a removing plan
+    // is refused before anything is probed, locked or written, by the
+    // interactive route and by the script route alike. The fixture that
+    // removes is the one toward MacPorts; the one toward Homebrew keeps the
+    // source and is admitted at `PLAN`.
+    let keeping = Direction::toward_homebrew().cleared();
+    assert_eq!(
+        keeping.run().plan().confirmation_level(),
+        ConfirmationLevel::Plan
+    );
+    assert!(shown_at_plan(&keeping).admits(keeping.run().plan()));
+    for direction in [Direction::toward_macports()] {
+        let cleared = direction.cleared();
+        assert!(
+            cleared.run().plan().confirmation_level() > ConfirmationLevel::Plan,
+            "the fixture removes the source"
+        );
+        let digest = PlanDigest::of(cleared.run().plan());
+        let witnesses = [
+            ("Q0 alone", shown_at_plan(&cleared)),
+            (
+                "--plan-digest alone",
+                tie(cleared.run(), &digest).expect("its own digest"),
+            ),
+        ];
+        for (route, witness) in witnesses {
+            assert_eq!(witness.level(), ConfirmationLevel::Plan, "{route}");
+            assert!(witness.covers(cleared.run().plan()), "{route}");
+            assert!(!witness.admits(cleared.run().plan()), "{route}");
+            let scratch = Scratch::new("lower-level");
+            let site = Site::exits(&scratch, 0);
+            let seen = Seen::default();
+            let setup = unchanged(&direction, &scratch);
+            let plan = cleared.run().plan().clone();
+            let result = run_with_mutations(
+                &cleared,
+                || Reads(Box::leak(Box::new(plan))),
+                |_: &RunLock| AllHold,
+                MutatingRun {
+                    resolutions: &Resolves::of(cleared.run().plan()),
+                    locks: &LocksFree,
+                    live: setup.live,
+                    state: &scratch.state,
+                    euid: scratch.euid,
+                    start: scratch.start(),
+                    site: &site,
+                    recapture: &*setup.recapture,
+                    consent: &never_asked,
+                    reread: setup.reread,
+                    read_back: setup.read_back,
+                    observer: &seen,
+                    shown: witness,
+                },
+                &HomeRedaction::Recorded,
+            );
+            assert!(
+                matches!(&result, Err(e) if e.id == ErrorId::PlanNotShown),
+                "{route}: {result:?}"
+            );
+            assert!(
+                seen.all().is_empty(),
+                "{route}: nothing is probed or locked"
+            );
+            assert!(
+                site.handed.borrow().is_empty(),
+                "{route}: nothing is dispatched"
+            );
+        }
+    }
+    // A `REMOVAL` witness on an `ADVANCED_REMOVAL` plan: Q0 and Q1 answered,
+    // Q2 not.
+    let direction = Direction::toward_macports();
+    let advanced = clear(
+        direction
+            .plan_of(&direction.snapshot)
+            .map_plan(|p| p.entered_by = Some(EntryMode::Named)),
+        Some(MutationAllowance::forced_in_tests()),
+    )
+    .unwrap_or_else(|(_, report)| panic!("the gate refused: {:?}", report.refusals()));
+    assert_eq!(
+        advanced.run().plan().confirmation_level(),
+        ConfirmationLevel::AdvancedRemoval
+    );
+    let witness = confirm_removal(
+        shown_at_plan(&advanced),
+        &ConsentCode::from_bytes([0, 0, 1]),
+        "remove source 000001",
+    )
+    .expect("Q1");
+    assert_eq!(witness.level(), ConfirmationLevel::Removal);
+    let scratch = Scratch::new("lower-level-advanced");
+    let site = Site::exits(&scratch, 0);
+    let seen = Seen::default();
+    let setup = unchanged(&direction, &scratch);
+    let plan = advanced.run().plan().clone();
+    let result = run_with_mutations(
+        &advanced,
+        || Reads(Box::leak(Box::new(plan))),
+        |_: &RunLock| AllHold,
+        MutatingRun {
+            resolutions: &Resolves::of(advanced.run().plan()),
+            locks: &LocksFree,
+            live: setup.live,
+            state: &scratch.state,
+            euid: scratch.euid,
+            start: scratch.start(),
+            site: &site,
+            recapture: &*setup.recapture,
+            consent: &never_asked,
+            reread: setup.reread,
+            read_back: setup.read_back,
+            observer: &seen,
+            shown: witness,
+        },
+        &HomeRedaction::Recorded,
+    );
+    assert!(
+        matches!(&result, Err(e) if e.id == ErrorId::PlanNotShown),
+        "REMOVAL on ADVANCED_REMOVAL: {result:?}"
+    );
+    assert!(seen.all().is_empty());
+    assert!(site.handed.borrow().is_empty());
+}
+
+#[test]
+fn invariant_02_a_removal_needs_its_own_echoed_digest() {
+    // The removal digest is its own domain over the same bytes: never the plan
+    // digest, never another plan's, and it raises only a `PLAN` witness of the
+    // same plan (work order 16 part K, D5).
+    {
+        let (direction, elsewhere) = (Direction::toward_macports(), Direction::toward_homebrew());
+        let run = direction.plan_of(&direction.snapshot);
+        let plan = run.plan();
+        assert_eq!(plan.confirmation_level(), ConfirmationLevel::Removal);
+        let own = RemovalDigest::of(plan);
+        assert_ne!(own.to_string(), PlanDigest::of(plan).to_string());
+        assert_eq!(RemovalDigest::parse(&own.to_string()), Some(own));
+        let witness = || tie(&run, &PlanDigest::of(plan)).expect("its own digest");
+        let raised = tie_removal(witness(), &run, &own).expect("its own removal digest");
+        assert_eq!(raised.level(), ConfirmationLevel::Removal);
+        assert!(raised.admits(plan));
+        // The plan digest written where the removal digest goes.
+        let echoed = RemovalDigest::parse(&PlanDigest::of(plan).to_string()).expect("well formed");
+        let refused = tie_removal(witness(), &run, &echoed).expect_err("the plan digest");
+        assert_eq!(
+            (refused.id, refused.exit_code()),
+            (ErrorId::PlanNotShown, 4)
+        );
+        // Another plan's removal digest.
+        let other = RemovalDigest::of(elsewhere.plan_of(&elsewhere.snapshot).plan());
+        let refused = tie_removal(witness(), &run, &other).expect_err("another plan's");
+        assert_eq!(refused.id, ErrorId::PlanNotShown);
+        for (field, edited) in every_field_edited(plan) {
+            assert!(
+                tie_removal(witness(), &run, &RemovalDigest::of(&edited)).is_err(),
+                "a removal digest of the plan with {field} edited"
+            );
+        }
+        // A `PLAN` witness of another plan cannot be raised by this one's digest.
+        let elsewhere_run = elsewhere.plan_of(&elsewhere.snapshot);
+        let foreign = tie(&elsewhere_run, &PlanDigest::of(elsewhere_run.plan())).expect("its own");
+        assert!(tie_removal(foreign, &run, &own).is_err());
+        // An already raised witness is not raised again, and says why.
+        let again = tie_removal(raised, &run, &own).expect_err("raised once");
+        assert_eq!(again.id, ErrorId::PlanNotShown);
+        assert!(again.detail.contains("already confirmed"), "{again:?}");
+        // A plan that keeps the source has no removal to confirm.
+        let kept = elsewhere.plan_of(&elsewhere.snapshot);
+        assert!(!kept.plan().removes_source());
+        let witness = tie(&kept, &PlanDigest::of(kept.plan())).expect("its own digest");
+        let refused = tie_removal(witness, &kept, &RemovalDigest::of(kept.plan()))
+            .expect_err("nothing to remove");
+        assert_eq!((refused.id, refused.exit_code()), (ErrorId::Usage, 2));
+    }
+}
+
+#[test]
+fn invariant_02_a_script_cannot_confirm_an_advanced_removal() {
+    // D5: `ADVANCED_REMOVAL` has no script route. Even with its own plan digest
+    // and its own removal digest, `tie_removal` refuses it as a usage error
+    // (exit 2): an echoed value cannot show that a person saw the warning.
+    let direction = Direction::toward_macports();
+    for entry in [EntryMode::Named, EntryMode::Advanced] {
+        let run = direction
+            .plan_of(&direction.snapshot)
+            .map_plan(|p| p.entered_by = Some(entry));
+        assert_eq!(
+            run.plan().confirmation_level(),
+            ConfirmationLevel::AdvancedRemoval
+        );
+        let witness = tie(&run, &PlanDigest::of(run.plan())).expect("its own digest");
+        let refused = tie_removal(witness, &run, &RemovalDigest::of(run.plan()))
+            .expect_err("no script route to the strictest level");
+        assert_eq!(
+            (refused.id, refused.exit_code()),
+            (ErrorId::Usage, 2),
+            "{entry:?}"
+        );
+    }
+}
+
+/// The two refusals D5 adds, under an allowance, on the planner's own removing
+/// plan edited one field at a time.
+fn refusals_under_allowance(run: &PlannedRun) -> Vec<ExecutionRefusal> {
+    execution_refusals_for(run, Some(&MutationAllowance::forced_in_tests()))
+        .refusals()
+        .to_vec()
+}
+
+#[test]
+fn invariant_13_an_inconsistent_entry_and_ownership_is_refused() {
+    // Mutant 20a: `DEFAULT_VIEW` with a dependency or an orphan is refused
+    // whenever something would run; every other pair is not (its level is
+    // the strictest instead).
+    let direction = Direction::toward_macports();
+    let disagrees = |r: &ExecutionRefusal| *r == ExecutionRefusal::EntryDisagreesWithOwnership;
+    for entry in [
+        None,
+        Some(EntryMode::DefaultView),
+        Some(EntryMode::Advanced),
+        Some(EntryMode::Named),
+    ] {
+        for ownership in [
+            None,
+            Some(Ownership::TopLevel),
+            Some(Ownership::Dependency),
+            Some(Ownership::Orphan),
+            Some(Ownership::Unknown),
+        ] {
+            let run = direction.plan_of(&direction.snapshot).map_plan(|p| {
+                p.entered_by = entry;
+                p.source_ownership = ownership;
+            });
+            let expected = entry == Some(EntryMode::DefaultView)
+                && matches!(ownership, Some(Ownership::Dependency | Ownership::Orphan));
+            assert_eq!(
+                refusals_under_allowance(&run).iter().any(disagrees),
+                expected,
+                "{entry:?}, {ownership:?}"
+            );
+        }
+    }
+    // The planner's own plan is consistent.
+    assert!(
+        !refusals_under_allowance(&direction.plan_of(&direction.snapshot))
+            .iter()
+            .any(disagrees)
+    );
+}
+
+#[test]
+fn a_retention_that_disagrees_with_the_steps_is_refused() {
+    // Mutant 19: `retainSource` and the steps must say the same thing whenever
+    // something would run, and `VERIFY_REMOVAL` or `CLEANUP_REVIEW` under
+    // `retainSource: true` counts (SR-L5).
+    let disagrees = |run: &PlannedRun| {
+        refusals_under_allowance(run).contains(&ExecutionRefusal::RetentionDisagreesWithSteps)
+    };
+    let removing = Direction::toward_macports();
+    let keeping = Direction::toward_homebrew();
+    let remove_run = || removing.plan_of(&removing.snapshot);
+    let keep_run = || keeping.plan_of(&keeping.snapshot);
+    assert!(!disagrees(&remove_run()), "the planner's removing plan");
+    assert!(!disagrees(&keep_run()), "the planner's keeping plan");
+    assert!(disagrees(
+        &remove_run().map_plan(|p| p.retain_source = true)
+    ));
+    assert!(disagrees(&keep_run().map_plan(|p| p.retain_source = false)));
+    for kind in [
+        StepKind::RemoveSource,
+        StepKind::VerifyRemoval,
+        StepKind::CleanupReview,
+    ] {
+        let only = remove_run().map_plan(|p| {
+            p.retain_source = true;
+            p.steps.retain(|s| {
+                !matches!(
+                    s.kind,
+                    StepKind::RemoveSource | StepKind::VerifyRemoval | StepKind::CleanupReview
+                ) || s.kind == kind
+            });
+            for (i, step) in p.steps.iter_mut().enumerate() {
+                step.index = u32::try_from(i).expect("small") + 1;
+            }
+        });
+        assert!(only.plan().steps.iter().any(|s| s.kind == kind));
+        assert!(disagrees(&only), "{kind:?} under retainSource: true");
+    }
+    // Without an allowance, nothing would run, and neither is judged.
+    let edited = remove_run().map_plan(|p| p.retain_source = true);
+    assert!(!execution_refusals_for(&edited, None)
+        .refusals()
+        .contains(&ExecutionRefusal::RetentionDisagreesWithSteps));
+}
+
+#[test]
+fn each_question_raises_only_the_level_below_it() {
+    // Mutants 17 and 20c (work order 16 part K, D5): no level without the one
+    // below it, each phrase only with its own code, and a wrong answer gives
+    // the witness back unchanged.
+    let cleared = Direction::toward_macports().cleared();
+    let q1 = || ConsentCode::from_bytes([0, 0, 1]);
+    let q2 = || ConsentCode::from_bytes([0, 0, 2]);
+    let raised = confirm_removal(shown_at_plan(&cleared), &q1(), "remove source 000001\n")
+        .expect("Q1 on a PLAN witness");
+    assert_eq!(raised.level(), ConfirmationLevel::Removal);
+    // Q1 again on a raised witness.
+    let raised =
+        confirm_removal(raised, &q1(), "remove source 000001").expect_err("Q1 raises only PLAN");
+    assert_eq!(raised.level(), ConfirmationLevel::Removal);
+    let top = confirm_advanced_removal(raised, &q2(), "confirm advanced removal 000002")
+        .expect("Q2 on a REMOVAL witness");
+    assert_eq!(top.level(), ConfirmationLevel::AdvancedRemoval);
+    let top = confirm_advanced_removal(top, &q2(), "confirm advanced removal 000002")
+        .expect_err("Q2 raises only REMOVAL");
+    assert_eq!(top.level(), ConfirmationLevel::AdvancedRemoval);
+    // Q2 without Q1.
+    let back = confirm_advanced_removal(
+        shown_at_plan(&cleared),
+        &q2(),
+        "confirm advanced removal 000002",
+    )
+    .expect_err("Q2 on a PLAN witness");
+    assert_eq!(back.level(), ConfirmationLevel::Plan);
+    // The plan phrase, another code, or near misses, are not Q1's answer.
+    for typed in [
+        "run plan 000001",
+        "remove source 000002",
+        "remove source 000001 ",
+        "Remove source 000001",
+        "remove source 000001\n\n",
+        "confirm advanced removal 000001",
+    ] {
+        let back = confirm_removal(shown_at_plan(&cleared), &q1(), typed).expect_err(typed);
+        assert_eq!(back.level(), ConfirmationLevel::Plan, "{typed:?}");
+    }
+    assert_eq!(removal_phrase(&q1()), "remove source 000001");
+    assert_eq!(
+        advanced_removal_phrase(&q2()),
+        "confirm advanced removal 000002"
+    );
 }
