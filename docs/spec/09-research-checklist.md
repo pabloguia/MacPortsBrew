@@ -530,6 +530,10 @@ is recorded and not acted on without the owner.
 [R-27](../research/R-27-no-cross-provider-linkage.md) (`NO_CROSS_PROVIDER_LINKAGE`),
 [R-28](../research/R-28-liveness-probes.md) (`LIVENESS_PROBE`).
 
+### R-29 · Whether a read proves the Command Line Tools present or absent
+*Answered 2026-11-19, partially, with its open states listed in the note:
+[R-29](../research/R-29-command-line-tools-presence.md) (work order 16 part K, D7; DP-050).*
+
 ## Non-blocking research
 
 - Homebrew and MacPorts release cadence and how often their output formats change.
