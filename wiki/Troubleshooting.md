@@ -112,7 +112,7 @@ macportsbrew explain <package>
 The most common causes, in rough order of frequency:
 
 - **Reverse dependencies.** Other packages under the same provider depend on
-  this one.
+  this one; in a plan, only one built with `--remove-source` stops for them.
 - **The package holds data or runs as a service.** Never migrated
   automatically, in either direction.
 - **The mapping confidence is below Strong.** Acting needs Strong or better.

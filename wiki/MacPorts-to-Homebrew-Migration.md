@@ -89,7 +89,7 @@ macportsbrew --from-snapshot fixtures/snapshots/both-providers-intel-macos26-liv
 <!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json migrate htop --to homebrew -->
 ```
 Plan: move htop from macports to homebrew
-  This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source until you are sure: a plan removes it only when built with --remove-source. You run them at your own risk.
+  This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source until you are sure. You run them at your own risk.
   This plan goes against the recommendation (Keep both, homebrew first).
 
 Steps, in order
@@ -108,7 +108,7 @@ Steps, in order
        This decision used the PATH this run saw. Check `command -v <name>` in your shell; `hash -r` clears a stale entry.
   5. Record the run - Record what was done. This version executes nothing, so it records no run; `history` and `restore --plan` read the runs a later version records. Take your own before-snapshot (`macportsbrew snapshot --out before.json`).
 
-The macports copy of htop stays installed beside the new one. To remove it once the destination is verified, run the same command again with --remove-source.
+The macports copy of htop stays installed beside the new one. To remove it once the destination is verified, run the command again with --remove-source (and without --retain-source).
 
 Plan digest: sha256:beb30356b05c63ab214e8ac0d76ea78bd300c6045a4a93f4982c5bf29d91dd9e
 
@@ -119,11 +119,12 @@ Possibly inconsistent: this was read from a recording or a snapshot file, which 
 
 Read it the way you would read the other direction's: steps in order, each
 command with how to check it, and the MacPorts copy kept — without
-`--remove-source` the plan ends by recording the run, and its last line says how
-to ask for the removal. With `--remove-source` it adds the removal, its
-verification and the cleanup review after step 3 has verified the Homebrew copy,
-and the removal is the one step that needs administrator rights. Step 4 sets
-nothing. This capture does not know htop's
+`--remove-source` the plan ends by recording the run, and a line after the steps
+says how to ask for the removal (a plan that stops for a human decision does not
+offer it). With `--remove-source` the plan adds the removal, its
+verification and the cleanup review, and the removal is the one step that needs
+administrator rights; in this capture step 3's probe stays unchecked, so even then
+the source would be kept and the removal not reached. Step 4 sets nothing. This capture does not know htop's
 executables, so the plan has no Verify resolution step.
 Live, the last line says what one sample of the providers' own locks answered.
 Here it says a snapshot file cannot show that. `--json` carries the same answer as
@@ -190,7 +191,8 @@ Identical to the other direction, because it is the same planner:
 4. **Set primary** — see [Primary Provider](Primary-Provider.md).
 5. **Verify resolution.**
 6. **Remove source** — only with `--remove-source`, and only reachable after
-   step 3 passed; without the flag the plan has no steps 6 to 8.
+   step 3 passed; without the flag the plan has no removal, removal check or
+   cleanup review.
 7. **Verify removal.**
 8. **Cleanup review.**
 9. **Record history** — designed; 0.1.0 keeps no history.
@@ -213,8 +215,8 @@ does**, because `/opt/local` is root-owned
 
 So a MacPorts-to-Homebrew plan asked for with `--remove-source` typically
 elevates on the *removal* step rather than the *install* step — the mirror image
-of the other direction; one that keeps the source, the default, needs no
-elevation at all. The plan
+of the other direction; one that keeps the source, the default, typically needs
+none. The plan
 lists which steps those are, per operation, before anything runs. Analysis and
 planning never elevate.
 

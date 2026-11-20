@@ -883,7 +883,7 @@ fn invariant_11_setting_the_primary_transfers_no_ownership() {
     ));
     assert!(
         !plan.steps.iter().any(|s| s.kind == StepKind::RemoveSource),
-        "`--retain-source` keeps the source copy, so ownership cannot move by removal"
+        "a plan that keeps the source keeps its copy, so ownership cannot move by removal"
     );
 
     let primary = plan

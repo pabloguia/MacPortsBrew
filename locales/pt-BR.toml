@@ -8,7 +8,7 @@
 
 cli.about = "Veja o que o Homebrew e o MacPorts têm instalado, compare os dois pacote a pacote e planeje uma migração em qualquer direção; os dois são tratados como iguais. Esta versão lê e planeja; ela não altera nada."
 cli.alias_note = "O nome curto `mpb` executa o mesmo programa que `macportsbrew` e se comporta exatamente igual."
-cli.retain_source_deprecated = "--retain-source não é mais necessário e é ignorado: o pacote de origem é mantido a menos que --remove-source seja dado. Ele será removido em uma versão futura."
+cli.retain_source_deprecated = "--retain-source não é mais necessário e é ignorado: o pacote de origem é mantido, a menos que --remove-source seja usado. A opção --retain-source deixará de existir em uma versão futura."
 
 # --- Errors -----------------------------------------------------------------
 
@@ -205,7 +205,7 @@ plan.entered_by_named = "{package} está fora da visão padrão, então este pla
 # --- plan -----------------------------------------------------------------
 "plan.heading" = "Plano: mover {package} de {source} para {destination}"
 "plan.will_run" = "Estas etapas serão executadas nesta máquina, em ordem, assim que você confirmar abaixo; cada uma é verificada antes da próxima."
-"plan.dry_run_only" = "Esta versão não altera nada na sua máquina. Estas etapas são o que uma migração faria; se você mesmo as executar, execute cada comando na ordem, confira a verificação dele antes de continuar e mantenha a origem até ter certeza: um plano só a remove quando montado com --remove-source. Você as executa por sua conta e risco."
+"plan.dry_run_only" = "Esta versão não altera nada na sua máquina. Estas etapas são o que uma migração faria; se você mesmo as executar, execute cada comando na ordem, confira a verificação dele antes de continuar e mantenha a origem até ter certeza. Você as executa por sua conta e risco."
 "plan.overrides" = "Este plano vai contra a recomendação ({recommendation})."
 "plan.risks_heading" = "Riscos detectados"
 "plan.steps_heading" = "Etapas, em ordem"
@@ -217,7 +217,7 @@ plan.entered_by_named = "{package} está fora da visão padrão, então este pla
 "plan.success_unknown" = "não está dito como o sucesso é comprovado, então um executor deve recusar este plano"
 "plan.tool_command_absent" = "Não é um comando nesta versão. Para que a cópia em {provider} seja a executada, coloque o diretório bin dela antes do diretório do outro gerenciador de pacotes no PATH, ou chame-a pelo caminho completo."
 "plan.stops_here" = "A execução pararia aqui para uma decisão humana (código de saída 4)."
-"plan.source_kept" = "A cópia de {package} em {source} continua instalada ao lado da nova. Para removê-la depois que o destino for verificado, execute o mesmo comando outra vez com --remove-source."
+"plan.source_kept" = "A cópia de {package} em {source} continua instalada ao lado da nova. Para removê-la depois que o destino for verificado, execute o comando de novo com --remove-source (e sem --retain-source)."
 "plan.elevated_summary" = "Etapas que exigem direitos de administrador: {steps}."
 "plan.unknown_elevation_summary" = "Etapas em que não se sabe se são necessários direitos de administrador: {steps}."
 "reason.snapshot_before_mutation" = "Tire um snapshot dos dois gerenciadores de pacotes antes da primeira alteração. Esta versão não faz isso por você: execute `macportsbrew snapshot --out before.json` primeiro."
@@ -333,7 +333,7 @@ plan.entered_by_named = "{package} está fora da visão padrão, então este pla
 "migrate.refusal.destination_contract_incomplete" = "A etapa {step} é recusada: ela não traz todas as verificações que o destino precisa passar."
 "migrate.refusal.probe_is_not_the_tables" = "A etapa {step} é recusada: um teste ali não é o selecionado para esse executável."
 "migrate.outcome.refused" = "Esta versão nunca altera a sua máquina, então o plano não foi executado. A barreira de segurança lista por que o recusaria ({count, plural, one {# motivo} other {# motivos}}):"
-"migrate.by_hand" = "Para fazer isto você mesmo, execute os comandos mostrados em cada etapa do plano acima, na ordem, e confira cada verificação antes de continuar. Não use --remove-source, para que o original permaneça até você ter certeza. Você os executa por sua conta e risco."
+"migrate.by_hand" = "Para fazer isto você mesmo, execute os comandos mostrados em cada etapa do plano acima, na ordem, e confira cada verificação antes de continuar. Se o plano remove o original, deixe essas etapas para quando tiver certeza; um plano montado sem --remove-source não as tem. Você os executa por sua conta e risco."
 "migrate.outcome.halted" = "A execução parou na etapa {step} sem ter realizado nada: {reason}."
 "migrate.outcome.partial_success" = "Algumas etapas foram realizadas e outras não, o que não é um sucesso (código de saída 3). Etapa {step}: {reason}."
 "migrate.steps_heading" = "O que aconteceu com cada etapa"
@@ -487,7 +487,7 @@ plan.entered_by_named = "{package} está fora da visão padrão, então este pla
 "doctor.provider_installations_unknown" = "Não se sabe se {provider} está instalado em mais de um lugar: esta entrada não registra isso - é uma gravação, ou um snapshot tirado antes de isso passar a ser registrado - ou nenhum dos lugares de costume o contém."
 "doctor.provider_absent" = "{provider} não está instalado aqui (não foi encontrado onde a documentação diz que ele fica)."
 "doctor.provider_broken" = "{provider} está presente, mas não está funcionando. Veja a página Troubleshooting (solução de problemas) na wiki do MacPortsBrew."
-"doctor.provider_prefix_is_not_absolute" = "O local registrado de {provider} é {prefix}, que não é um caminho absoluto: o diretório pessoal foi removido quando este snapshot foi capturado, para que um relatório possa ser compartilhado com segurança. A análise informa sobre {provider} normalmente. Nenhuma etapa que o executaria pode ser montada, então ele não pode ser destino de uma migração, e só pode ser origem de uma migração que o mantenha, o que é o padrão e deixa o pacote instalado como está."
+"doctor.provider_prefix_is_not_absolute" = "O local registrado de {provider} é {prefix}, que não é um caminho absoluto: o diretório pessoal foi removido quando este snapshot foi capturado, para que um relatório possa ser compartilhado com segurança. A análise informa sobre {provider} normalmente. Nenhuma etapa que o executaria pode ser montada, então ele não pode ser destino de uma migração, e só pode ser a origem de uma migração que mantenha o pacote de origem, o que é o padrão e deixa o pacote instalado como está."
 "doctor.provider_architecture_mismatch" = "{provider} foi compilado para {provider_arch} em uma máquina {machine_arch}."
 "doctor.provider_support" = "O suporte de {provider} para esta máquina está no nível {tier} (fonte: {source}, lido em {readOn})."
 "doctor.path_order" = "O PATH encontra os gerenciadores de pacotes nesta ordem: {order}."

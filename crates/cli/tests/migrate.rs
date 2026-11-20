@@ -1377,12 +1377,12 @@ fn invariant_15_a_replayed_migrate_neither_reads_nor_writes_history() {
     poison_history(&scratch);
     let before = tree(&scratch.state_dir());
     // The plan a recording can still build: a declared service, stopping at
-    // `MANUAL_REVIEW` (part D). `--retain-source` still asks for history.
+    // `MANUAL_REVIEW` (part D). Without `--remove-source` it keeps the source,
+    // which is the run that asks for history (part K-3).
     let recording = fixture(BOTH);
     let recording = recording.to_str().unwrap();
     for mode in [&["--json"][..], &["--json", "--yes"][..]] {
-        let mut extra = mode.to_vec();
-        extra.push("--retain-source");
+        let extra = mode.to_vec();
         let argv: Vec<&str> = ["--replay", recording]
             .into_iter()
             .chain([
@@ -1431,7 +1431,6 @@ fn invariant_15_a_replayed_migrate_creates_neither_the_lock_nor_the_marker() {
             "--today",
             TODAY,
             "--json",
-            "--retain-source",
         ];
         if yes {
             argv.push("--yes");
@@ -1464,16 +1463,7 @@ fn invariant_15_analyze_and_plan_output_is_independent_of_history() {
     for args in [
         vec!["--replay", recording, "--today", TODAY, "--json", "analyze"],
         vec![
-            "--replay",
-            recording,
-            "--today",
-            TODAY,
-            "--json",
-            "plan",
-            "htop",
-            "--to",
-            "macports",
-            "--retain-source",
+            "--replay", recording, "--today", TODAY, "--json", "plan", "htop", "--to", "macports",
         ],
         vec!["--replay", recording, "--today", TODAY, "status"],
     ] {
@@ -1514,7 +1504,6 @@ fn invariant_15_a_migrate_from_a_snapshot_file_neither_reads_nor_writes_history(
             "htop",
             "--to",
             "macports",
-            "--retain-source",
             "--today",
             TODAY,
         ],
@@ -1819,16 +1808,23 @@ fn invariant_18_migrate_without_remove_source_plans_coexistence() {
 fn retain_source_changes_no_byte_of_the_plan_and_says_so_on_stderr() {
     let scratch = Scratch::new("retain-noop");
     let file = fixture(BOTH);
-    for global in [&["--json"][..], &[][..]] {
-        let plain = migrate_with_flags(&scratch, &file, global, REPLAYED_SERVICE, MP, &[]);
-        let flagged = migrate_with_flags(
-            &scratch,
-            &file,
-            global,
-            REPLAYED_SERVICE,
-            MP,
-            &["--retain-source"],
-        );
+    let file = file.to_str().expect("UTF-8");
+    let invoke = |global: &[&str], command: &str, flags: &[&str]| {
+        let mut argv = vec!["--replay", file];
+        argv.extend_from_slice(global);
+        argv.extend_from_slice(&[command, REPLAYED_SERVICE, "--to", MP, "--today", TODAY]);
+        argv.extend_from_slice(flags);
+        run(&scratch, &argv)
+    };
+    for (command, global) in [
+        ("migrate", &["--json"][..]),
+        ("migrate", &[][..]),
+        ("plan", &["--json"][..]),
+        ("plan", &[][..]),
+    ] {
+        let plain = invoke(global, command, &[]);
+        let flagged = invoke(global, command, &["--retain-source"]);
+        let global = (command, global);
         assert_eq!(plain.status.code(), flagged.status.code(), "{global:?}");
         assert_eq!(plain.stdout, flagged.stdout, "{global:?}: stdout differs");
         let notice = "--retain-source is no longer needed and is ignored";

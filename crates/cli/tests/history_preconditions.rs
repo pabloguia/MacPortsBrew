@@ -2535,7 +2535,7 @@ fn the_shell_never_derives_a_command() {
 /// part D's planned flip tripwire. Part K-3 made removal opt-in
 /// (`invariant_18_migrate_without_remove_source_plans_coexistence`); the
 /// stronger confirmation (K-4, K-5) and the removal witness (K-6) are still
-/// owed, and K-6 turns this positive.
+/// owed, and K-8 turns this positive once K-6's witness exists.
 #[test]
 fn the_switch_needs_removal_opt_in() {
     let switch = THIS_BUILD_DISPATCHES_MUTATIONS;

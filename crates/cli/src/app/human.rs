@@ -436,6 +436,28 @@ pub fn explanation(ctx: &Context, e: &Explanation) -> String {
     out
 }
 
+/// Coexistence is the default outcome (INV-18; part K, D8): a `plan` or
+/// `migrate` plan that keeps the source says so, and how to ask for its
+/// removal. Not part of [`plan`], because `restore` renders its plan with that
+/// function too and takes no `--remove-source` (D4): advising it there would be
+/// a usage error that removes what the undo deliberately kept. A plan that
+/// stops at manual review is not offered a removal it cannot reach.
+pub fn source_kept(ctx: &Context, plan: &MigrationPlan) -> String {
+    if !plan.retain_source || plan.requires_manual_review() {
+        return String::new();
+    }
+    format!(
+        "\n{}\n",
+        ctx.messages.render(
+            "plan.source_kept",
+            &params(&[
+                ("package", plan.package.name.clone()),
+                ("source", plan.source.to_string()),
+            ])
+        )
+    )
+}
+
 /// `plan`: the dry-run rendering of a plan.
 pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
     let mut out = String::new();
@@ -584,23 +606,6 @@ pub fn plan(ctx: &Context, plan: &MigrationPlan) -> String {
         if step.kind == StepKind::ManualReview {
             let _ = writeln!(out, "       {}", label(ctx, "plan.stops_here"));
         }
-    }
-    // Coexistence is the default outcome (INV-18; part K, D8): a plan that keeps
-    // the source says so, and how to ask for its removal. A plan that stops at
-    // manual review is not offered a removal it cannot reach.
-    if plan.retain_source && !plan.requires_manual_review() {
-        let _ = writeln!(out);
-        let _ = writeln!(
-            out,
-            "{}",
-            ctx.messages.render(
-                "plan.source_kept",
-                &params(&[
-                    ("package", plan.package.name.clone()),
-                    ("source", plan.source.to_string()),
-                ])
-            )
-        );
     }
     // `plan.elevated_steps` is every step whose elevation is not `None`, which
     // is the conservative set and the right one for a machine-readable field and

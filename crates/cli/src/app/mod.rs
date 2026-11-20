@@ -522,7 +522,13 @@ fn run_inner(
                 };
                 writeln!(stdout, "{}", json(&document)?).map_err(io)?;
             } else {
-                write!(stdout, "{}", human::plan(&ctx, &plan)).map_err(io)?;
+                write!(
+                    stdout,
+                    "{}{}",
+                    human::plan(&ctx, &plan),
+                    human::source_kept(&ctx, &plan)
+                )
+                .map_err(io)?;
                 write!(
                     stdout,
                     "{}",

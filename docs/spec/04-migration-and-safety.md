@@ -13,8 +13,8 @@ DISCOVER -> ASSESS -> MAP -> DEPENDENCY CHECK -> REVERSE DEPENDENCY CHECK
 -> PLAN -> HUMAN REVIEW
 -> INSTALL DESTINATION -> VERIFY DESTINATION
 -> ACTIVATE (primary) -> VERIFY RESOLUTION
--> [optional] REMOVE SOURCE -> VERIFY REMOVAL
--> [optional] CLEANUP REVIEW
+-> [--remove-source only] REMOVE SOURCE -> VERIFY REMOVAL
+-> [--remove-source only] CLEANUP REVIEW
 -> RECORD HISTORY
 ```
 
@@ -492,13 +492,15 @@ claimed closed. **Met (work order 16 part S-1):** the destination is read again,
 with its `VERIFY_DESTINATION`'s own commands and after its configuration is
 re-checked, immediately before each `REMOVE_SOURCE` command and before the lock
 and source-configuration re-checks; a re-read that does not certify halts the
-removal (`DESTINATION_NOT_REVERIFIED`). **Not yet met:** it will be bounded by making removal opt-in
-(`--remove-source`, with a confirmation stronger than an install's) and by
+removal (`DESTINATION_NOT_REVERIFIED`). **Met (work order 16 part K-3):** removal is
+opt-in (`--remove-source`, SE-114). **Not yet met:** it will be bounded further by a
+confirmation for removal stronger than an install's (parts K-4, K-5) and by
 dispatching `REMOVE_SOURCE` only when the re-read ran, DP-030's probe
-answered, and all six destination checks were evaluated for that package. The
-re-read (part S), the probe (part G) and DP-051's four checks (part H, all observed
-since H-5) exist; the opt-in does not yet — work order 16 part K builds it — and the
-switch stays off until it does and the owner rules on part L's proposal.
+answered, and all six destination checks were evaluated for that package (K-6). The
+re-read (part S), the probe (part G), DP-051's four checks (part H, all observed
+since H-5) and the opt-in (part K-3) exist; the stronger confirmation and the witness
+do not yet, and the switch stays off until they do and the owner rules on part L's
+proposal.
 
 ## Privilege
 

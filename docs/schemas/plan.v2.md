@@ -32,7 +32,7 @@ once at its own root; see "What an executor inherits".
 | `destination` | string | Provider id it would move to |
 | `destinationPackage` | string, optional | The name under the destination, when the mapping selected one |
 | `retainSource` | boolean | The source package is kept after migrating. `true` unless the plan was asked for with `--remove-source` (since SE-114; before it, `true` only with `--retain-source`). The field's name and meaning are unchanged |
-| `enteredBy` | `"DEFAULT_VIEW"` \| `"ADVANCED"` \| `"NAMED"`, optional | How the row the plan acts on was entered (DP-037, INV-13), decided by the **source row** the plan would remove, not by whether the unit is visible: `DEFAULT_VIEW` when that row is in the default view; `ADVANCED` when it is outside it and `--advanced` was given; `NAMED` when it is outside it and naming it was the only entry into advanced mode, for that package only. Since 2026-10-27, additive. Every plan this build writes carries it, `DEFAULT_VIEW` included; it is absent only in a document from before the field, and anything that chooses a confirmation level from a plan treats absence as the strictest level (work order 16 part C plan §9). A restore plan records it the same way, from the current snapshot |
+| `enteredBy` | `"DEFAULT_VIEW"` \| `"ADVANCED"` \| `"NAMED"`, optional | How the row the plan acts on was entered (DP-037, INV-13), decided by the **source row** the plan acts on, not by whether the unit is visible: `DEFAULT_VIEW` when that row is in the default view; `ADVANCED` when it is outside it and `--advanced` was given; `NAMED` when it is outside it and naming it was the only entry into advanced mode, for that package only. Since 2026-10-27, additive. Every plan this build writes carries it, `DEFAULT_VIEW` included; it is absent only in a document from before the field, and anything that chooses a confirmation level from a plan treats absence as the strictest level (work order 16 part C plan §9). A restore plan records it the same way, from the current snapshot |
 | `primaryAfter` | string | Which provider's copy resolves on `PATH` afterwards, as predicted from the snapshot: since F-3 the destination when the primary decision is `NOTHING_TO_CHANGE` or `NO_EXECUTABLES`, otherwise the source (a plan that stops at `MANUAL_REVIEW` carries no decision and keeps the source) |
 | `recommendation` | `Outcome` | What the policy engine recommends, independently of what was asked for |
 | `overrode` | `Outcome`, optional | Present when the requested direction differs from the recommendation. The override is recorded with the run |
@@ -640,7 +640,7 @@ And the step the absence contract is about, whole, because the command and the
 check it satisfies are only meaningful together — this is what an executor
 inherits from item 3 above. Note `argv` carries **no package name**: the
 `htop` this plan removes appears nowhere in it. The plan is asked for with
-`--remove-source`, since work order 16 part K the only way a plan carries the
+`--remove-source`, since work order 16 part K-3 (SE-114) the only way a plan carries the
 removal steps:
 
 <!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json --json plan htop --to macports --remove-source at=/steps/5 -->
@@ -854,8 +854,8 @@ source, or whose availability is `UNKNOWN`, raises the non-blocking
 `destination_source_build` instead (DP-050).
 
 **`provider_configuration`** (since 2026-10-04; DP-027, ruled 2026-10-03). Raised for the plan's
-source and its destination — whether or not the plan ends up changing the source
-(the default, or `--remove-source`) — once per configuration file that sets a key the provider's
+source and its destination — whether the plan keeps the source (the default) or
+removes it (`--remove-source`) — once per configuration file that sets a key the provider's
 own reader accepts (`reason.provider_configuration_outranks`, parameters
 `provider`, `file`, `keys`) or that exists and could not be read
 (`reason.provider_configuration_unreadable`, `provider`, `file`), and once for a

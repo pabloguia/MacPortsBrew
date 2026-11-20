@@ -38,7 +38,7 @@ cli.about = "See what Homebrew and MacPorts have installed, compare them package
 # unreferenced: written for `--help`, which clap renders from a Rust literal
 # (F-23). Wire it there or delete it; it is not dead text, it is unrouted.
 cli.alias_note = "The short alias `mpb` runs the same program as `macportsbrew` and behaves identically."
-cli.retain_source_deprecated = "--retain-source is no longer needed and is ignored: the source package is kept unless --remove-source is given. It will be removed in a later release."
+cli.retain_source_deprecated = "--retain-source is no longer needed and is ignored: the source package is kept unless --remove-source is given. The --retain-source option will be removed in a later release."
 
 # --- Errors -----------------------------------------------------------------
 # One key per ErrorId::message_id(). Each carries a remediation sentence: a
@@ -322,7 +322,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 # --- plan -----------------------------------------------------------------
 "plan.heading" = "Plan: move {package} from {source} to {destination}"
 "plan.will_run" = "These steps will be run on this machine, in order, once you confirm below; each is verified before the next."
-"plan.dry_run_only" = "This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source until you are sure: a plan removes it only when built with --remove-source. You run them at your own risk."
+"plan.dry_run_only" = "This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source until you are sure. You run them at your own risk."
 "plan.overrides" = "This plan goes against the recommendation ({recommendation})."
 "plan.risks_heading" = "Risks detected"
 "plan.steps_heading" = "Steps, in order"
@@ -334,7 +334,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "plan.success_unknown" = "how success is established is not stated, so an executor must refuse this plan"
 "plan.tool_command_absent" = "Not a command in this version. To make the copy under {provider} the one that runs, put its bin directory ahead of the other package manager's on PATH, or call it by its full path."
 "plan.stops_here" = "Execution would stop here for a human decision (exit code 4)."
-"plan.source_kept" = "The {source} copy of {package} stays installed beside the new one. To remove it once the destination is verified, run the same command again with --remove-source."
+"plan.source_kept" = "The {source} copy of {package} stays installed beside the new one. To remove it once the destination is verified, run the command again with --remove-source (and without --retain-source)."
 "plan.elevated_summary" = "Steps that need administrator rights: {steps}."
 "plan.unknown_elevation_summary" = "Steps where it is not known whether administrator rights are needed: {steps}."
 "reason.snapshot_before_mutation" = "Take a snapshot of both package managers before the first change. This version does not take it for you: run `macportsbrew snapshot --out before.json` first."
@@ -463,7 +463,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 "migrate.refusal.destination_contract_incomplete" = "Step {step} is refused: it does not carry every check the destination must pass."
 "migrate.refusal.probe_is_not_the_tables" = "Step {step} is refused: a probe there is not the curated one for that executable."
 "migrate.outcome.refused" = "This version never changes your machine, so the plan was not run. The safety gate lists why it would refuse it ({count, plural, one {# reason} other {# reasons}}):"
-"migrate.by_hand" = "To do this yourself, run the commands shown under each step of the plan above, in order, and check each verification before going on. Leave out --remove-source so the original stays until you are sure. You run them at your own risk."
+"migrate.by_hand" = "To do this yourself, run the commands shown under each step of the plan above, in order, and check each verification before going on. If the plan removes the original, leave those steps until you are sure; a plan built without --remove-source has none. You run them at your own risk."
 "migrate.outcome.halted" = "The run stopped at step {step} having carried out nothing: {reason}."
 "migrate.outcome.partial_success" = "Some steps were carried out and some were not, which is not a success (exit code 3). Step {step}: {reason}."
 "migrate.steps_heading" = "What became of each step"
@@ -637,7 +637,7 @@ plan.entered_by_named = "{package} is outside the default view, so this plan act
 # Resolving it through the catalogue instead was measured and rejected: it puts
 # a two-sentence remediation paragraph inside a table cell.
 "doctor.provider_broken" = "{provider} is present but not working. See Troubleshooting in the MacPortsBrew wiki."
-"doctor.provider_prefix_is_not_absolute" = "The recorded location of {provider} is {prefix}, which is not an absolute path: the home directory was removed when this snapshot was captured, so a report can be shared safely. Analysis reports on {provider} normally. No step that would run it can be built, so it cannot be a migration destination, and it can only be a source of a migration that keeps it, which is the default and leaves the installed package alone."
+"doctor.provider_prefix_is_not_absolute" = "The recorded location of {provider} is {prefix}, which is not an absolute path: the home directory was removed when this snapshot was captured, so a report can be shared safely. Analysis reports on {provider} normally. No step that would run it can be built, so it cannot be a migration destination, and it can only be the source of a migration that keeps the source package, which is the default and leaves the installed package alone."
 "doctor.provider_architecture_mismatch" = "{provider} is built for {provider_arch} on a {machine_arch} machine."
 "doctor.provider_support" = "{provider} support for this machine is {tier} (source: {source}, read {readOn})."
 "doctor.path_order" = "PATH resolves providers in this order: {order}."

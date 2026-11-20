@@ -359,7 +359,10 @@ fn an_unusable_history_stops_a_retained_re_run() {
 }
 
 #[test]
-fn history_is_read_only_by_a_live_retained_run() {
+/// INV-16, part K-3: a default `migrate` keeps the source, so a live re-run of
+/// it consults history and can be recognised as done; `--remove-source` and a
+/// replay never consult it.
+fn invariant_16_a_default_re_run_consults_history_and_remove_source_does_not() {
     let called = Cell::new(false);
     let reader = |_: &MigrationKey| -> Result<HistoryView, DomainError> {
         called.set(true);

@@ -53,7 +53,7 @@ see [Dependencies and Safety](Dependencies-and-Safety.md).)
 <!-- sample: --from-snapshot fixtures/snapshots/both-providers-intel-macos26-live.json plan curl --to macports exit=4 -->
 ```
 Plan: move curl from homebrew to macports
-  This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source until you are sure: a plan removes it only when built with --remove-source. You run them at your own risk.
+  This version changes nothing on your machine. These steps are what a migration would do; if you carry them out yourself, run each command in order, check its verification before going on, and keep the source until you are sure. You run them at your own risk.
   This plan goes against the recommendation (Needs a human decision).
 
 Risks detected
@@ -117,8 +117,9 @@ this order, and the order is enforced rather than conventional:
    [Primary Provider](Primary-Provider.md).
 5. **Verify resolution** — confirm it does.
 6. **Remove source** — *only with `--remove-source`*, and only reachable after
-   step 3 passed. Without the flag the plan has no steps 6 to 8: both copies stay
-   installed, and the plan's last line says how to ask for the removal.
+   step 3 passed. Without the flag the plan has no removal, removal check or
+   cleanup review: both copies stay installed, and a line after the steps says how
+   to ask for the removal (a plan that stops for a human decision does not offer it).
 7. **Verify removal.**
 8. **Cleanup review** — what was left behind, for you to decide about.
 9. **Record history** — designed; 0.1.0 keeps no history.
@@ -138,6 +139,8 @@ administrator rights. Homebrew's prefix subdirectories are user-owned, so
 formula operations do not
 ([`../docs/research/R-5-privilege-requirements.md`](../docs/research/R-5-privilege-requirements.md),
 2026-09-02, citing `guide.macports.org` and `docs.brew.sh/FAQ`).
+Keeping the Homebrew copy, the default, does not change this: the MacPorts
+install is what elevates.
 
 MacPortsBrew handles that by **enumerating** it: every step that would need
 elevation is listed in the plan as needing it, per operation, visible before

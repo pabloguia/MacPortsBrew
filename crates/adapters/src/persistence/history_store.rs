@@ -45,7 +45,7 @@ use std::path::Path;
 pub const MAX_RECORD_BYTES: u64 = 256 * 1024;
 
 /// The most entries `history/` may hold before reading refuses. Nothing
-/// prunes the store, and every `migrate --retain-source` reads it.
+/// prunes the store, and every live `migrate` that keeps the source reads it.
 pub const MAX_ENTRIES: usize = 10_000;
 
 /// A fresh run id: the run's compact UTC stamp, then 16 hex digits from

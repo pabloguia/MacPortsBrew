@@ -695,7 +695,13 @@ fn migrate_with(
         if let Some(why) = &note {
             write!(stdout, "{}", human::retained_run_not_recognised(ctx, why)).map_err(io)?;
         }
-        write!(stdout, "{}", human::plan(ctx, plan)).map_err(io)?;
+        write!(
+            stdout,
+            "{}{}",
+            human::plan(ctx, plan),
+            human::source_kept(ctx, plan)
+        )
+        .map_err(io)?;
         match &report {
             None => {
                 // The hint only where the input could be put to the gate: a

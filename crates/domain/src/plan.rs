@@ -526,7 +526,8 @@ pub struct MigrationPlan {
     /// The destination package name, when a mapping was selected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination_package: Option<String>,
-    /// Whether the source package is kept (`--retain-source`).
+    /// Whether the source package is kept: the default, unless the plan was
+    /// asked for with `--remove-source` (since work order 16 part K-3).
     pub retain_source: bool,
     /// How the source row was entered (DP-037). Every plan this build
     /// produces carries `Some`, and `DefaultView` is written out, never
