@@ -87,8 +87,8 @@ use macportsbrew_domain::{
     evaluate_with, expectation_for, Capability, CapabilityState, CheckAnswer, CheckFailure,
     CommandEnd, CommandTarget, ConcurrentProviderActivity, DestinationCheck, DomainError,
     Elevation, ErrorId, ExecutableName, ExpectationError, FailureCause, MigrationPlan,
-    MigrationStep, PackageKind, PlanCommand, PrimaryDecision, ProviderId, ProviderPresence,
-    ReadEvidence, ReadOutput, Snapshot, StepKind, UncheckedCause, UncheckedEntry,
+    MigrationStep, PackageKind, PlanCommand, PrimaryDecision, ProviderId, ProviderInventory,
+    ProviderPresence, ReadEvidence, ReadOutput, Snapshot, StepKind, UncheckedCause, UncheckedEntry,
     UndeterminedCause, Verdict, VerificationCheck,
 };
 use serde::Serialize;
@@ -357,6 +357,18 @@ pub enum Precondition {
     /// a provider, or nothing looked: nothing was seen held, so it is not
     /// reported as held, and an unknown is never a "no".
     ProviderLocksNotDetermined,
+    /// The source provider's inventory, read again immediately before a
+    /// removal command, shows a package that depends on the one being removed
+    /// (work order 16 part K, D9; INV-04).
+    DependentsAppeared,
+    /// The source provider's inventory could not be read again before a
+    /// removal command, so its dependents were not shown absent (D9). An
+    /// unknown is never a "no".
+    DependentsUnreadable,
+    /// A removal command was about to be handed over without the removal
+    /// witness minted for that very command, or a witness was offered for a
+    /// command that is not a removal (D6).
+    RemovalNotCleared,
 }
 
 /// Why a sample of the providers' own locks does not clear a run to go on.
@@ -639,6 +651,7 @@ pub enum Action {
 /// (V4, L5).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reverify {
+    removal_position: usize,
     verify_position: usize,
     provider: ProviderId,
 }
@@ -668,14 +681,24 @@ pub fn reverify_for(plan: &MigrationPlan, position: usize) -> Option<Reverify> {
     if step.kind != StepKind::RemoveSource {
         return None;
     }
-    // The nearest one before the removal: the one guarding it (INV-01).
-    let verify_position = plan.steps[..position]
-        .iter()
-        .rposition(|s| s.kind == StepKind::VerifyDestination)?;
     Some(Reverify {
-        verify_position,
+        removal_position: position,
+        verify_position: guarding_verify(plan, position)?,
         provider: plan.destination.clone(),
     })
+}
+
+/// The `VERIFY_DESTINATION` that guards the step at `position`: the nearest
+/// one before it (INV-01). The one function both the re-read before a removal
+/// and the record a removal is checked against use, so the step read again
+/// and the step whose record is checked cannot differ (work order 16 part K,
+/// D6, SR-I1).
+#[must_use]
+pub fn guarding_verify(plan: &MigrationPlan, position: usize) -> Option<usize> {
+    plan.steps
+        .get(..position)?
+        .iter()
+        .rposition(|s| s.kind == StepKind::VerifyDestination)
 }
 
 /// One mutating command's end, as the shell obtained it.
@@ -835,7 +858,10 @@ impl HaltReason {
                 | Precondition::WrongProviderToken
                 | Precondition::DestinationNotReverified
                 | Precondition::WrongProgramToken
-                | Precondition::WrongConsentToken => ErrorId::SafetyBlocked,
+                | Precondition::WrongConsentToken
+                | Precondition::DependentsAppeared
+                | Precondition::DependentsUnreadable
+                | Precondition::RemovalNotCleared => ErrorId::SafetyBlocked,
             },
             Self::Expectation { .. } | Self::Unevaluable { .. } => ErrorId::SafetyUnverifiable,
             Self::TransportFailed { error, .. } => *error,
@@ -1141,9 +1167,7 @@ fn destination_record_before(
     position: usize,
     records: &[StepRecord],
 ) -> DestinationRecord {
-    let record = plan.steps[..position]
-        .iter()
-        .position(|s| s.kind == StepKind::VerifyDestination)
+    let record = guarding_verify(plan, position)
         .and_then(|at| records.get(at))
         .filter(|r| r.kind == StepKind::VerifyDestination);
     match record.map(|r| &r.disposition) {
@@ -1693,7 +1717,8 @@ fn judge_destination(
 
 /// The questions the re-read before a removal asks: check 3 per executable, and
 /// no other (work order 16 part H: checks 2, 4 and 5 are not re-run, a window
-/// the specification declares). Empty when the step's list cannot be read,
+/// `04-migration-and-safety.md` declares beside the residual removal window,
+/// since part K-6). Empty when the step's list cannot be read,
 /// which [`destination_still_verified`] refuses.
 #[must_use]
 pub fn reverify_questions(plan: &MigrationPlan, reverify: &Reverify) -> Vec<Question> {
@@ -1745,7 +1770,7 @@ pub fn destination_still_verified(
     checked: ConfigurationRechecked,
     reads: &[StepRead<'_>],
     owned: &[DestinationAnswer],
-) -> Result<(), Precondition> {
+) -> Result<DestinationReverified, Precondition> {
     let plan = run.plan();
     if checked.provider() != &plan.destination || reverify.provider() != &plan.destination {
         return Err(Precondition::WrongProviderToken);
@@ -1781,9 +1806,239 @@ pub fn destination_still_verified(
             .zip(&asked)
             .all(|(a, q)| &a.question == q && a.answer == CheckAnswer::Holds);
     if every_one_holds {
-        Ok(())
+        Ok(DestinationReverified {
+            removal_position: reverify.removal_position,
+            verify_position: reverify.verify_position,
+        })
     } else {
         Err(Precondition::DestinationNotReverified)
+    }
+}
+
+/// The first link of a removal command's witness (work order 16 part K, D6):
+/// the destination, read again, still certified, for the removal at one
+/// position and the `VERIFY_DESTINATION` guarding it. Minted only by
+/// [`destination_still_verified`], spent by [`dependents_still_absent`].
+#[derive(Debug)]
+#[must_use]
+pub struct DestinationReverified {
+    removal_position: usize,
+    verify_position: usize,
+}
+
+/// The second link (D9): the source provider's inventory, read again after the
+/// destination, shows no package depending on the one being removed. Minted
+/// only by [`dependents_still_absent`], spent by [`clear_removal`].
+#[derive(Debug)]
+#[must_use]
+pub struct DependentsRechecked {
+    removal_position: usize,
+    verify_position: usize,
+}
+
+/// The witness a removal command is handed over with (D6): minted by
+/// [`clear_removal`] for one command of one `REMOVE_SOURCE`, spent by value
+/// at the dispatch, so one witness never serves a second command.
+#[derive(Debug)]
+#[must_use]
+pub struct RemovalCleared {
+    removal_position: usize,
+    command: usize,
+    program: String,
+    argv: Vec<String>,
+}
+
+impl RemovalCleared {
+    /// Whether this witness was minted for the command at `command` of the
+    /// step at `position`, naming exactly `program` and `argv` (the way
+    /// consent token's own `covers` is checked).
+    #[must_use]
+    pub fn covers(&self, position: usize, command: usize, program: &str, argv: &[String]) -> bool {
+        self.removal_position == position
+            && self.command == command
+            && self.program == program
+            && self.argv == argv
+    }
+}
+
+/// Compile-time proof that none of the removal witness's links is `Clone` or
+/// `Default` (the idiom of `plan_tie.rs`): with either, the blanket impls make
+/// the item ambiguous and this file stops compiling.
+mod removal_tokens_not_clone_nor_default {
+    pub(super) trait AmbiguousIfClone<A> {
+        fn item() {}
+    }
+    impl<T: ?Sized> AmbiguousIfClone<()> for T {}
+    impl<T: Clone> AmbiguousIfClone<u8> for T {}
+    pub(super) trait AmbiguousIfDefault<A> {
+        fn item() {}
+    }
+    impl<T: ?Sized> AmbiguousIfDefault<()> for T {}
+    impl<T: Default> AmbiguousIfDefault<u8> for T {}
+}
+const _: fn() = || {
+    use removal_tokens_not_clone_nor_default::{AmbiguousIfClone, AmbiguousIfDefault};
+    <DestinationReverified as AmbiguousIfClone<_>>::item();
+    <DestinationReverified as AmbiguousIfDefault<_>>::item();
+    <DependentsRechecked as AmbiguousIfClone<_>>::item();
+    <DependentsRechecked as AmbiguousIfDefault<_>>::item();
+    <RemovalCleared as AmbiguousIfClone<_>>::item();
+    <RemovalCleared as AmbiguousIfDefault<_>>::item();
+};
+
+/// Whether the source provider's inventory, read again immediately before a
+/// removal command and after the destination was (D9), still shows nothing
+/// depending on the package being removed. Consumes `reverified`, so the
+/// dependents are judged only after the destination was, for the same
+/// removal. `inventory` is the source provider's own fresh read, or why it
+/// could not be made.
+///
+/// # Errors
+/// [`Precondition::DependentsAppeared`] for any reverse dependent of the
+/// source package inside the source provider, and
+/// [`Precondition::DependentsUnreadable`] when the read failed.
+// By value on purpose: the link is spent by the next one.
+#[allow(clippy::needless_pass_by_value)]
+pub fn dependents_still_absent(
+    run: &PlannedRun,
+    reverified: DestinationReverified,
+    inventory: Result<&ProviderInventory, &DomainError>,
+) -> Result<DependentsRechecked, Precondition> {
+    let Ok(inventory) = inventory else {
+        return Err(Precondition::DependentsUnreadable);
+    };
+    if inventory
+        .reverse_dependencies_of(&run.plan().package.name)
+        .is_empty()
+    {
+        Ok(DependentsRechecked {
+            removal_position: reverified.removal_position,
+            verify_position: reverified.verify_position,
+        })
+    } else {
+        Err(Precondition::DependentsAppeared)
+    }
+}
+
+/// Why a removal command was not cleared: a precondition, or the providers'
+/// lock sample, whose activity the run's report carries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RemovalRefusal {
+    /// A check before the command did not hold.
+    Precondition(Precondition),
+    /// The providers' own locks, sampled for this command, did not clear it.
+    Locks(ProviderLockRefusal),
+}
+
+impl RemovalRefusal {
+    /// The precondition the command fails.
+    #[must_use]
+    pub fn precondition(&self) -> Precondition {
+        match self {
+            Self::Precondition(p) => *p,
+            Self::Locks(refusal) => refusal.precondition(),
+        }
+    }
+}
+
+/// The last link (D6): the witness for the removal command at `command` of the
+/// step at `position`. Consumes the dependents' link and borrows the source's
+/// configuration re-check, so it cannot be minted before the destination and
+/// the dependents were judged for this removal, or without the source
+/// re-checked for the command's own program; and it judges **this command's**
+/// lock sample through [`provider_locks_clear`], so the sample for a removal
+/// is judged only here, after both re-reads. It also checks, again, that the
+/// guarding `VERIFY_DESTINATION` was recorded `Verified`, that the
+/// destination contract is complete for it, and that every resolution held.
+///
+/// # Errors
+/// The refusal; nothing is handed over.
+// By value on purpose: the dependents' link is spent here.
+#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
+pub fn clear_removal(
+    run: &PlannedRun,
+    position: usize,
+    command: usize,
+    records: &[StepRecord],
+    dependents: DependentsRechecked,
+    source_checked: &ConfigurationRechecked,
+    sample: ConcurrentProviderActivity,
+    snapshot: &Snapshot,
+) -> Result<RemovalCleared, RemovalRefusal> {
+    let plan = run.plan();
+    let refuse = |p| Err(RemovalRefusal::Precondition(p));
+    let Some(step) = plan.steps.get(position) else {
+        return refuse(Precondition::RemovalNotCleared);
+    };
+    let Some(planned) = step.commands.get(command) else {
+        return refuse(Precondition::RemovalNotCleared);
+    };
+    if step.kind != StepKind::RemoveSource
+        || dependents.removal_position != position
+        || guarding_verify(plan, position) != Some(dependents.verify_position)
+    {
+        return refuse(Precondition::RemovalNotCleared);
+    }
+    if source_checked.provider() != &plan.source || step.provider.as_ref() != Some(&plan.source) {
+        return refuse(Precondition::WrongProviderToken);
+    }
+    if source_checked.program() != planned.program {
+        return refuse(Precondition::WrongProgramToken);
+    }
+    let guarded = plan
+        .steps
+        .get(dependents.verify_position)
+        .is_some_and(|verify| crate::execution_gate::destination_contract_complete(plan, verify));
+    if !guarded
+        || !matches!(
+            destination_record_before(plan, position, records),
+            DestinationRecord::Verified
+        )
+        || !resolution_held_before(plan, position, records)
+    {
+        return refuse(Precondition::DestinationNotReverified);
+    }
+    provider_locks_clear(sample, snapshot).map_err(RemovalRefusal::Locks)?;
+    Ok(RemovalCleared {
+        removal_position: position,
+        command,
+        program: planned.program.clone(),
+        argv: planned.argv.clone(),
+    })
+}
+
+/// Whether the command at `command` of the step at `position` may be handed
+/// over with `witness` (D6). The requirement is decided here, from the step's
+/// kind, never from whether a re-read ran or from the argv (SR-M2): a
+/// `REMOVE_SOURCE` command needs the witness minted for it, and any other
+/// command must come with none.
+///
+/// # Errors
+/// [`Precondition::RemovalNotCleared`].
+pub fn removal_witness_admits(
+    plan: &MigrationPlan,
+    position: usize,
+    command: usize,
+    witness: Option<&RemovalCleared>,
+) -> Result<(), Precondition> {
+    let Some(step) = plan.steps.get(position) else {
+        return Err(Precondition::RemovalNotCleared);
+    };
+    let Some(planned) = step.commands.get(command) else {
+        return Err(Precondition::RemovalNotCleared);
+    };
+    let admitted = match (step.kind, witness) {
+        (StepKind::RemoveSource, Some(w)) => {
+            w.covers(position, command, &planned.program, &planned.argv)
+        }
+        (StepKind::RemoveSource, None) => false,
+        (_, None) => true,
+        (_, Some(_)) => false,
+    };
+    if admitted {
+        Ok(())
+    } else {
+        Err(Precondition::RemovalNotCleared)
     }
 }
 

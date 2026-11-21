@@ -1597,6 +1597,9 @@ fn precondition_key(why: Precondition) -> &'static str {
         Precondition::DestinationNotReverified => "migrate.precondition.destination_not_reverified",
         Precondition::WrongProgramToken => "migrate.precondition.wrong_program_token",
         Precondition::WrongConsentToken => "migrate.precondition.wrong_consent_token",
+        Precondition::DependentsAppeared => "migrate.precondition.dependents_appeared",
+        Precondition::DependentsUnreadable => "migrate.precondition.dependents_unreadable",
+        Precondition::RemovalNotCleared => "migrate.precondition.removal_not_cleared",
     }
 }
 

@@ -432,7 +432,23 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
     // read, and between each dispatch's own re-check and that dispatch, so it is
     // the freshest fact a command goes out on (DP-030 (b); G item 6).
     if ordered {
-        let samples = calls_of(code, LOCK_SAMPLE);
+        // A removal command's sample is taken whole and judged inside the
+        // removal witness (work order 16 part K, D6): `locks.sample()` counts
+        // as a sample there, only when it is judged before the dispatch.
+        let mut samples = calls_of(code, LOCK_SAMPLE);
+        let dispatches = calls_of(code, DISPATCH);
+        for at in calls_of(code, "locks.sample()") {
+            // Judged after the sample and before the next dispatch, or it
+            // stands before nothing.
+            let next = dispatches.iter().copied().filter(|d| *d > at).min();
+            let judged = ["clear_removal(", "provider_locks_clear("]
+                .iter()
+                .flat_map(|t| calls_of(code, t))
+                .any(|j| j > at && next.is_none_or(|d| j < d));
+            if judged && next.is_some() {
+                samples.push(at);
+            }
+        }
         if samples.is_empty() {
             violations.push(format!("[locks] {name} never calls {LOCK_SAMPLE}"));
         }
@@ -445,7 +461,10 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
         }
         // A sample whose answer is thrown away is no sample (G-3 review, S2): the
         // consent path has no behavioural test until part J makes it reachable.
-        for at in &samples {
+        // A whole sample taken for a removal is bound and judged by name, which
+        // the loop above already required; the answer of every other is used
+        // where it is taken.
+        for at in &calls_of(code, LOCK_SAMPLE) {
             if !sample_answer_is_used(code, *at) {
                 violations.push(format!("[locks] {name}: a sample's answer is discarded"));
             }
@@ -2449,7 +2468,7 @@ fn reread_violations(files: &[SourceFile]) -> Vec<String> {
     // Per command (mutant 35): the re-read is inside the loop over the step's
     // commands, so a step with two removal commands re-reads twice.
     match (
-        at("for command in &step.commands"),
+        at("step.commands.iter().enumerate()"),
         at("if let Some(reverify) = reverify"),
     ) {
         (Some(each), Some(branch)) if each < branch => {}
@@ -2478,6 +2497,21 @@ fn reread_violations(files: &[SourceFile]) -> Vec<String> {
             "{name}: destination_still_verified( must come before verify_still_current( (M1)"
         ));
     }
+    // The removal witness (work order 16 part K, D6, D9): the dependents
+    // re-read after the destination's and before the lock, and the witness's
+    // last link after the source's re-check and before the dispatch.
+    match (at("dependents_still_absent("), at("clear_removal(")) {
+        (Some(dependents), Some(cleared))
+            if reverified < dependents
+                && dependents < current
+                && current < cleared
+                && cleared < dispatch => {}
+        _ => violations.push(format!(
+            "{name}: dependents_still_absent( must follow destination_still_verified( and \
+             precede verify_still_current(, and clear_removal( must follow it and precede \
+             mutation_dispatch("
+        )),
+    }
     if reverified >= dispatch {
         violations.push(format!(
             "{name}: destination_still_verified( must come before mutation_dispatch("
@@ -2489,10 +2523,25 @@ fn reread_violations(files: &[SourceFile]) -> Vec<String> {
 #[test]
 fn the_reread_tripwire_fires_on_its_mutants() {
     let good = "fn f() { match a { Action::DispatchMutating { reverify } => { \
-                for command in &step.commands { \
-                if let Some(reverify) = reverify { destination_still_verified(x); } \
-                lock.verify_still_current(); mutation_dispatch(y); } } } }";
+                for (index, command) in step.commands.iter().enumerate() { \
+                if let Some(reverify) = reverify { destination_still_verified(x); \
+                dependents_still_absent(z); } \
+                lock.verify_still_current(); clear_removal(w); mutation_dispatch(y); } } } }";
     assert!(reread_violations(&one(good)).is_empty());
+    // Work order 16 part K, D6/D9 (mutants 35c and 30a's shape).
+    let no_dependents = good.replace("dependents_still_absent(z);", "");
+    assert!(
+        !reread_violations(&one(&no_dependents)).is_empty(),
+        "no dependents"
+    );
+    let early_witness = good.replace(
+        "lock.verify_still_current(); clear_removal(w);",
+        "clear_removal(w); lock.verify_still_current();",
+    );
+    assert!(
+        !reread_violations(&one(&early_witness)).is_empty(),
+        "witness before the lock"
+    );
     let dropped = good.replace("destination_still_verified(x);", "");
     assert!(!reread_violations(&one(&dropped)).is_empty(), "dropped");
     let late = "fn f() { match a { Action::DispatchMutating { reverify } => { \
@@ -2512,7 +2561,7 @@ fn the_reread_tripwire_fires_on_its_mutants() {
                 lock.verify_still_current(); mutation_dispatch(y); } } }";
     let once_per_step = "fn f() { match a { Action::DispatchMutating { reverify } => { \
                 if let Some(reverify) = reverify { destination_still_verified(x); } \
-                for command in &step.commands { \
+                for (index, command) in step.commands.iter().enumerate() { \
                 lock.verify_still_current(); mutation_dispatch(y); } } } }";
     assert!(
         !reread_violations(&one(once_per_step)).is_empty(),
@@ -2555,10 +2604,10 @@ fn the_switch_needs_removal_opt_in() {
     let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
     assert!(
         !switch,
-        "DP-048 (c) is not whole: removal is opt-in since part K-3, but its confirmation \
-         stronger than an install's (K-4, K-5) and REMOVE_SOURCE dispatched only with a \
-         witness that the re-read ran, DP-030's probe answered and all six destination checks \
-         were evaluated (K-6) are still owed (SE-107, SE-114)"
+        "DP-048 (c) is built (opt-in in K-3, the levels in K-4 and K-5, the per-command \
+         removal witness in K-6) but not yet held positively: K-8 turns this tripwire into the \
+         structural check that the CLI's default plans keep the source and that \
+         mutation_dispatch cannot take a removal command without its witness (SE-107, SE-114)"
     );
 }
 
