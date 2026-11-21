@@ -1028,6 +1028,9 @@ fn invariant_01_no_removal_dispatches_unless_the_lock_probe_answered_immediately
         assert_eq!(report.record_written, handed > 1, "{name}");
         assert_eq!(report.history_error, None, "{name}");
         assert_eq!(report.marker_left, None, "{name}");
+        // Judged inside the removal witness (work order 16 part K, D6), and
+        // still reported as the sample that stopped it.
+        assert_eq!(report.provider_locks_at_halt, Some(held()), "{name}");
     }
     assert!(removed_somewhere, "no direction removes anything");
 }

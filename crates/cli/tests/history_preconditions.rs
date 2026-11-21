@@ -436,12 +436,16 @@ fn wiring_violations(flag: bool, files: &[SourceFile]) -> Vec<String> {
         // removal witness (work order 16 part K, D6): `locks.sample()` counts
         // as a sample there, only when it is judged before the dispatch.
         let mut samples = calls_of(code, LOCK_SAMPLE);
+        let dispatches = calls_of(code, DISPATCH);
         for at in calls_of(code, "locks.sample()") {
+            // Judged after the sample and before the next dispatch, or it
+            // stands before nothing.
+            let next = dispatches.iter().copied().filter(|d| *d > at).min();
             let judged = ["clear_removal(", "provider_locks_clear("]
                 .iter()
                 .flat_map(|t| calls_of(code, t))
-                .any(|j| j > at);
-            if judged {
+                .any(|j| j > at && next.is_none_or(|d| j < d));
+            if judged && next.is_some() {
                 samples.push(at);
             }
         }

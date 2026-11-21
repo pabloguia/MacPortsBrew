@@ -1826,6 +1826,10 @@ mod tests {
     /// A one-step plan around `command`, at an `ADD_DESTINATION`: a step that
     /// takes no removal witness (work order 16 part K, D6).
     fn plan_of(command: &PlanCommand) -> MigrationPlan {
+        plan_with(command, "ADD_DESTINATION")
+    }
+
+    fn plan_with(command: &PlanCommand, kind: &str) -> MigrationPlan {
         // Read from its document, as a recording's plan is, so this module's
         // own words stay what its scans pin.
         serde_json::from_value(serde_json::json!({
@@ -1839,7 +1843,7 @@ mod tests {
             "recommendation": { "kind": "MIGRATE_TO", "provider": "beta" },
             "steps": [{
                 "index": 1,
-                "kind": "ADD_DESTINATION",
+                "kind": kind,
                 "provider": "alpha",
                 "commands": [serde_json::to_value(command).expect("a command serialises")],
                 "reason": { "id": "reason.test" }
@@ -1864,6 +1868,51 @@ mod tests {
             step,
             command,
         }
+    }
+
+    #[test]
+    fn a_removal_command_without_its_witness_is_never_handed_over() {
+        // Work order 16 part K, D6 (mutant 35): `mutation_dispatch` refuses a
+        // `REMOVE_SOURCE` command that comes without a witness, whatever the
+        // loop above it did; and with every other token right.
+        let provider = ProviderId::new("alpha");
+        let snapshot = configured(&provider);
+        let fresh = macportsbrew_domain::ProviderConfiguration::Read { files: Vec::new() };
+        let command = PlanCommand {
+            target: macportsbrew_domain::CommandTarget::default(),
+            program: "/opt/alpha/bin/alpha".into(),
+            argv: vec!["verb".into()],
+            environment: BTreeMap::new(),
+            elevation: macportsbrew_domain::Elevation::None,
+            success: macportsbrew_domain::SuccessSemantic::default(),
+            placeholder: false,
+        };
+        let base =
+            std::env::temp_dir().join(format!("mpb-dispatch-witness-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+        std::fs::create_dir_all(&base).expect("scratch");
+        let euid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&base).expect("scratch"));
+        let state = StateDir::resolve(None, Some(base.join("state").to_str().expect("utf-8")))
+            .expect("a state directory");
+        let lock = run_lock::acquire(&state, euid).expect("the lock");
+        let site = NotInThisBuild;
+        let plan = plan_with(&command, "REMOVE_SOURCE");
+        let checked =
+            recheck_provider_configuration(&provider, &command.program, &snapshot, &fresh)
+                .expect("an empty configuration outranks nothing");
+        assert!(matches!(
+            mutation_dispatch(
+                &site,
+                dispatch_in(&plan, &provider, 1, &command),
+                checked,
+                None,
+                None,
+                &lock
+            ),
+            MutationResult::PreconditionFailed(Precondition::RemovalNotCleared)
+        ));
+        drop(lock);
+        std::fs::remove_dir_all(&base).ok();
     }
 
     #[test]

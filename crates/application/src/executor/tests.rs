@@ -3840,10 +3840,36 @@ fn invariant_01_a_removal_dispatches_only_with_its_witness() {
         removal_witness_admits(plan, remove, 0, None),
         Err(Precondition::RemovalNotCleared)
     );
+    // Another command of the same step (mutant 33a): the step given a second,
+    // identical command, so only the index tells the two apart.
+    let doubled = witnessed_run().map_plan(|p| {
+        let at = p
+            .steps
+            .iter()
+            .position(|s| s.kind == StepKind::RemoveSource)
+            .expect("a removal");
+        let again = p.steps[at].commands[0].clone();
+        p.steps[at].commands.push(again);
+    });
+    let first = clear_removal(
+        &doubled,
+        remove,
+        0,
+        &records_until(&doubled, remove),
+        rechecked(doubled.plan(), remove),
+        &source_token(&doubled, remove),
+        ConcurrentProviderActivity::NoneObserved,
+        doubled.before(),
+    )
+    .expect("the first command's witness");
     assert_eq!(
-        removal_witness_admits(plan, remove, 1, Some(&mint())),
+        removal_witness_admits(doubled.plan(), remove, 1, Some(&first)),
         Err(Precondition::RemovalNotCleared),
-        "another command of the same step"
+        "the first command's witness spent on the second"
+    );
+    assert_eq!(
+        removal_witness_admits(doubled.plan(), remove, 0, Some(&first)),
+        Ok(())
     );
     // Any step with a command that is not a removal: the add was narrowed
     // away here, so the verify step stands in.
@@ -3858,6 +3884,9 @@ fn invariant_01_a_removal_dispatches_only_with_its_witness() {
     let witness = mint();
     let command = &plan.steps[remove].commands[0];
     assert!(witness.covers(remove, 0, &command.program, &command.argv));
+    // Another step's position (mutant 33b).
+    assert!(!witness.covers(remove + 1, 0, &command.program, &command.argv));
+    assert!(!witness.covers(remove - 1, 0, &command.program, &command.argv));
     assert!(!witness.covers(remove, 0, "/elsewhere", &command.argv));
     assert!(!witness.covers(remove, 0, &command.program, &[]));
     // A dependents' link for another removal, or from another verify step,
@@ -3941,27 +3970,37 @@ fn invariant_01_a_removal_witness_needs_every_check_of_the_contract() {
         Precondition::ProviderLocksNotDetermined
     );
     assert!(matches!(refused, RemovalRefusal::Locks(_)));
-    // The plan's own contract incomplete: the fixture's verify step as
-    // planned, without the probes.
-    let bare = consolidation_run();
+    // The plan's own contract incomplete (mutant 32): the guarding verify
+    // step without its linkage check, its record still `Verified`.
+    let bare = witnessed_run().map_plan(|p| {
+        for step in &mut p.steps {
+            if step.kind == StepKind::VerifyDestination {
+                step.verification
+                    .retain(|c| !matches!(c, VerificationCheck::NoCrossProviderLinkage));
+            }
+        }
+    });
     let bare_plan = bare.plan();
-    let at = position(bare_plan, StepKind::RemoveSource);
-    if !crate::execution_gate::destination_contract_complete(
+    assert!(!crate::execution_gate::destination_contract_complete(
         bare_plan,
-        &bare_plan.steps[guarding_verify(bare_plan, at).expect("guarded")],
-    ) {
-        assert!(clear_removal(
+        &bare_plan.steps[verify]
+    ));
+    assert_eq!(
+        clear_removal(
             &bare,
-            at,
+            remove,
             0,
-            &good,
-            rechecked(bare_plan, at),
-            &source_token(&bare, at),
+            &records_until(&bare, remove),
+            rechecked(bare_plan, remove),
+            &source_token(&bare, remove),
             ConcurrentProviderActivity::NoneObserved,
             bare.before(),
         )
-        .is_err());
-    }
+        .map(|_| ()),
+        Err(RemovalRefusal::Precondition(
+            Precondition::DestinationNotReverified
+        ))
+    );
 }
 
 #[test]
@@ -3995,7 +4034,36 @@ fn invariant_01_the_record_checked_and_the_step_reread_are_the_same_step() {
     );
     // The record checked is the nearest one's: the first recorded `Verified`
     // and the nearest not is refused.
-    let mut records = records_until(&run, remove);
+    // A dependents' link carried from the first verify step, complete and
+    // recorded `Verified` too, mints nothing (mutant 34).
+    let good = records_until(&run, remove);
+    let from_first = DependentsRechecked {
+        removal_position: remove,
+        verify_position: first,
+    };
+    assert!(clear_removal(
+        &run,
+        remove,
+        0,
+        &good,
+        from_first,
+        &source_token(&run, remove),
+        ConcurrentProviderActivity::NoneObserved,
+        run.before(),
+    )
+    .is_err());
+    assert!(clear_removal(
+        &run,
+        remove,
+        0,
+        &good,
+        rechecked(plan, remove),
+        &source_token(&run, remove),
+        ConcurrentProviderActivity::NoneObserved,
+        run.before(),
+    )
+    .is_ok());
+    let mut records = good;
     records[nearest].disposition = Disposition::NotPerformedInThisBuild;
     assert!(matches!(
         destination_record_before(plan, remove, &records),
@@ -4076,4 +4144,58 @@ fn a_removal_with_a_dependent_in_its_fresh_inventory_is_stopped() {
         dependents_still_absent(&run, link(), Err(&error)).map(|_| ()),
         Err(Precondition::DependentsUnreadable)
     );
+}
+
+#[test]
+fn invariant_03_a_removal_without_its_witness_ends_partial_with_the_source_kept() {
+    // D6, INV-03: a removal command refused for want of its witness is not
+    // handed over; the step halts on that precondition, the run is never a
+    // completion, and nothing after the removal is reached, so the source is
+    // kept.
+    let run = witnessed_run();
+    let plan = run.plan();
+    let remove = position(plan, StepKind::RemoveSource);
+    let mut records = records_until(&run, remove);
+    let disposition = judge_mutation(
+        plan,
+        remove,
+        &[MutationResult::PreconditionFailed(
+            Precondition::RemovalNotCleared,
+        )],
+    );
+    assert!(
+        matches!(
+            &disposition,
+            Disposition::Halted {
+                reason: HaltReason::PreconditionFailed {
+                    command: 0,
+                    why: Precondition::RemovalNotCleared
+                },
+                ..
+            }
+        ),
+        "{disposition:?}"
+    );
+    records.push(StepRecord {
+        index: plan.steps[remove].index,
+        kind: plan.steps[remove].kind,
+        disposition,
+    });
+    for step in &plan.steps[records.len()..] {
+        records.push(StepRecord {
+            index: step.index,
+            kind: step.kind,
+            disposition: Disposition::NotReached,
+        });
+    }
+    let outcome = outcome_of(plan, &records);
+    assert!(!matches!(outcome, RunOutcome::Completed), "{outcome:?}");
+    assert_eq!(
+        outcome.exit_code(),
+        PARTIAL_SUCCESS_EXIT_CODE,
+        "a run that changed nothing it was refused is reported partial: {outcome:?}"
+    );
+    assert!(records[remove + 1..]
+        .iter()
+        .all(|r| matches!(r.disposition, Disposition::NotReached)));
 }

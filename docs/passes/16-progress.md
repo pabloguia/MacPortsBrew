@@ -207,3 +207,4 @@ session stopped and why.
 - 2026-11-20: K-5 (`de6df78`, PR #83): spec-guardian approve with changes, security-reviewer no blocking findings, docs-auditor M1-M4; all folded, the no-script-route refusal now `NO_SCRIPT_ROUTE` (exit 2) asked before any digest; E's handed tests tried switch-on and still handed to K-8, with their blockers.
 - 2026-11-20: K-5 review fold-in `d7a3fbc`; mutation proof at `de6df78`: 13 of 17 killed, 26b's gap closed by a `plan --json` test, 25c and 28 equivalent and accepted.
 - 2026-11-20: PR #83 (K-5, confirmation at the command line) merged as `0ca453f`, every required check green; K-6 started on `wo16/K-6-witness`.
+- 2026-11-21: K-6 reviewed in-session (subagent calls could not be checked by auto mode; the owner chose this), three findings folded; mutation proof 15 of 15 killed after five survivors were closed.
