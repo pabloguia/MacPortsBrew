@@ -72,8 +72,9 @@ pub use history::{
     run_record, HistoryConsultation, NotRecognised, Recognition, SnapshotLook,
 };
 pub use plan_tie::{
-    advanced_removal_phrase, confirm_advanced_removal, confirm_removal, confirm_shown, plan_phrase,
-    plan_question_error, removal_phrase, tie, tie_removal, PlanDigest, RemovalDigest, ShownPlan,
+    advanced_removal_phrase, advanced_removal_reason, confirm_advanced_removal, confirm_removal,
+    confirm_shown, plan_phrase, plan_question_error, removal_phrase, script_route_open, tie,
+    tie_removal, tie_to_plan_level, AdvancedRemovalReason, PlanDigest, RemovalDigest, ShownPlan,
 };
 pub use planner::{
     build_plan, migration_start, plan_outcome, plan_run, MigrationStart, PlanOutcome, PlanRequest,

@@ -2165,6 +2165,17 @@ fn invariant_13_a_named_dependency_warns_and_needs_the_stronger_confirmation() {
         ConfirmationLevel::Removal
     );
     assert!(named.confirmation_level() > default_removal.confirmation_level());
+    // What a person is told before Q2, the question only the strictest level
+    // asks (part K-5): the named row's own reason, and nothing for a plain
+    // removal.
+    assert_eq!(
+        macportsbrew_application::advanced_removal_reason(&named),
+        Some(macportsbrew_application::AdvancedRemovalReason::Named)
+    );
+    assert_eq!(
+        macportsbrew_application::advanced_removal_reason(&default_removal),
+        None
+    );
     let keeping = |package: &str| {
         build_plan(
             &snap,

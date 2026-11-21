@@ -1640,7 +1640,11 @@ fn a_shown_plan_is_minted_only_by_confirm_shown_and_asked_only_by_the_consent_mo
             }
             if path != migrate {
                 assert!(!calls_tie(&text), "{file} calls tie");
-                assert!(!text.contains("tie_removal("), "{file} calls tie_removal");
+                // The removal's script route raises a witness too (work
+                // order 16 part K, D5; security review of K-5, L1).
+                for raise in ["tie_removal(", "tie_to_plan_level(", "script_route_open("] {
+                    assert!(!text.contains(raise), "{file} calls {raise}");
+                }
             }
         }
     }

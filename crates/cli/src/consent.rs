@@ -37,11 +37,13 @@
 
 use crate::i18n::Messages;
 use macportsbrew_application::{
-    confirm, confirm_shown, confirmation_phrase, plan_phrase, ConsentCode, ConsentDecision,
-    ConsentRefusal, ElevationRequest, GateClear, ShownPlan,
+    advanced_removal_phrase, advanced_removal_reason, confirm, confirm_advanced_removal,
+    confirm_removal, confirm_shown, confirmation_phrase, plan_phrase, removal_phrase,
+    AdvancedRemovalReason, ConsentCode, ConsentDecision, ConsentRefusal, ElevationRequest,
+    GateClear, ShownPlan,
 };
-use macportsbrew_domain::MigrationPlan;
 use macportsbrew_domain::{escape_hostile, redact_home, HomeRedaction};
+use macportsbrew_domain::{ConfirmationLevel, MigrationPlan, StepKind};
 use std::collections::BTreeMap;
 use std::io::{BufRead, Read, Write};
 
@@ -213,22 +215,135 @@ pub fn confirm_plan(
         )
     );
     let _ = out.flush();
-    let mut line = String::new();
-    let read = (&mut *streams.input)
-        .take(MAX_LINE_BYTES)
-        .read_line(&mut line);
-    let shown = match read {
-        Ok(0) | Err(_) => None,
-        Ok(_) => confirm_shown(cleared, &code, &line),
-    };
-    shown.ok_or_else(|| {
+    let declined = |out: &mut dyn Write| {
         let _ = writeln!(
             out,
             "{}",
             messages.render("consent.declined", &BTreeMap::new())
         );
         ConsentRefusal::Declined
-    })
+    };
+    let shown = read_answer(streams.input).and_then(|line| confirm_shown(cleared, &code, &line));
+    let Some(shown) = shown else {
+        return Err(declined(out));
+    };
+    // The questions above the plan's own (work order 16 part K, D5), each with
+    // a code drawn for it alone and asked only after the one below it was
+    // answered, so a person types every phrase of the level and nothing is
+    // asked for a plan that keeps the source.
+    let plan = cleared.run().plan();
+    let level = plan.confirmation_level();
+    if level < ConfirmationLevel::Removal {
+        return Ok(shown);
+    }
+    let Some(code) = draw_code(streams.code, out, messages) else {
+        return Err(ConsentRefusal::CodeUnavailable);
+    };
+    let _ = write!(out, "{}", removal_steps(plan, messages));
+    let _ = write!(
+        out,
+        "{} ",
+        messages.render(
+            "confirm.type_to_remove_source",
+            &params(&[("phrase", escape_hostile(&removal_phrase(&code)))]),
+        )
+    );
+    let _ = out.flush();
+    let shown = match read_answer(streams.input) {
+        Some(line) => confirm_removal(shown, &code, &line).map_err(|_| declined(out))?,
+        None => return Err(declined(out)),
+    };
+    let Some(reason) = advanced_removal_reason(plan) else {
+        return Ok(shown);
+    };
+    let Some(code) = draw_code(streams.code, out, messages) else {
+        return Err(ConsentRefusal::CodeUnavailable);
+    };
+    let package = params(&[("package", escape_hostile(&plan.package.name))]);
+    let _ = writeln!(out);
+    let keys: &[&str] = match reason {
+        AdvancedRemovalReason::Named => &["advanced.warning", "plan.entered_by_named"],
+        AdvancedRemovalReason::Advanced => &["advanced.warning"],
+        AdvancedRemovalReason::IntentUnknown => &["confirm.removal_intent_unknown"],
+        AdvancedRemovalReason::NotRequested => &["confirm.removal_not_requested"],
+        AdvancedRemovalReason::NotRecorded => &["confirm.removal_entry_unrecorded"],
+    };
+    for key in keys {
+        let _ = writeln!(out, "{}", messages.render(key, &package));
+    }
+    let _ = write!(
+        out,
+        "{} ",
+        messages.render(
+            "confirm.type_to_confirm_advanced_removal",
+            &params(&[("phrase", escape_hostile(&advanced_removal_phrase(&code)))]),
+        )
+    );
+    let _ = out.flush();
+    match read_answer(streams.input) {
+        Some(line) => confirm_advanced_removal(shown, &code, &line).map_err(|_| declined(out)),
+        None => Err(declined(out)),
+    }
+}
+
+/// What Q1 says before its phrase (D5): every `REMOVE_SOURCE` step, with the
+/// package and the provider it is removed from, each escaped as every
+/// rendered provider value is. A function of the plan alone, so what it shows
+/// of a hostile value is tested without a gate that would refuse it first.
+#[must_use]
+pub fn removal_steps(plan: &MigrationPlan, messages: &Messages) -> String {
+    use std::fmt::Write as _;
+    let mut out = format!(
+        "\n{}\n",
+        messages.render("confirm.removal_heading", &BTreeMap::new())
+    );
+    for step in plan
+        .steps
+        .iter()
+        .filter(|s| s.kind == StepKind::RemoveSource)
+    {
+        let provider = step.provider.as_ref().unwrap_or(&plan.source);
+        let _ = writeln!(
+            out,
+            "  {}",
+            messages.render(
+                "confirm.removal_step",
+                &params(&[
+                    ("step", step.index.to_string()),
+                    ("package", escape_hostile(&plan.package.name)),
+                    ("provider", escape_hostile(provider.as_str())),
+                ]),
+            )
+        );
+    }
+    out
+}
+
+/// One bounded line of `input`; `None` at end of input or on a read error.
+fn read_answer(input: &mut dyn BufRead) -> Option<String> {
+    let mut line = String::new();
+    match input.take(MAX_LINE_BYTES).read_line(&mut line) {
+        Ok(0) | Err(_) => None,
+        Ok(_) => Some(line),
+    }
+}
+
+/// A fresh code for the next question, drawn before it is written; `None`
+/// says so on `out` and asks nothing (SR 10).
+fn draw_code(
+    draw: &mut dyn FnMut() -> Option<[u8; 3]>,
+    out: &mut dyn Write,
+    messages: &Messages,
+) -> Option<ConsentCode> {
+    let code = draw().map(ConsentCode::from_bytes);
+    if code.is_none() {
+        let _ = writeln!(
+            out,
+            "{}",
+            messages.render("consent.code_unavailable", &BTreeMap::new())
+        );
+    }
+    code
 }
 
 #[cfg(test)]

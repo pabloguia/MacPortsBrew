@@ -44,6 +44,7 @@ once at its own root; see "What an executor inherits".
 | `dryRunOnly` | boolean | `true` in this build: whether the build that wrote the plan can run its mutating steps. A plan carrying `false` is refused for execution (`PLAN_NOT_DRY_RUN_ONLY`). It describes the build and is not the boundary — the gate and the absence of any mutating path are |
 | `concurrentProviderActivity` | `ConcurrentProviderActivity`, defined in [`migrate.v2.md`](migrate.v2.md) | Whether a provider's own lock was held right after the input was read (obligation 5). Added to `schemaVersion` 1 after the schema was first documented, without a bump: additive, and every `plan --json` this build writes carries it, always last, after `dryRunOnly`; how to read its absence is in [`migrate.v1.md`](migrate.v1.md#concurrentprovideractivity). It belongs to the `plan` command's document, not to `MigrationPlan`: `migrate` carries the plan under its own `plan` key *without* it and writes the flag once at its own root, and the execution gate neither reads nor requires it |
 | `warnings` | array of message identifiers, optional | Written, when present, between `dryRunOnly` and `concurrentProviderActivity`. `["advanced.warning"]` when `enteredBy` is `ADVANCED` or `NAMED`; omitted otherwise. Derived from `enteredBy` when the document is written, never stored on the plan, and a closed set: `advanced.warning` is the only value this build writes. Since 2026-10-27, additive (DP-037). A script reads the identifier; the text is in the catalogue |
+| `confirmation` | `"PLAN"` \| `"REMOVAL"` \| `"ADVANCED_REMOVAL"`, optional | How strongly the plan must be confirmed before it runs (work order 16 part K, D5; SE-114): `PLAN` when the source is kept; `REMOVAL` for a removal whose source row has `enteredBy: DEFAULT_VIEW` and `sourceOwnership: TOP_LEVEL`; `ADVANCED_REMOVAL` for every other removal, absences included. Written by every `plan --json` this build produces, after `warnings` and before `concurrentProviderActivity`; derived from the plan when the document is written and never stored on it, so it cannot claim a lower level than the plan's own steps. Absent in every document from before the field, and a consumer must not read its absence as `PLAN`. Since 2026-11-20, additive |
 
 ## `MigrationStep`
 
@@ -936,6 +937,7 @@ entirely non-mutating and the command exits 4:
   ],
   "policyVersion": "2026.11.04-4",
   "dryRunOnly": true,
+  "confirmation": "PLAN",
   "concurrentProviderActivity": {
     "activity": "UNKNOWABLE",
     "possiblyInconsistent": true

@@ -64,14 +64,14 @@ use macportsbrew_adapters::persistence::history_store::read_view;
 use macportsbrew_adapters::persistence::state_dir::StateDir;
 use macportsbrew_adapters::system::machine::effective_uid;
 use macportsbrew_application::{
-    clear, migration_key, migration_start, mutation_allowance, plan_question_error, tie,
-    AnalysisOptions, ConsentDecision, ElevationRequest, GateClear, HistoryConsultation,
-    MigrationStart, MutationAllowance, NotRecognised, PlanDigest, PlanRequest, PlannedRun,
-    RunOutcome, ShownPlan, SourceFate, StepRecord,
+    clear, migration_key, migration_start, mutation_allowance, plan_question_error,
+    script_route_open, tie, tie_to_plan_level, AnalysisOptions, ConsentDecision, ElevationRequest,
+    GateClear, HistoryConsultation, MigrationStart, MutationAllowance, NotRecognised, PlanDigest,
+    PlanRequest, PlannedRun, RemovalDigest, RunOutcome, ShownPlan, SourceFate, StepRecord,
 };
 use macportsbrew_domain::{
-    ConcurrencyFlag, DomainError, ErrorId, HistoryView, MigrationKey, MigrationPlan, ProviderId,
-    RunStart,
+    ConcurrencyFlag, ConfirmationLevel, DomainError, ErrorId, HistoryView, MigrationKey,
+    MigrationPlan, ProviderId, RunStart,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -133,6 +133,35 @@ pub fn check_plan_digest(cli: &Cli, text: &str) -> Result<PlanDigest, DomainErro
     })
 }
 
+/// `--removal-digest`, checked where `--plan-digest` is, before anything is
+/// built or printed (work order 16 part K, D5). The command line already
+/// requires `--plan-digest` and `--remove-source` beside it; `--yes` is
+/// checked here, as for the plan digest.
+pub fn check_removal_digest(cli: &Cli, text: &str) -> Result<RemovalDigest, DomainError> {
+    if !cli.yes {
+        return Err(DomainError::new(
+            ErrorId::Usage,
+            "--removal-digest is used only with --yes: it names the removal --yes may run",
+        ));
+    }
+    RemovalDigest::parse(text).ok_or_else(|| {
+        DomainError::new(
+            ErrorId::Usage,
+            "--removal-digest takes the digest as migrate printed it: `sha256:` and 64 lowercase \
+             hexadecimal digits",
+        )
+    })
+}
+
+/// What a script echoed back: the plan digest and, for a removal, its own.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Echoed {
+    /// `--plan-digest`.
+    pub plan: Option<PlanDigest>,
+    /// `--removal-digest`.
+    pub removal: Option<RemovalDigest>,
+}
+
 /// `migrate.v2`'s document.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -155,9 +184,18 @@ struct Document<'a> {
     /// 16 part E-4). A fingerprint of unredacted data. Additive to v1.
     #[serde(skip_serializing_if = "Option::is_none")]
     plan_digest: Option<PlanDigest>,
+    /// The removal's own digest, which `--removal-digest` takes back, written
+    /// only for a plan at the `REMOVAL` level (work order 16 part K, D5).
+    /// Additive.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    removal_digest: Option<RemovalDigest>,
     /// DP-037: derived from the plan's `enteredBy`. Additive to v1.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     warnings: Vec<super::PlanWarning>,
+    /// How strongly the plan must be confirmed, derived from it when the
+    /// document is written and never stored on it (D5). Additive.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirmation: Option<ConfirmationLevel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     execution: Option<Execution<'a>>,
     /// Always written: whether a provider may have been changing the machine
@@ -464,12 +502,12 @@ pub fn migrate(
     ctx: &Context,
     cli: &Cli,
     request: &PlanRequest,
-    digest: Option<PlanDigest>,
+    echoed: Echoed,
     options: &AnalysisOptions,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<i32, DomainError> {
-    migrate_with(ctx, cli, request, digest, options, stdout, stderr, &|key| {
+    migrate_with(ctx, cli, request, echoed, options, stdout, stderr, &|key| {
         read_history(ctx, key)
     })
 }
@@ -491,7 +529,7 @@ fn migrate_with(
     ctx: &Context,
     cli: &Cli,
     request: &PlanRequest,
-    digest: Option<PlanDigest>,
+    echoed: Echoed,
     options: &AnalysisOptions,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -554,6 +592,8 @@ fn migrate_with(
                     retained_run_not_recognised: None,
                     plan: None,
                     plan_digest: None,
+                    removal_digest: None,
+                    confirmation: None,
                     warnings: Vec::new(),
                     execution: None,
                     concurrent_provider_activity: concurrency.clone(),
@@ -595,6 +635,8 @@ fn migrate_with(
                     retained_run_not_recognised: None,
                     plan: None,
                     plan_digest: None,
+                    removal_digest: None,
+                    confirmation: None,
                     warnings: Vec::new(),
                     execution: None,
                     concurrent_provider_activity: concurrency.clone(),
@@ -622,8 +664,19 @@ fn migrate_with(
     // `--yes` would run — after the re-plan of a run that keeps the source — whatever the
     // allowance, so a plan changed since it was shown stops here with stdout
     // empty (R2), and the check is exercised in this build.
-    let tied = match (mode, digest) {
-        (Mode::Execute, Some(echoed)) => Some(tie(&planned, &echoed)?),
+    // For a removal the witness is raised to the plan's own level by its
+    // removal digest, and `ADVANCED_REMOVAL` is refused here, in every build,
+    // before anything is printed: it has no script route (work order 16 part
+    // K, D5, SR-L2).
+    let tied = match (mode, echoed.plan) {
+        (Mode::Execute, Some(digest)) => {
+            script_route_open(&planned)?;
+            Some(tie_to_plan_level(
+                tie(&planned, &digest)?,
+                &planned,
+                echoed.removal.as_ref(),
+            )?)
+        }
         _ => None,
     };
     let note_doc = note.as_ref().map(not_recognised);
@@ -686,6 +739,8 @@ fn migrate_with(
             retained_run_not_recognised: note_doc,
             plan: Some(plan),
             plan_digest: Some(digest),
+            removal_digest: removal_digest(plan),
+            confirmation: Some(plan.confirmation_level()),
             warnings: super::plan_warnings(plan),
             execution: report.as_ref().map(execution),
             concurrent_provider_activity: concurrency.clone(),
@@ -706,8 +761,14 @@ fn migrate_with(
             None => {
                 // The hint only where the input could be put to the gate: a
                 // snapshot file cannot (`refuse_execution_from_a_snapshot_file`).
-                let hint = ctx.execution_registry().is_some();
+                // Nor for a plan with no script route: the hint would
+                // invite a command that is refused (D5).
+                let hint = ctx.execution_registry().is_some()
+                    && plan.confirmation_level() != ConfirmationLevel::AdvancedRemoval;
                 write!(stdout, "{}", human::plan_digest(ctx, &digest, hint)).map_err(io)?;
+                if let Some(removal) = removal_digest(plan) {
+                    write!(stdout, "{}", human::removal_digest(ctx, &removal, hint)).map_err(io)?;
+                }
                 write!(stdout, "{}", human::render_only(ctx)).map_err(io)?;
             }
             Some(report) => {
@@ -727,6 +788,14 @@ fn migrate_with(
         None if plan.requires_manual_review() => ErrorId::SafetyBlocked.exit_code(),
         None => 0,
     })
+}
+
+/// The removal digest `migrate` prints, only for a plan at the `REMOVAL`
+/// level: a plan that keeps the source has nothing to remove, and an
+/// `ADVANCED_REMOVAL` plan has no script route, so printing one would invite a
+/// command that is refused (D5).
+fn removal_digest(plan: &MigrationPlan) -> Option<RemovalDigest> {
+    (plan.confirmation_level() == ConfirmationLevel::Removal).then(|| RemovalDigest::of(plan))
 }
 
 // The live branch's tests name the providers of the recording they replay, so

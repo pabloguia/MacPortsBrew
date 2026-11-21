@@ -962,6 +962,27 @@ pub fn plan_digest(
     out
 }
 
+/// `migrate`, after the plan digest, for a plan at the `REMOVAL` level only:
+/// the removal's own digest, which `--removal-digest` takes back (work order
+/// 16 part K, D5).
+pub fn removal_digest(
+    ctx: &Context,
+    digest: &macportsbrew_application::RemovalDigest,
+    hint: bool,
+) -> String {
+    let mut out = format!(
+        "{}\n",
+        ctx.messages.render(
+            "migrate.removal_digest",
+            &params(&[("digest", digest.to_string())])
+        )
+    );
+    if hint {
+        let _ = writeln!(out, "{}", label(ctx, "migrate.removal_digest_hint"));
+    }
+    out
+}
+
 /// `migrate` in render mode, after the plan: what would put it to the gate.
 pub fn render_only(ctx: &Context) -> String {
     format!("\n{}\n", label(ctx, "migrate.render_only"))

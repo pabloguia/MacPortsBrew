@@ -141,6 +141,10 @@ struct Document<'a> {
     /// DP-037: derived from the plan's `enteredBy`. Additive to v1.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     warnings: Vec<super::PlanWarning>,
+    /// The plan's confirmation level, derived from its own steps when the
+    /// document is written (work order 16 part K, D4 and D5). Additive.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirmation: Option<macportsbrew_domain::ConfirmationLevel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     execution: Option<Execution<'a>>,
     concurrent_provider_activity: ConcurrencyFlag,
@@ -312,6 +316,7 @@ pub(super) fn restore(
             nothing_to_restore: None,
             plan: Some(&plan),
             warnings: super::plan_warnings(&plan),
+            confirmation: Some(plan.confirmation_level()),
             execution: report.as_ref().map(execution),
             concurrent_provider_activity: concurrency.clone(),
         };
@@ -386,6 +391,7 @@ fn nothing_to_restore(
             nothing_to_restore: Some(reason),
             plan: None,
             warnings: Vec::new(),
+            confirmation: None,
             execution: None,
             concurrent_provider_activity: concurrency.clone(),
         };

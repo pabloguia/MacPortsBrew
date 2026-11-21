@@ -86,13 +86,18 @@ provider command is run.
 | `--yes` | Put the plan to the execution gate instead of only showing it. Nothing in this build prompts |
 | `--dry-run` | Show the plan and run nothing. Wins over `--yes` |
 | `--plan-digest <DIGEST>` | With `--yes`: go on to the execution gate only if `<DIGEST>` is the digest of the plan about to run, as `migrate` printed it. Any other digest stops before the gate (exit **4**, nothing on stdout); a malformed one, or one without `--yes`, is a usage error (exit **2**) |
+| `--removal-digest <DIGEST>` | With `--yes`, `--plan-digest` and `--remove-source`: the removal's own digest, as `migrate` printed it beside the plan digest. A plan that removes a package you asked for, from the default view, needs it: without it, or with another value, the run stops before the gate (exit **4**, nothing on stdout). Any other removal (outside the default view, a dependency or an orphan, a package with no record of whether you asked for it, or a plan from before these were recorded) has no script route: `--plan-digest` for it is refused as `NO_SCRIPT_ROUTE` (exit **2**), and it can be confirmed only at a terminal, once a plan can run. Malformed, or without the three flags, it is a usage error (exit **2**) |
 
 Without `--yes`, or with `--dry-run`, it prints the plan as `plan` does,
 followed by the plan's digest (`sha256:` and 64 lowercase hexadecimal digits;
 `planDigest` in `--json`). A
 script that wants to run exactly the plan it showed passes that digest back with
 `--yes --plan-digest`; a plan that changed in between is refused. The digest is
-valid only for the same version of MacPortsBrew, and someone holding it can
+valid only for the same version of MacPortsBrew. For a plan that removes a
+package you asked for, from the default view, `migrate` also prints a removal
+digest (`removalDigest`), which goes back with `--removal-digest`, and `--json` says how strongly the plan must be
+confirmed as `confirmation` (`PLAN`, `REMOVAL` or `ADVANCED_REMOVAL`). Someone
+holding a digest can
 test a guess at what the plan contains, so leave it out of anything you
 publish. With `--yes` it prints the
 plan and the gate's refusals, one line per reason the gate refuses, and exits
