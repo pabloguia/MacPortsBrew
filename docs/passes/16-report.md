@@ -82,3 +82,30 @@ step; G-2's mutation proof left one accepted survivor (`G.md`). **Declared, not 
 04's false negatives; Apple Silicon and a lock a real provider holds are unverified (R-17,
 owner items). The deviation from the schema compatibility rule, and from the plan's
 order, are in SE-015.
+
+## K — removal opt-in (DP-048 (c))
+
+**Pull requests.** K-0 plan `e1ffdfd` (PR #78); K-1 R-29 `029348f` (PR #80);
+K-2 `SourceFate` `0e65314` (PR #79); K-3 the opt-in `a2941a0` (PR #81); K-4 the
+confirmation levels `bfe3f6f` (PR #82); K-5 their command-line half `0ca453f`
+(PR #83); K-6 the removal witness `bfdb937` (PR #84); K-7 the source-build cost
+`6113305` (PR #85); K-8 this close, on `wo16/K-8-close`.
+
+Built: removal is opt-in (`--remove-source`; the default keeps the source and
+ends at `RECORD_HISTORY`, INV-18), `--retain-source` an accepted no-op with a
+notice; a removal is confirmed at its own level (`REMOVAL`, `ADVANCED_REMOVAL`),
+asked at a terminal in its own words and, for a script, by `--removal-digest`;
+each `REMOVE_SOURCE` command is handed over only with a witness minted for it,
+after the destination and the source's dependents are read again; a source-build
+destination names its cost. **Reachable today:** the opt-in, the default plan,
+the notice, `sourceOwnership`, `confirmation` and the digests in the documents,
+and the source-build text. **Not reachable:** every question and refusal past the
+gate, behind the switch, which stays off. Tripwire
+`the_switch_needs_removal_opt_in` is now a positive check on every build
+(K-8). K-0 to K-5 reviewed by the subagents (which ran for each slice is in
+`16-plans/K.md`, Reviews, and for K-1 and K-2 in the ledger's K row); K-6 and K-7 in-session at the owner's choice, so **an independent
+review of both is owed before the flip**. Mutation proofs per slice are in
+`16-plans/K.md`, Reviews (K-2's in the ledger). **Declared, not closed:** the toolchain block (K-7;
+the recorder carries no filesystem read, an owner capture); E's two handed
+tests and K-3's mutant 7a (the re-plan under the lock), still handed to part L; D8's M-1 consequence, for part L's proposal
+(H.md's checklist). The rationale is SE-114.
