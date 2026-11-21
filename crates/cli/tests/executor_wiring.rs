@@ -39,11 +39,11 @@ use macportsbrew_adapters::registry::{self, PlanReadError};
 use macportsbrew_application::{advanced_removal_phrase, removal_phrase};
 use macportsbrew_application::{
     clear, confirm_advanced_removal, confirm_removal, confirm_shown, evaluable_in_this_build,
-    execution_refusals_for, plan_run, tie, tie_removal, AnalysisOptions, ConfigurationRechecked,
-    ConsentCode, ConsentDecision, ConsentGiven, Disposition, ElevationRequest, ExecutionRefusal,
-    GateClear, HaltReason, MutationAllowance, PlanDigest, PlanRequest, PlannedRun, Precondition,
-    Question, RemovalDigest, RunOutcome, ShownPlan, SourceFate, PARTIAL_SUCCESS_EXIT_CODE,
-    TEST_PROBE_EXECUTABLE,
+    execution_refusals_for, plan_run, script_route_open, tie, tie_removal, AnalysisOptions,
+    ConfigurationRechecked, ConsentCode, ConsentDecision, ConsentGiven, Disposition,
+    ElevationRequest, ExecutionRefusal, GateClear, HaltReason, MutationAllowance, PlanDigest,
+    PlanRequest, PlannedRun, Precondition, Question, RemovalDigest, RunOutcome, ShownPlan,
+    SourceFate, PARTIAL_SUCCESS_EXIT_CODE, TEST_PROBE_EXECUTABLE,
 };
 use macportsbrew_domain::{
     Architecture, ArtifactAvailability, AvailabilityAssessment, AvailabilityEvidence, Capability,
@@ -2888,6 +2888,12 @@ fn invariant_02_a_removal_is_asked_after_the_plan_with_a_code_of_its_own() {
             "{typed:?}"
         );
         assert!(prompt.contains("Not allowed"), "{prompt}");
+        // A declined Q1 ends the run as a declined Q0 does, exit 6 (K.md's
+        // extension of `invariant_02_a_declined_plan_question_exits_6_before_anything_runs`).
+        assert_eq!(
+            macportsbrew_application::plan_question_error(ConsentRefusal::Declined).exit_code(),
+            6
+        );
     }
     // No code for Q1: nothing more is asked and nothing is read.
     let (result, prompt, read) = confirm_seq(&cleared, both, &[Some(Q0), None]);
@@ -3005,6 +3011,10 @@ fn invariant_13_an_advanced_removal_asks_why_and_needs_its_own_phrase() {
                 result.map(|_| ()),
                 Err(ConsentRefusal::Declined),
                 "{case}: {typed:?}"
+            );
+            assert_eq!(
+                macportsbrew_application::plan_question_error(ConsentRefusal::Declined).exit_code(),
+                6
             );
         }
     }
@@ -3699,8 +3709,14 @@ fn invariant_02_a_script_cannot_confirm_an_advanced_removal() {
             .expect_err("no script route to the strictest level");
         assert_eq!(
             (refused.id, refused.exit_code()),
-            (ErrorId::Usage, 2),
+            (ErrorId::NoScriptRoute, 2),
             "{entry:?}"
+        );
+        // Asked before any digest is compared (K-5).
+        let refused = script_route_open(&run).expect_err("no script route");
+        assert_eq!(
+            (refused.id, refused.exit_code()),
+            (ErrorId::NoScriptRoute, 2)
         );
     }
 }

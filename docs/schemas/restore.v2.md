@@ -37,6 +37,7 @@ as root, for a value that is not a run id (usage, exit 2), and for
     { "note": "NOT_VERSION_EXACT", "package": "htop", "recordedVersion": "3.4.1" }
   ],
   "plan": { "schemaVersion": 2, "...": "plan.v2" },
+  "confirmation": "REMOVAL",
   "concurrentProviderActivity": { "...": "plan.v2, obligation 5" }
 }
 ```

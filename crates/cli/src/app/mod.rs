@@ -156,9 +156,9 @@ pub enum Command {
         #[arg(long, value_name = "DIGEST")]
         plan_digest: Option<String>,
         /// With --yes, --plan-digest and --remove-source: the removal's own
-        /// digest, as `migrate` printed it beside the plan digest. A removal
-        /// outside the default view, or of a package not recorded as yours,
-        /// has none: it is confirmed only at a terminal.
+        /// digest, as `migrate` printed it beside the plan digest. Printed only
+        /// for removing a package you asked for, from the default view; any
+        /// other removal is confirmed only at a terminal.
         #[arg(
             long,
             value_name = "DIGEST",

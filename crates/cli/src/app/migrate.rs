@@ -64,10 +64,10 @@ use macportsbrew_adapters::persistence::history_store::read_view;
 use macportsbrew_adapters::persistence::state_dir::StateDir;
 use macportsbrew_adapters::system::machine::effective_uid;
 use macportsbrew_application::{
-    clear, migration_key, migration_start, mutation_allowance, plan_question_error, tie,
-    tie_to_plan_level, AnalysisOptions, ConsentDecision, ElevationRequest, GateClear,
-    HistoryConsultation, MigrationStart, MutationAllowance, NotRecognised, PlanDigest, PlanRequest,
-    PlannedRun, RemovalDigest, RunOutcome, ShownPlan, SourceFate, StepRecord,
+    clear, migration_key, migration_start, mutation_allowance, plan_question_error,
+    script_route_open, tie, tie_to_plan_level, AnalysisOptions, ConsentDecision, ElevationRequest,
+    GateClear, HistoryConsultation, MigrationStart, MutationAllowance, NotRecognised, PlanDigest,
+    PlanRequest, PlannedRun, RemovalDigest, RunOutcome, ShownPlan, SourceFate, StepRecord,
 };
 use macportsbrew_domain::{
     ConcurrencyFlag, ConfirmationLevel, DomainError, ErrorId, HistoryView, MigrationKey,
@@ -189,13 +189,13 @@ struct Document<'a> {
     /// Additive.
     #[serde(skip_serializing_if = "Option::is_none")]
     removal_digest: Option<RemovalDigest>,
+    /// DP-037: derived from the plan's `enteredBy`. Additive to v1.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<super::PlanWarning>,
     /// How strongly the plan must be confirmed, derived from it when the
     /// document is written and never stored on it (D5). Additive.
     #[serde(skip_serializing_if = "Option::is_none")]
     confirmation: Option<ConfirmationLevel>,
-    /// DP-037: derived from the plan's `enteredBy`. Additive to v1.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    warnings: Vec<super::PlanWarning>,
     #[serde(skip_serializing_if = "Option::is_none")]
     execution: Option<Execution<'a>>,
     /// Always written: whether a provider may have been changing the machine
@@ -669,11 +669,14 @@ fn migrate_with(
     // before anything is printed: it has no script route (work order 16 part
     // K, D5, SR-L2).
     let tied = match (mode, echoed.plan) {
-        (Mode::Execute, Some(digest)) => Some(tie_to_plan_level(
-            tie(&planned, &digest)?,
-            &planned,
-            echoed.removal.as_ref(),
-        )?),
+        (Mode::Execute, Some(digest)) => {
+            script_route_open(&planned)?;
+            Some(tie_to_plan_level(
+                tie(&planned, &digest)?,
+                &planned,
+                echoed.removal.as_ref(),
+            )?)
+        }
         _ => None,
     };
     let note_doc = note.as_ref().map(not_recognised);
@@ -758,7 +761,10 @@ fn migrate_with(
             None => {
                 // The hint only where the input could be put to the gate: a
                 // snapshot file cannot (`refuse_execution_from_a_snapshot_file`).
-                let hint = ctx.execution_registry().is_some();
+                // Nor for a plan with no script route: the hint would
+                // invite a command that is refused (D5).
+                let hint = ctx.execution_registry().is_some()
+                    && plan.confirmation_level() != ConfirmationLevel::AdvancedRemoval;
                 write!(stdout, "{}", human::plan_digest(ctx, &digest, hint)).map_err(io)?;
                 if let Some(removal) = removal_digest(plan) {
                     write!(stdout, "{}", human::removal_digest(ctx, &removal, hint)).map_err(io)?;

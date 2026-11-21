@@ -102,8 +102,9 @@ its own confirmation level**, is a safety stop (`PLAN_NOT_SHOWN`, exit 4) —
 under `--plan-digest`, a digest that is not the plan's, and for a `REMOVAL`
 plan a removal digest missing or not its own, in every build — and
 `migrate --yes` with no terminal to confirm at and no `--plan-digest` is a
-usage error (exit 2), as is `--plan-digest` for an `ADVANCED_REMOVAL` plan,
-which has no script route; stdout is empty in all of them (work order 16
+usage error (exit 2), and `--plan-digest` for an `ADVANCED_REMOVAL` plan,
+which has no script route, is `NO_SCRIPT_ROUTE` (exit 2) whatever digest is
+given; stdout is empty in all of them (work order 16
 parts E and K, SE-111, SE-114). `--plan-digest` is a `migrate` flag: the digest
 `migrate` printed as `planDigest`, so a script runs exactly the plan it was
 shown; malformed, or without `--yes`, it is a usage error. `--removal-digest`
@@ -249,7 +250,7 @@ derived from the plan alone, never stored on it, and written as
 |---|---|---|---|
 | `PLAN` | the source is kept | `run plan <code>` | `--plan-digest` |
 | `REMOVAL` | a removal of a row entered from the default view and recorded by its provider as the user's own request | then `remove source <code>`, after the removal steps are listed | `--plan-digest` and `--removal-digest` |
-| `ADVANCED_REMOVAL` | every other removal: entered in advanced mode or by naming it, recorded as a dependency, an orphan or with no record of intent, or a plan that does not record those fields | then `confirm advanced removal <code>`, after why the row needs it | none: a usage error (exit 2) |
+| `ADVANCED_REMOVAL` | every other removal: entered in advanced mode or by naming it, recorded as a dependency, an orphan or with no record of intent, or a plan that does not record those fields | then `confirm advanced removal <code>`, after why the row needs it | none: `NO_SCRIPT_ROUTE` (exit 2) |
 
 Each level asks every question of the level below plus one, each with a code
 drawn for it alone, so whatever confirms a level confirms every lower one and

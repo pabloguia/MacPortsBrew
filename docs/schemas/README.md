@@ -77,7 +77,7 @@ Documented once, in
 |---|---|---|
 | 0 | success | — |
 | 1 | generic failure | `PACKAGE_NOT_FOUND`, `NOT_IMPLEMENTED_IN_THIS_PASS`, `IO`, `INTERNAL` |
-| 2 | usage error | `USAGE` |
+| 2 | usage error | `USAGE`, `NO_SCRIPT_ROUTE` (work order 16 part K-5: `migrate --yes --plan-digest` for an `ADVANCED_REMOVAL` plan, which only a person at a terminal can confirm; refused before any digest is compared, in every build, stdout empty) |
 | 3 | partial success | — (execution only; not reachable in this build) |
 | 4 | blocked by a safety check | `SAFETY_BLOCKED`, `PLAN_NOT_SHOWN` (the plan to run is not the one confirmed: under `migrate --yes --plan-digest`, a digest that is not the plan's, in every build; otherwise execution only, not reachable in this build), `SAFETY_UNVERIFIABLE`, `PROVIDER_LOCKS_NOT_DETERMINED` (whether a provider's own lock was held could not be determined under the run lock; DP-030 (b); execution only, not reachable in this build), `PROVIDER_PRESENCE_UNPROVEN` (reserved; no longer raised since DP-026), `RUN_INTERRUPTED` (a marker names a run never accounted for; raised only by a mutating run, not reachable in this build), `PRIMARY_NEEDS_SHIM` (work order 16 part F-3: only a shim could make the destination's executables win; the identifier the gate's `PRIMARY_NEEDS_SHIM` refusal stands for. The gate's report still exits 4 for every refusal; the identifier is reserved for the part that offers a consented shim) |
 | 5 | provider unavailable or unhealthy | `PROVIDER_NOT_FOUND`, `PROVIDER_UNHEALTHY`, `PROVIDER_OUTPUT_CHANGED`, `PROVIDER_TIMEOUT`, `CAPABILITY_MISSING` |

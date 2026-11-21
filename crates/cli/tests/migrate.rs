@@ -1087,7 +1087,9 @@ fn invariant_02_migrate_runs_only_a_plan_tied_to_the_one_shown() {
     assert!(at("Some(shown) => shown,") < at("None => confirm_the_plan("));
     assert!(at("None => confirm_the_plan(") < at("state_and_user("));
     assert!(
-        source.contains("tie(&planned, &digest)?,") && source.contains("Some(tie_to_plan_level("),
+        source.contains("script_route_open(&planned)?;")
+            && source.contains("tie(&planned, &digest)?,")
+            && source.contains("Some(tie_to_plan_level("),
         "the script route's witness comes from `tie`, raised to the plan's level, and a \
          mismatch stops the run"
     );
@@ -1726,7 +1728,14 @@ fn the_digest_migrate_shows_is_the_one_yes_checks() {
         let digest = digest_of(&shown);
         let human = migrate_with_flags(&scratch, &file, &[], package, MP, flags);
         assert!(
+            stdout(&human).contains(&format!("Plan digest: {digest}\n")),
+            "{}",
+            stdout(&human)
+        );
+        // The hint to pass it back, except where no script route takes it.
+        assert_eq!(
             stdout(&human).contains(&format!("Plan digest: {digest}\nTo put exactly this plan")),
+            level != "ADVANCED_REMOVAL",
             "{}",
             stdout(&human)
         );
@@ -1755,9 +1764,28 @@ fn the_digest_migrate_shows_is_the_one_yes_checks() {
                 );
                 let mut both = yes.clone();
                 both.extend_from_slice(&["--removal-digest", &digest]);
-                let refused = migrate_with_flags(&scratch, &file, &["--json"], package, MP, &both);
-                assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
-                assert!(refused.stdout.is_empty());
+                let stale = format!("sha256:{}", "0".repeat(64));
+                let mut wrong = flags.to_vec();
+                wrong.extend_from_slice(&["--yes", "--plan-digest", &stale]);
+                // Its own digests, or a stale one: the same answer (K-5
+                // review), so a script reads one condition from one code.
+                for argv in [&both, &wrong] {
+                    let refused =
+                        migrate_with_flags(&scratch, &file, &["--json"], package, MP, argv);
+                    assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
+                    assert!(refused.stdout.is_empty());
+                    assert!(
+                        stderr(&refused).contains("at a terminal"),
+                        "{}",
+                        stderr(&refused)
+                    );
+                }
+                // No hint toward a command that is refused.
+                assert!(
+                    !stdout(&human).contains("--yes --plan-digest"),
+                    "{}",
+                    stdout(&human)
+                );
                 continue;
             }
             "REMOVAL" => {

@@ -802,6 +802,7 @@ fn every_error_id() -> Vec<ErrorId> {
         ErrorId::RunInterrupted,
         ErrorId::SafetyBlocked,
         ErrorId::PlanNotShown,
+        ErrorId::NoScriptRoute,
         ErrorId::PrimaryNeedsShim,
         ErrorId::UserAborted,
         ErrorId::SafetyUnverifiable,
@@ -831,6 +832,7 @@ fn every_error_id() -> Vec<ErrorId> {
             | ErrorId::RunInterrupted
             | ErrorId::SafetyBlocked
             | ErrorId::PlanNotShown
+            | ErrorId::NoScriptRoute
             | ErrorId::PrimaryNeedsShim
             | ErrorId::UserAborted
             | ErrorId::SafetyUnverifiable

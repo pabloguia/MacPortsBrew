@@ -110,6 +110,14 @@ pub enum ErrorId {
     /// so a script tells it from the planner's own refusal by the identifier,
     /// never by stdout, which is empty for both. Exit 4.
     PlanNotShown,
+    /// A removal that has no script route (work order 16 part K, D5): an
+    /// `ADVANCED_REMOVAL` plan given `--plan-digest`. Only a person at a
+    /// terminal can confirm it, because an echoed value cannot show that they
+    /// saw why the row needs the strictest confirmation (INV-13). The command
+    /// line is well formed, so it is not [`ErrorId::Usage`]'s text; exit 2,
+    /// like a missing terminal, because the route is structurally unable to
+    /// confirm it.
+    NoScriptRoute,
     /// The primary for some executable could be made to win only by a shim,
     /// which this release does not offer (F.md Design §4; SE-112): the plan is
     /// refused before any step, and the refusal names every executable with its
@@ -157,7 +165,7 @@ impl ErrorId {
     /// The stable exit code (`06-cli-and-ux.md`).
     pub fn exit_code(self) -> i32 {
         match self {
-            ErrorId::Usage => 2,
+            ErrorId::Usage | ErrorId::NoScriptRoute => 2,
             ErrorId::SafetyBlocked
             | ErrorId::SafetyUnverifiable
             | ErrorId::ProviderPresenceUnproven
@@ -207,6 +215,7 @@ impl ErrorId {
             ErrorId::RunInterrupted => "error.run_interrupted",
             ErrorId::SafetyBlocked => "error.safety_blocked",
             ErrorId::PlanNotShown => "error.plan_not_shown",
+            ErrorId::NoScriptRoute => "error.no_script_route",
             ErrorId::PrimaryNeedsShim => "error.primary_needs_shim",
             ErrorId::UserAborted => "error.user_aborted",
             ErrorId::SafetyUnverifiable => "error.safety_unverifiable",
@@ -239,6 +248,7 @@ impl ErrorId {
             ErrorId::RunInterrupted,
             ErrorId::SafetyBlocked,
             ErrorId::PlanNotShown,
+            ErrorId::NoScriptRoute,
             ErrorId::PrimaryNeedsShim,
             ErrorId::UserAborted,
             ErrorId::SafetyUnverifiable,
@@ -318,6 +328,7 @@ mod tests {
         // A plan that is not the one shown is a safety stop; a declined
         // question is the user's abort (work order 16 part E).
         assert_eq!(ErrorId::PlanNotShown.exit_code(), 4);
+        assert_eq!(ErrorId::NoScriptRoute.exit_code(), 2);
         assert_eq!(ErrorId::UserAborted.exit_code(), 6);
         // A primary only a shim could set is a safety stop (F.md Design §4).
         assert_eq!(ErrorId::PrimaryNeedsShim.exit_code(), 4);
@@ -354,7 +365,7 @@ mod tests {
 
     /// Update this **and** `all()` when adding an identifier. The exhaustive
     /// matches above will already have refused to compile.
-    const NUMBER_OF_ERROR_IDS: usize = 26;
+    const NUMBER_OF_ERROR_IDS: usize = 27;
 
     #[test]
     fn every_id_has_a_distinct_message() {

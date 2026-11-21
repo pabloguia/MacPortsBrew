@@ -362,7 +362,7 @@ pub fn tie(run: &PlannedRun, echoed: &PlanDigest) -> Result<ShownPlan, DomainErr
 ///
 /// # Errors
 ///
-/// - [`ErrorId::Usage`] (exit 2) for a plan at
+/// - [`ErrorId::NoScriptRoute`] (exit 2) for a plan at
 ///   [`ConfirmationLevel::AdvancedRemoval`]: an echoed value cannot show that
 ///   a person saw why the row needs the strictest confirmation (INV-13), so
 ///   that level has no script route.
@@ -419,9 +419,26 @@ pub fn tie_removal(
 /// missing terminal.
 fn no_script_route() -> DomainError {
     DomainError::new(
-        ErrorId::Usage,
-        "this removal needs a person at a terminal to confirm it; no digest given to --yes can",
+        ErrorId::NoScriptRoute,
+        "an ADVANCED_REMOVAL plan cannot be confirmed by --plan-digest or --removal-digest",
     )
+}
+
+/// Whether `run`'s plan has a script route at all (D5): asked **before** any
+/// digest is compared, so an `ADVANCED_REMOVAL` plan answers
+/// [`ErrorId::NoScriptRoute`] (exit 2) whatever was echoed, a stale plan
+/// digest included, and a script reads one answer for one condition.
+///
+/// # Errors
+///
+/// [`ErrorId::NoScriptRoute`] for a plan at
+/// [`ConfirmationLevel::AdvancedRemoval`].
+pub fn script_route_open(run: &PlannedRun) -> Result<(), DomainError> {
+    if run.plan().confirmation_level() == ConfirmationLevel::AdvancedRemoval {
+        Err(no_script_route())
+    } else {
+        Ok(())
+    }
 }
 
 /// The script route's witness at the level `run`'s plan needs (D5): `shown`,
@@ -430,10 +447,12 @@ fn no_script_route() -> DomainError {
 ///
 /// # Errors
 ///
-/// - [`ErrorId::Usage`] (exit 2) for a plan at
+/// - [`ErrorId::NoScriptRoute`] (exit 2) for a plan at
 ///   [`ConfirmationLevel::AdvancedRemoval`], whether or not a removal digest
-///   was given, and for a removal digest given for a plan that keeps the
-///   source.
+///   was given (defence in depth: `migrate` asks [`script_route_open`]
+///   before [`tie`]).
+/// - [`ErrorId::Usage`] (exit 2) for a removal digest given for a plan that
+///   keeps the source.
 /// - [`ErrorId::PlanNotShown`] (exit 4) for a `REMOVAL` plan without its
 ///   removal digest, or with another one: a script written for installs, one
 ///   that echoes `.planDigest` back alone, can never remove anything.
@@ -521,7 +540,7 @@ pub fn plan_question_error(why: ConsentRefusal) -> DomainError {
         ),
         ConsentRefusal::CodeUnavailable => DomainError::new(
             ErrorId::SafetyBlocked,
-            "no confirmation code could be drawn, so the plan was not asked about",
+            "no confirmation code could be drawn, so nothing further was asked",
         ),
         ConsentRefusal::NoRequests | ConsentRefusal::PlanDisagrees => DomainError::new(
             ErrorId::Internal,
