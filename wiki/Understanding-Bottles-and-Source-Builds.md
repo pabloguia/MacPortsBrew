@@ -133,7 +133,7 @@ Both providers need Apple's **Command Line Tools** to build from source.
 `macportsbrew doctor` checks for them:
 
 ```
-[OK] Command Line Tools are installed.
+[OK] A developer directory is selected (it may be Xcode rather than the Command Line Tools). Whether its tools match this macOS and its licence is accepted is not checked.
 ```
 
 If they are missing, that becomes a warning. Homebrew lists the Command Line Tools (or Xcode) among its requirements

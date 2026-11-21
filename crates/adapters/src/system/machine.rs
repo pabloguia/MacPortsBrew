@@ -419,9 +419,14 @@ impl SystemMachine {
         }
     }
 
-    /// The active developer directory. A non-zero exit is `xcode-select`
-    /// saying there is none; a tool that would not start says nothing either
-    /// way.
+    /// The active developer directory, which is what `xcode-select -p`
+    /// reports and all it reports: an `Installed` answer may be a full Xcode
+    /// rather than the Command Line Tools, and says nothing about whether
+    /// those tools match this macOS or whose licence is accepted (R-29). Only
+    /// an exit with a non-zero code is `xcode-select` saying there is none.
+    /// A tool that would not start, ran out of time, was killed by a signal
+    /// or was cancelled said nothing either way, and is `Unknown` rather
+    /// than a `Missing` it never reported (K-7).
     ///
     /// The path is redacted like every other captured path. A developer
     /// selects a toolchain under their home directory often enough
@@ -434,11 +439,13 @@ impl SystemMachine {
         let Ok(inv) = self.probe(XCODE_SELECT, &["-p"]) else {
             return CommandLineTools::Unknown;
         };
-        if matches!(inv.status, ExitStatus::NotStarted { .. }) {
-            return CommandLineTools::Unknown;
-        }
-        if !inv.status.success() {
-            return CommandLineTools::Missing;
+        match inv.status {
+            ExitStatus::Exited { code: 0 } => {}
+            ExitStatus::Exited { .. } => return CommandLineTools::Missing,
+            ExitStatus::NotStarted { .. }
+            | ExitStatus::TimedOut
+            | ExitStatus::Signalled { .. }
+            | ExitStatus::Cancelled => return CommandLineTools::Unknown,
         }
         let path = inv.stdout.trim();
         if path.is_empty() || !path.starts_with('/') {
@@ -852,6 +859,28 @@ mod tests {
             reader(empty).machine().unwrap().command_line_tools,
             CommandLineTools::Unknown
         );
+    }
+
+    /// K-7: only a non-zero exit is `xcode-select` reporting no developer
+    /// directory. A probe that ran out of time, was killed or was cancelled
+    /// reported nothing, and a `Missing` there would tell the user to install
+    /// tools they may well have.
+    #[test]
+    fn developer_tools_that_did_not_answer_are_unknown_not_missing() {
+        for status in [
+            ExitStatus::TimedOut,
+            ExitStatus::Signalled { signal: Some(9) },
+            ExitStatus::Signalled { signal: None },
+            ExitStatus::Cancelled,
+        ] {
+            let mut invocations = without(intel_native(), &["-p"]);
+            invocations.push(record("xcode-select", &["-p"], status.clone(), "", ""));
+            assert_eq!(
+                reader(invocations).machine().unwrap().command_line_tools,
+                CommandLineTools::Unknown,
+                "{status:?}"
+            );
+        }
     }
 
     #[test]
