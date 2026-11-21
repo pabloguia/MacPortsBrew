@@ -268,7 +268,15 @@ platform or disabled, or a provider that no longer supports this macOS —
 becomes a `MANUAL_REVIEW` step that the plan still shows, with the reason. A
 step that would build from source is not this case: a source build is a cost
 the plan names in its default view (`destination_source_build`, with what the
-build needs), not an unavailable artifact (DP-050, ruled 2026-10-27). `history` then reports the run as
+build needs), not an unavailable artifact (DP-050, ruled 2026-10-27). A known
+source build names its cause and that it needs the Command Line Tools or Xcode,
+whose match with this macOS and whose licence the plan cannot check; an unknown
+availability says it could not be told, never that a build will happen (K-7).
+*Declared deviation (work order 16 part K-7, Tier 3, SE-109):* DP-050's
+toolchain check does not block. Only a filesystem read can show the tools absent
+(R-29 finding 13), and a recording carries process invocations, not reads, so a
+block keyed on it could not be replayed (INV-15). It waits for an owner capture
+on a machine without a developer directory. `history` then reports the run as
 partially restorable, and executing the plan exits with the safety-check code.
 This is the case the project exists for, and it is precisely where "undo"
 must not read as more reversible than it is.

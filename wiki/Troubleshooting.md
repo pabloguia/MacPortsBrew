@@ -18,7 +18,7 @@ it prints:
 [Warning] homebrew: this input does not record the configuration files of homebrew - it is a recording, or a snapshot taken before they were recorded - so whether one overrides how this tool runs homebrew is unknown.
 [Warning] homebrew support for this machine is Degraded (source: https://docs.brew.sh/Support-Tiers, read 2026-09-04).
 [Warning] homebrew has announced the end of support for this machine in or after 2027-09-01 (source: https://docs.brew.sh/Support-Tiers, read 2026-09-04). This is dated data; re-check it before relying on it.
-[OK] Command Line Tools are installed.
+[OK] A developer directory is selected (it may be Xcode rather than the Command Line Tools). Whether its tools match this macOS and its licence is accepted is not checked.
 [OK] macports is not installed here (it was not found where it is documented to live).
 [OK] homebrew 6.0.21 is present.
 
@@ -96,7 +96,7 @@ This is normal and increasingly common on Intel. See
 [Understanding Bottles and Source Builds](Understanding-Bottles-and-Source-Builds.md),
 and [Intel Mac Homebrew Support](Intel-Mac-Homebrew-Support.md) for why.
 
-Check the Command Line Tools are installed — `doctor` says. Homebrew lists the Command Line Tools (or Xcode) among its requirements
+Check that a developer directory is selected — `doctor` says, though not whether it is the Command Line Tools or Xcode, nor whether they match this macOS. Homebrew lists the Command Line Tools (or Xcode) among its requirements
 (<https://docs.brew.sh/Installation>, read 2026-09-02), and a MacPorts source
 build compiles with the same Apple tools. A missing installation may not be
 obvious until a build fails.
