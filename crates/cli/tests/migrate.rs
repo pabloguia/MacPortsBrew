@@ -1842,6 +1842,34 @@ fn the_digest_migrate_shows_is_the_one_yes_checks() {
     assert_ne!(kept, removed, "removing the source is another plan");
 }
 
+/// `plan --json` writes the plan's confirmation level at its root, derived
+/// from the plan, at each level (work order 16 part K, D5; the mutation proof
+/// of K-5, 26b): the `plan` command's document is not `migrate`'s.
+#[test]
+fn the_plan_document_says_how_strongly_the_plan_must_be_confirmed() {
+    let scratch = Scratch::new("plan-confirmation");
+    let file = fixture(BOTH);
+    let file = file.to_str().expect("UTF-8 path");
+    for (package, flags, level) in [
+        (REMOVAL_LEVEL, &[][..], "PLAN"),
+        (REMOVAL_LEVEL, &["--remove-source"][..], "REMOVAL"),
+        (
+            REPLAYED_SERVICE,
+            &["--remove-source"][..],
+            "ADVANCED_REMOVAL",
+        ),
+    ] {
+        let mut argv = vec![
+            "--replay", file, "--json", "plan", package, "--to", MP, "--today", TODAY,
+        ];
+        argv.extend_from_slice(flags);
+        let out = run(&scratch, &argv);
+        let doc = document(&out);
+        assert_eq!(doc["confirmation"], level, "{package} {flags:?}");
+        assert!(doc.get("removalDigest").is_none(), "only migrate prints it");
+    }
+}
+
 /// `--removal-digest` needs `--yes`, `--plan-digest` and `--remove-source`
 /// (work order 16 part K, D5; mutant 25), and a malformed one is refused like a
 /// malformed plan digest: each a usage error before anything is printed.

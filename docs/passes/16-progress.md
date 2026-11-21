@@ -205,3 +205,4 @@ session stopped and why.
 - 2026-11-20: K-4's three reviews folded in `7a2f5ee`; mutation proof at `21eaa85` killed all 21 mutants; PR #82 out of draft.
 - 2026-11-20: PR #82 (K-4, confirmation levels) merged as `bfe3f6f`, every required check green (the push run's coverage job re-run after a 47-minute runner failure; the same commit had passed it on the pull-request run); K-5 started on `wo16/K-5-confirm`.
 - 2026-11-20: K-5 (`de6df78`, PR #83): spec-guardian approve with changes, security-reviewer no blocking findings, docs-auditor M1-M4; all folded, the no-script-route refusal now `NO_SCRIPT_ROUTE` (exit 2) asked before any digest; E's handed tests tried switch-on and still handed to K-8, with their blockers.
+- 2026-11-20: K-5 review fold-in `d7a3fbc`; mutation proof at `de6df78`: 13 of 17 killed, 26b's gap closed by a `plan --json` test, 25c and 28 equivalent and accepted.
