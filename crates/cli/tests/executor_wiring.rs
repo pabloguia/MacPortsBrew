@@ -550,17 +550,26 @@ impl MutationSite for Site<'_> {
 }
 
 #[derive(Default)]
-struct Seen(RefCell<Vec<Boundary>>);
+struct Seen(
+    RefCell<Vec<Boundary>>,
+    RefCell<Vec<(Boundary, Option<u32>)>>,
+);
 
 impl Observer for Seen {
-    fn at(&self, boundary: Boundary, _step: Option<u32>) {
+    fn at(&self, boundary: Boundary, step: Option<u32>) {
         self.0.borrow_mut().push(boundary);
+        self.1.borrow_mut().push((boundary, step));
     }
 }
 
 impl Seen {
     fn all(&self) -> Vec<Boundary> {
         self.0.borrow().clone()
+    }
+
+    /// Every boundary with the step it was passed for.
+    fn at_steps(&self) -> Vec<(Boundary, Option<u32>)> {
+        self.1.borrow().clone()
     }
 }
 
@@ -617,6 +626,8 @@ struct Setup<'a> {
     live: bool,
     recapture: Box<dyn Fn() -> Result<(Snapshot, MigrationPlan), DomainError> + 'a>,
     reread: &'a dyn Fn(&ProviderId, &str) -> Result<ProviderConfiguration, DomainError>,
+    /// The source's inventory read again before a removal command (D9).
+    dependents: &'a dyn Fn(&ProviderId) -> Result<ProviderInventory, DomainError>,
     read_back: &'a dyn Fn(&StateDir, &str, u32) -> Result<String, DomainError>,
 }
 
@@ -648,6 +659,7 @@ fn unchanged<'a>(direction: &'a Direction, scratch: &'a Scratch) -> Setup<'a> {
             );
             Ok(ProviderConfiguration::Read { files: Vec::new() })
         })),
+        dependents: &no_dependents,
         read_back: &history_store::read_back,
     }
 }
@@ -784,6 +796,7 @@ fn run_sampling<M: MutationSite>(
             recapture: &*setup.recapture,
             consent: &never_asked,
             reread: setup.reread,
+            dependents: setup.dependents,
             read_back: setup.read_back,
             observer: seen,
         },
@@ -1019,6 +1032,202 @@ fn invariant_01_no_removal_dispatches_unless_the_lock_probe_answered_immediately
     assert!(removed_somewhere, "no direction removes anything");
 }
 
+// --- the removal witness (work order 16 part K, D6 and D9) ---------------------
+
+/// The plan's source package with one package in its own provider depending on
+/// it, as an inventory read again just before the removal would show it.
+fn depended_on(package: &str) -> ProviderInventory {
+    let mut inventory = no_dependents(&ProviderId::new("any")).expect("an inventory");
+    inventory
+        .dependencies
+        .push(macportsbrew_domain::DependencyEdge {
+            from: "appeared-meanwhile".into(),
+            to: package.into(),
+            build_only: false,
+        });
+    inventory
+}
+
+#[test]
+fn invariant_04_a_dependent_that_appeared_before_the_removal_stops_it() {
+    // D9: a dependent present in the fresh inventory read and absent from the
+    // capture under the lock. The removal command is not handed over, the run
+    // ends `PARTIAL_SUCCESS`, the source is kept; both directions, by the same
+    // code. An unreadable inventory stops it the same way: an unknown is never
+    // a "no".
+    let mut removal_seen = false;
+    for (name, direction) in directions() {
+        let package = direction
+            .plan_of(&direction.snapshot)
+            .plan()
+            .package
+            .name
+            .clone();
+        let appeared = move |_: &ProviderId| Ok(depended_on(&package));
+        let unreadable = |_: &ProviderId| -> Result<ProviderInventory, DomainError> {
+            Err(DomainError::new(
+                ErrorId::ProviderTimeout,
+                "the read timed out",
+            ))
+        };
+        for (what, dependents, why) in [
+            (
+                "appeared",
+                &appeared as &dyn Fn(&ProviderId) -> Result<ProviderInventory, DomainError>,
+                Precondition::DependentsAppeared,
+            ),
+            (
+                "unreadable",
+                &unreadable,
+                Precondition::DependentsUnreadable,
+            ),
+        ] {
+            let scratch = Scratch::new("dependents");
+            let site = Site::exits(&scratch, 0);
+            let seen = Seen::default();
+            let mut setup = unchanged(&direction, &scratch);
+            setup.dependents = dependents;
+            let report = run(&direction.cleared(), &scratch, &site, &setup, &seen)
+                .unwrap_or_else(|e| panic!("{name} {what}: {e:?}"));
+            let Some(removal) = report
+                .records
+                .iter()
+                .find(|r| r.kind == StepKind::RemoveSource)
+            else {
+                continue;
+            };
+            if !seen.all().contains(&Boundary::DestinationReverified) {
+                continue;
+            }
+            removal_seen = true;
+            assert!(
+                matches!(
+                    &removal.disposition,
+                    Disposition::Halted {
+                        reason: HaltReason::PreconditionFailed { why: w, .. },
+                        ..
+                    } if *w == why
+                ),
+                "{name} {what}: {removal:?}"
+            );
+            assert!(
+                matches!(report.outcome, RunOutcome::PartialSuccess { .. }),
+                "{name} {what}: {:?}",
+                report.outcome
+            );
+            assert!(
+                !seen.all().contains(&Boundary::DependentsRechecked),
+                "{name} {what}"
+            );
+            let plan = direction.plan_of(&direction.snapshot);
+            let removing: Vec<&Vec<String>> = plan
+                .plan()
+                .steps
+                .iter()
+                .filter(|s| s.kind == StepKind::RemoveSource)
+                .flat_map(|s| s.commands.iter().map(|c| &c.argv))
+                .collect();
+            assert!(
+                site.handed
+                    .borrow()
+                    .iter()
+                    .all(|(_, argv)| !removing.contains(&argv)),
+                "{name} {what}: the removal was handed over"
+            );
+        }
+    }
+    assert!(removal_seen, "no direction reached a removal");
+}
+
+#[test]
+fn a_default_view_removal_of_a_dependency_never_reaches_the_run() {
+    // Mutant 20a's second kill (K-4's mutation proof, handed to K-6): a
+    // removing plan whose row is in the default view but recorded as a
+    // dependency or an orphan is refused by the gate under an allowance, so
+    // the run is never entered and nothing is dispatched, in both directions.
+    let mut checked = 0;
+    for (name, direction) in directions() {
+        for ownership in [Ownership::Dependency, Ownership::Orphan] {
+            let run = direction.plan_of(&direction.snapshot).map_plan(|p| {
+                p.entered_by = Some(EntryMode::DefaultView);
+                p.source_ownership = Some(ownership);
+            });
+            if !run.plan().removes_source() {
+                continue;
+            }
+            let refused = clear(run, Some(MutationAllowance::forced_in_tests()))
+                .err()
+                .unwrap_or_else(|| panic!("{name} {ownership:?}: the gate cleared it"));
+            assert!(
+                refused
+                    .1
+                    .refusals()
+                    .iter()
+                    .any(|r| matches!(r, ExecutionRefusal::EntryDisagreesWithOwnership)),
+                "{name} {ownership:?}: {:?}",
+                refused.1.refusals()
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "no direction plans a removal");
+}
+
+#[test]
+fn invariant_01_each_removal_command_passes_its_boundaries_in_order() {
+    // D6, by test because the reads' freshness is not held by type (SR-M1):
+    // for each removal command, the destination re-read, the dependents
+    // re-read, the run lock, the source's re-check, the lock sample, then the
+    // dispatch, with nothing of another command between.
+    use Boundary::*;
+    let order = [
+        DestinationReverified,
+        DependentsRechecked,
+        StillCurrent,
+        ConfigurationRechecked,
+        ProviderLocksSampled,
+        Dispatched,
+    ];
+    let mut checked = 0;
+    for (name, direction) in directions() {
+        let scratch = Scratch::new("removal-order");
+        let site = Site::exits(&scratch, 0);
+        let seen = Seen::default();
+        let cleared = direction.cleared();
+        let removal_steps: Vec<u32> = cleared
+            .run()
+            .plan()
+            .steps
+            .iter()
+            .filter(|s| s.kind == StepKind::RemoveSource)
+            .map(|s| s.index)
+            .collect();
+        run(
+            &cleared,
+            &scratch,
+            &site,
+            &unchanged(&direction, &scratch),
+            &seen,
+        )
+        .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        for step in removal_steps {
+            let at: Vec<Boundary> = seen
+                .at_steps()
+                .into_iter()
+                .filter(|(_, s)| *s == Some(step))
+                .map(|(b, _)| b)
+                .skip_while(|b| *b != DestinationReverified)
+                .collect();
+            if at.is_empty() {
+                continue;
+            }
+            assert_eq!(at, order, "{name}: step {step}");
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "no removal command was dispatched");
+}
+
 // --- the order ------------------------------------------------------------------
 
 #[test]
@@ -1056,7 +1265,11 @@ fn a_mutating_run_goes_probe_lock_replan_marker_check_dispatch_record_clear() {
         ];
         if removes {
             removed_somewhere = true;
-            expected.extend([ConfigurationRechecked, DestinationReverified]);
+            expected.extend([
+                ConfigurationRechecked,
+                DestinationReverified,
+                DependentsRechecked,
+            ]);
         }
         expected.extend([
             StillCurrent,
@@ -1209,6 +1422,7 @@ fn invariant_01_a_destination_that_is_not_there_stops_the_removal() {
             recapture: &*unchanged(&direction, &scratch).recapture,
             consent: &never_asked,
             reread: unchanged(&direction, &scratch).reread,
+            dependents: &no_dependents,
             read_back: &history_store::read_back,
             observer: &seen,
         },
@@ -1455,6 +1669,7 @@ fn a_lock_lost_before_the_command_stops_the_step_before_the_re_read() {
                 recapture: &*setup.recapture,
                 consent: &never_asked,
                 reread: setup.reread,
+                dependents: &no_dependents,
                 read_back: setup.read_back,
                 observer: &observer,
             },
@@ -1726,6 +1941,7 @@ fn a_run_halted_by_a_failed_check_writes_a_record_that_reads_back_with_its_bases
             recapture: &*setup.recapture,
             consent: &never_asked,
             reread: setup.reread,
+            dependents: &no_dependents,
             read_back: setup.read_back,
             observer: &seen,
         },
@@ -2188,6 +2404,7 @@ fn run_reading<'s, S: ReadSite + 's>(
             recapture: &*unchanged(direction, scratch).recapture,
             consent: &never_asked,
             reread: unchanged(direction, scratch).reread,
+            dependents: &no_dependents,
             read_back: &history_store::read_back,
             observer: seen,
         },
@@ -2225,6 +2442,7 @@ fn run_answered(
             recapture: &*unchanged(direction, &scratch).recapture,
             consent: &never_asked,
             reread: unchanged(direction, &scratch).reread,
+            dependents: &no_dependents,
             read_back: &history_store::read_back,
             observer: &seen,
         },
@@ -2388,6 +2606,7 @@ fn a_reread_that_failed_stops_the_site_being_asked_again() {
             recapture: &*unchanged(&direction, &scratch).recapture,
             consent: &never_asked,
             reread: unchanged(&direction, &scratch).reread,
+            dependents: &no_dependents,
             read_back: &history_store::read_back,
             observer: &seen,
         },
@@ -2427,6 +2646,7 @@ fn a_read_that_failed_stops_the_site_being_asked_at_all() {
             recapture: &*unchanged(&direction, &scratch).recapture,
             consent: &never_asked,
             reread: unchanged(&direction, &scratch).reread,
+            dependents: &no_dependents,
             read_back: &history_store::read_back,
             observer: &seen,
         },
@@ -2587,6 +2807,7 @@ fn a_destination_configuration_that_drifted_stops_the_removal_before_the_reread(
                 recapture: &*unchanged(&direction, &scratch).recapture,
                 consent: &never_asked,
                 reread: &reread,
+                dependents: &no_dependents,
                 read_back: &history_store::read_back,
                 observer: &seen,
             },
@@ -2686,6 +2907,7 @@ fn invariant_02_a_plan_other_than_the_one_shown_dispatches_nothing_and_takes_no_
             recapture: &*setup.recapture,
             consent: &never_asked,
             reread: setup.reread,
+            dependents: &no_dependents,
             read_back: setup.read_back,
             observer: &seen,
             shown: shown(&shown_for.cleared()),
@@ -3100,6 +3322,7 @@ fn invariant_17_the_tie_behaves_alike_in_both_directions() {
                     recapture: &*setup.recapture,
                     consent: &never_asked,
                     reread: setup.reread,
+                    dependents: &no_dependents,
                     read_back: setup.read_back,
                     observer: &seen,
                     shown: shown(&witness.cleared()),
@@ -3495,6 +3718,7 @@ fn invariant_17_a_digest_tie_behaves_alike_in_both_directions() {
                     recapture: &*setup.recapture,
                     consent: &never_asked,
                     reread: setup.reread,
+                    dependents: &no_dependents,
                     read_back: setup.read_back,
                     observer: &seen,
                     shown: tied,
@@ -3563,6 +3787,7 @@ fn invariant_02_the_run_refuses_a_plan_confirmed_at_a_lower_level() {
                     recapture: &*setup.recapture,
                     consent: &never_asked,
                     reread: setup.reread,
+                    dependents: &no_dependents,
                     read_back: setup.read_back,
                     observer: &seen,
                     shown: witness,
@@ -3624,6 +3849,7 @@ fn invariant_02_the_run_refuses_a_plan_confirmed_at_a_lower_level() {
             recapture: &*setup.recapture,
             consent: &never_asked,
             reread: setup.reread,
+            dependents: &no_dependents,
             read_back: setup.read_back,
             observer: &seen,
             shown: witness,
@@ -3861,4 +4087,17 @@ fn each_question_raises_only_the_level_below_it() {
         advanced_removal_phrase(&q2()),
         "confirm advanced removal 000002"
     );
+}
+
+/// The source's inventory read again before a removal, with nothing depending
+/// on anything (work order 16 part K, D9): the default the run harness uses.
+#[allow(clippy::unnecessary_wraps)]
+fn no_dependents(_: &ProviderId) -> Result<ProviderInventory, DomainError> {
+    Ok(ProviderInventory {
+        installed: Vec::new(),
+        requested: RequestedSet::default(),
+        dependencies: Vec::new(),
+        metadata: std::collections::BTreeMap::new(),
+        availability: std::collections::BTreeMap::new(),
+    })
 }

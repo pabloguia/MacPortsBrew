@@ -77,20 +77,22 @@ use macportsbrew_adapters::registry::{
 };
 use macportsbrew_application::destination_judges::{answer_from_facts, basis_of, held_row};
 use macportsbrew_application::{
-    certify_destination, consent_for, destination_still_verified, execution_refusals,
-    judge_mutation, judge_resolution, judge_step, must_record, next_action, next_action_with,
-    next_destination_question, outcome_of, plan_still_holds, provider_locks_clear,
-    read_back_matches, reads_let_the_site_be_asked, recheck_provider_configuration, refused,
-    reverify_questions, run_record, Action, ConfigurationRechecked, ConsentDecision, ConsentGiven,
-    ConsentHalt, DestinationAnswer, Disposition, ElevationRequest, GateClear, HaltReason,
-    MutationResult, PlannedRun, Precondition, ProviderLockRefusal, Question, RunOutcome, ShownPlan,
-    StepRead, StepRecord,
+    certify_destination, clear_removal, consent_for, dependents_still_absent,
+    destination_still_verified, execution_refusals, judge_mutation, judge_resolution, judge_step,
+    must_record, next_action, next_action_with, next_destination_question, outcome_of,
+    plan_still_holds, provider_locks_clear, read_back_matches, reads_let_the_site_be_asked,
+    recheck_provider_configuration, refused, removal_witness_admits, reverify_questions,
+    run_record, Action, ConfigurationRechecked, ConsentDecision, ConsentGiven, ConsentHalt,
+    DestinationAnswer, Disposition, ElevationRequest, GateClear, HaltReason, MutationResult,
+    PlannedRun, Precondition, ProviderLockRefusal, Question, RemovalCleared, RemovalRefusal,
+    RunOutcome, ShownPlan, StepRead, StepRecord,
 };
 use macportsbrew_domain::{
     redact_home, CheckAnswer, CheckBasis, CommandEnd, ConcurrentProviderActivity, DestinationFacts,
     DomainError, ErrorId, ExecutableName, HomeRedaction, InterruptedRun, MachineRead,
-    MigrationPlan, PlanCommand, ProviderConfiguration, ProviderId, ProviderLockProbe, ProviderRead,
-    ResolutionState, RunStart, Snapshot, UncheckedCause, VerificationCheck,
+    MigrationPlan, PlanCommand, ProviderConfiguration, ProviderId, ProviderInventory,
+    ProviderLockProbe, ProviderRead, ResolutionState, RunStart, Snapshot, UncheckedCause,
+    VerificationCheck,
 };
 use serde::Serialize;
 use std::cell::RefCell;
@@ -726,6 +728,10 @@ pub enum Boundary {
     /// The destination was read again with its `VERIFY_DESTINATION`'s own
     /// commands, immediately before a removal command, and still certified.
     DestinationReverified,
+    /// The source provider's inventory was read again after the destination,
+    /// before a removal command, and nothing depends on the package (work
+    /// order 16 part K, D9).
+    DependentsRechecked,
     /// A mutating command was handed to the mutation site.
     Dispatched,
     /// The run's record was written.
@@ -766,6 +772,11 @@ pub type Consent<'a> = &'a dyn Fn(&[ElevationRequest]) -> ConsentDecision;
 /// second argument (`registry::reread_configuration` in the product).
 pub type Reread<'a> = &'a dyn Fn(&ProviderId, &str) -> Result<ProviderConfiguration, DomainError>;
 
+/// A provider's inventory read again before a removal command, for its
+/// reverse dependents (work order 16 part K, D9): the adapter's own inventory
+/// read capture already makes, so no new program or subcommand.
+pub type Dependents<'a> = &'a dyn Fn(&ProviderId) -> Result<ProviderInventory, DomainError>;
+
 /// How a published record is read back (`history_store::read_back` in the
 /// product): the record's canonical text, or why it could not be read. A seam
 /// like [`Reread`], so a test can make the read-back fail or disagree without
@@ -792,6 +803,9 @@ pub struct MutatingRun<'a, M: MutationSite> {
     pub consent: Consent<'a>,
     /// Re-reads a provider's configuration before a mutating command (D7).
     pub reread: Reread<'a>,
+    /// Re-reads the source provider's inventory before a removal command
+    /// (work order 16 part K, D9).
+    pub dependents: Dependents<'a>,
     /// Answers `RESOLVES_TO`. [`Unresolved`] in this build: the part that wires
     /// `SET_PRIMARY` wires a machine here (F.md "As built (F-3)").
     pub resolutions: &'a dyn ResolutionSite,
@@ -1021,7 +1035,10 @@ pub fn run_with_mutations<S: ReadSite, D: DestinationSite, M: MutationSite>(
                 let mut results: Vec<MutationResult> = Vec::new();
                 // The step's consent, spent on its first command (E-3).
                 let mut consent = tokens.take(step.index);
-                for command in &step.commands {
+                for (index, command) in step.commands.iter().enumerate() {
+                    // The removal witness's middle link, carried from the
+                    // re-reads to the lock sample (work order 16 part K, D6).
+                    let mut rechecked = None;
                     let Some(provider) = step.provider.as_ref() else {
                         results.push(MutationResult::PreconditionFailed(Precondition::NoProvider));
                         break;
@@ -1084,18 +1101,34 @@ pub fn run_with_mutations<S: ReadSite, D: DestinationSite, M: MutationSite>(
                         } else {
                             Vec::new()
                         };
-                        if let Err(why) = destination_still_verified(
+                        let reverified = match destination_still_verified(
                             planned,
                             reverify,
                             destination_checked,
                             &reads,
                             &owned,
                         ) {
-                            results.push(MutationResult::PreconditionFailed(why));
-                            break;
-                        }
+                            Ok(reverified) => reverified,
+                            Err(why) => {
+                                results.push(MutationResult::PreconditionFailed(why));
+                                break;
+                            }
+                        };
                         io.observer
                             .at(Boundary::DestinationReverified, Some(step.index));
+                        // The source's dependents, read again after the
+                        // destination (D9): a package installed meanwhile that
+                        // needs the one being removed stops the removal.
+                        let inventory = (io.dependents)(&plan.source);
+                        match dependents_still_absent(planned, reverified, inventory.as_ref()) {
+                            Ok(token) => rechecked = Some(token),
+                            Err(why) => {
+                                results.push(MutationResult::PreconditionFailed(why));
+                                break;
+                            }
+                        }
+                        io.observer
+                            .at(Boundary::DependentsRechecked, Some(step.index));
                     }
                     if lock.verify_still_current().is_err() {
                         results.push(MutationResult::PreconditionFailed(Precondition::LockLost));
@@ -1131,21 +1164,48 @@ pub fn run_with_mutations<S: ReadSite, D: DestinationSite, M: MutationSite>(
                         .at(Boundary::ConfigurationRechecked, Some(step.index));
                     // The last thing before the command, so a removal dispatches
                     // only when the probe answered immediately before it (G item
-                    // 6; 04).
-                    if let Err(refusal) = provider_lock_sample(io.locks, &now) {
-                        results.push(MutationResult::PreconditionFailed(refusal.precondition()));
-                        provider_locks_at_halt = Some(refusal.activity().clone());
-                        break;
-                    }
+                    // 6; 04). For a removal it is judged inside the witness's
+                    // last link, after both re-reads (D6).
+                    let sample = io.locks.sample();
+                    let witness = if let Some(rechecked) = rechecked.take() {
+                        match clear_removal(
+                            planned, position, index, &records, rechecked, &checked, sample, &now,
+                        ) {
+                            Ok(witness) => Some(witness),
+                            Err(refusal) => {
+                                if let RemovalRefusal::Locks(locks) = &refusal {
+                                    provider_locks_at_halt = Some(locks.activity().clone());
+                                }
+                                results.push(MutationResult::PreconditionFailed(
+                                    refusal.precondition(),
+                                ));
+                                break;
+                            }
+                        }
+                    } else {
+                        if let Err(refusal) = provider_locks_clear(sample, &now) {
+                            results
+                                .push(MutationResult::PreconditionFailed(refusal.precondition()));
+                            provider_locks_at_halt = Some(refusal.activity().clone());
+                            break;
+                        }
+                        None
+                    };
                     io.observer
                         .at(Boundary::ProviderLocksSampled, Some(step.index));
                     let result = mutation_dispatch(
                         io.site,
-                        provider,
-                        step.index,
-                        command,
+                        Dispatch {
+                            plan,
+                            position,
+                            command_index: index,
+                            provider,
+                            step: step.index,
+                            command,
+                        },
                         checked,
                         consent.take(),
+                        witness,
                         &lock,
                     );
                     if !matches!(result, MutationResult::PreconditionFailed(_)) {
@@ -1358,15 +1418,31 @@ fn take_snapshot(state: &StateDir, snapshot: &Snapshot, euid: u32) -> Option<Str
 /// refused here and nothing is handed over (SR 9). The step's consent, when
 /// one was given, is handed over with it, and refused here unless it covers
 /// this step's command exactly (E-3, security review L1).
+// The witness by value on purpose: it is spent on this one command (D6), as
+// the re-check token is.
+#[allow(clippy::needless_pass_by_value)]
 fn mutation_dispatch(
     site: &dyn MutationSite,
-    provider: &ProviderId,
-    step: u32,
-    command: &PlanCommand,
+    at: Dispatch<'_>,
     checked: ConfigurationRechecked,
     consent: Option<ConsentGiven>,
+    removal: Option<RemovalCleared>,
     lock: &RunLock,
 ) -> MutationResult {
+    let Dispatch {
+        plan,
+        position,
+        command_index,
+        provider,
+        step,
+        command,
+    } = at;
+    // A removal command only with the witness minted for it, and no witness
+    // on any other command; the application decides which from the step's
+    // kind (work order 16 part K, D6).
+    if let Err(why) = removal_witness_admits(plan, position, command_index, removal.as_ref()) {
+        return MutationResult::PreconditionFailed(why);
+    }
     if checked.provider() != provider {
         return MutationResult::PreconditionFailed(Precondition::WrongProviderToken);
     }
@@ -1384,6 +1460,18 @@ fn mutation_dispatch(
         Err(MutationRefusal::Refused) => MutationResult::Refused,
         Err(MutationRefusal::Transport(error)) => MutationResult::TransportFailed(error),
     }
+}
+
+/// Which command [`mutation_dispatch`] is handed: its place in the plan and
+/// the command itself.
+#[derive(Clone, Copy)]
+struct Dispatch<'p> {
+    plan: &'p MigrationPlan,
+    position: usize,
+    command_index: usize,
+    provider: &'p ProviderId,
+    step: u32,
+    command: &'p PlanCommand,
 }
 
 /// The report of a run the gate refused, its refusals cleaned like every
@@ -1686,7 +1774,14 @@ mod tests {
                 recheck_provider_configuration(&provider, &command.program, &snapshot, &fresh)
                     .expect("an empty configuration outranks nothing");
             assert!(matches!(
-                mutation_dispatch(&site, &provider, 3, &command, checked, consent, &lock),
+                mutation_dispatch(
+                    &site,
+                    dispatch_in(&plan_of(&command), &provider, 3, &command),
+                    checked,
+                    consent,
+                    None,
+                    &lock
+                ),
                 MutationResult::Refused
             ));
         }
@@ -1713,12 +1808,62 @@ mod tests {
             recheck_provider_configuration(&provider, &command.program, &snapshot, &fresh)
                 .expect("an empty configuration outranks nothing");
         assert!(matches!(
-            mutation_dispatch(&site, &provider, 4, &command, checked, again.pop(), &lock),
+            mutation_dispatch(
+                &site,
+                dispatch_in(&plan_of(&command), &provider, 4, &command),
+                checked,
+                again.pop(),
+                None,
+                &lock
+            ),
             MutationResult::PreconditionFailed(Precondition::WrongConsentToken)
         ));
         assert_eq!(site.0.borrow().len(), 2, "nothing more was handed over");
         drop(lock);
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// A one-step plan around `command`, at an `ADD_DESTINATION`: a step that
+    /// takes no removal witness (work order 16 part K, D6).
+    fn plan_of(command: &PlanCommand) -> MigrationPlan {
+        // Read from its document, as a recording's plan is, so this module's
+        // own words stay what its scans pin.
+        serde_json::from_value(serde_json::json!({
+            "schemaVersion": macportsbrew_domain::plan::PLAN_SCHEMA_VERSION,
+            "package": { "provider": "alpha", "name": "x" },
+            "source": "alpha",
+            "destination": "beta",
+            "destinationPackage": "x",
+            "retainSource": true,
+            "primaryAfter": "beta",
+            "recommendation": { "kind": "MIGRATE_TO", "provider": "beta" },
+            "steps": [{
+                "index": 1,
+                "kind": "ADD_DESTINATION",
+                "provider": "alpha",
+                "commands": [serde_json::to_value(command).expect("a command serialises")],
+                "reason": { "id": "reason.test" }
+            }],
+            "policyVersion": "0",
+            "dryRunOnly": true
+        }))
+        .expect("a plan document")
+    }
+
+    fn dispatch_in<'p>(
+        plan: &'p MigrationPlan,
+        provider: &'p ProviderId,
+        step: u32,
+        command: &'p PlanCommand,
+    ) -> Dispatch<'p> {
+        Dispatch {
+            plan,
+            position: 0,
+            command_index: 0,
+            provider,
+            step,
+            command,
+        }
     }
 
     #[test]
@@ -1752,13 +1897,27 @@ mod tests {
             recheck_provider_configuration(&provider, "/opt/alpha/bin/other", &snapshot, &fresh)
                 .expect("an empty configuration outranks nothing");
         assert!(matches!(
-            mutation_dispatch(&site, &provider, 3, &command, other, None, &lock),
+            mutation_dispatch(
+                &site,
+                dispatch_in(&plan_of(&command), &provider, 3, &command),
+                other,
+                None,
+                None,
+                &lock
+            ),
             MutationResult::PreconditionFailed(Precondition::WrongProgramToken)
         ));
         let own = recheck_provider_configuration(&provider, &command.program, &snapshot, &fresh)
             .expect("an empty configuration outranks nothing");
         assert!(matches!(
-            mutation_dispatch(&site, &provider, 3, &command, own, None, &lock),
+            mutation_dispatch(
+                &site,
+                dispatch_in(&plan_of(&command), &provider, 3, &command),
+                own,
+                None,
+                None,
+                &lock
+            ),
             MutationResult::Refused
         ));
         drop(lock);

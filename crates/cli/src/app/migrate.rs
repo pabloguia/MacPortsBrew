@@ -350,6 +350,20 @@ fn execute_mutating(
     let reread = |provider: &ProviderId, program: &str| {
         macportsbrew_adapters::registry::reread_configuration(registry, provider, program)
     };
+    // The source's own inventory read, the one capture makes (work order 16
+    // part K, D9): no new program or subcommand.
+    let dependents = |provider: &ProviderId| {
+        macportsbrew_adapters::registry::build(registry)
+            .into_iter()
+            .find(|adapter| adapter.id() == provider)
+            .ok_or_else(|| {
+                DomainError::new(
+                    ErrorId::SafetyBlocked,
+                    "the source provider has no adapter, so its packages were not read again",
+                )
+            })?
+            .inventory()
+    };
     executor::run_mutating(
         &cleared,
         registry,
@@ -366,6 +380,7 @@ fn execute_mutating(
             recapture: &recapture,
             consent: &consent,
             reread: &reread,
+            dependents: &dependents,
             resolutions: &crate::executor::Unresolved,
             read_back: &macportsbrew_adapters::persistence::history_store::read_back,
             observer: &executor::Unobserved,

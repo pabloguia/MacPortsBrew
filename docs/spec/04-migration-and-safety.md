@@ -485,22 +485,36 @@ the paragraph below), and what remains after it is accepted (DP-048).
 **The residual removal window is accepted and declared (DP-048, ruled
 2026-10-27).** Once slice 6's re-read of the destination runs immediately
 before `REMOVE_SOURCE`, what remains is the gap between that read and the
-provider's own uninstall: the lock check and the source's configuration
-re-read that follow it (M1), milliseconds, plus the provider's run time. Nothing a
+provider's own uninstall: the dependents re-read, the lock check and the source's
+configuration re-read that follow it (M1), plus the provider's run time. Nothing a
 reader can do closes it, so it is declared here, next to DP-030's, rather than
-claimed closed. **Met (work order 16 part S-1):** the destination is read again,
+claimed closed. **The same window, declared for dependents** (work order 16 part
+K-6, D9): the source provider's inventory is read again after the destination and
+before each removal command, so a package installed into the source meanwhile
+that depends on the one being removed stops it (`DEPENDENTS_APPEARED`); one
+installed between that read and the uninstall is not seen. **And for the re-read
+itself** (work order 16 part H, kept by K-6): the re-read before a removal re-runs
+the destination's reads and check 3 (ownership) per executable; checks 2, 4 and 5
+(newly present, integrity, linkage) and the liveness probe come from the guarding
+`VERIFY_DESTINATION`'s record, not from a re-run, because a probe per removal
+command would start a curated program again each time, and DP-048 (c) asks that
+the six checks were evaluated for that package, not re-run. **Met (work order 16 part S-1):** the destination is read again,
 with its `VERIFY_DESTINATION`'s own commands and after its configuration is
 re-checked, immediately before each `REMOVE_SOURCE` command and before the lock
 and source-configuration re-checks; a re-read that does not certify halts the
 removal (`DESTINATION_NOT_REVERIFIED`). **Met (work order 16 part K-3):** removal is
-opt-in (`--remove-source`, SE-114). **Not yet met:** it will be bounded further by a
-confirmation for removal stronger than an install's (parts K-4, K-5) and by
-dispatching `REMOVE_SOURCE` only when the re-read ran, DP-030's probe
-answered, and all six destination checks were evaluated for that package (K-6). The
-re-read (part S), the probe (part G), DP-051's four checks (part H, all observed
-since H-5) and the opt-in (part K-3) exist; the stronger confirmation and the witness
-do not yet, and the switch stays off until they do and the owner rules on part L's
-proposal.
+opt-in (`--remove-source`, SE-114). **Met (work order 16 parts K-4, K-5):** a
+removal is confirmed at its own level, stronger than an install's, and one outside
+the default view or not recorded as asked for at the strictest, with no script
+route. **Met (work order 16 part K-6):** a `REMOVE_SOURCE` command is handed over only
+with a removal witness minted for that command, after the destination was read
+again and still certified, the source's dependents were read again and are
+absent, the run lock is current, the source's configuration was re-checked, the
+guarding `VERIFY_DESTINATION` is recorded `Verified` with all six destination
+checks evaluated for that package, every resolution held, and DP-030's probe
+answered for that very command; the requirement is decided from the step's kind,
+and a missing or foreign witness is `REMOVAL_NOT_CLEARED`. The switch stays off
+until the owner rules on part L's proposal.
 
 ## Privilege
 
