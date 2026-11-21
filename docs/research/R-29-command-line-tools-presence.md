@@ -254,6 +254,8 @@ Quoted verbatim, with the bold overstrike removed:
 - **New, outside part K's scope, for the main agent:** Homebrew's footnote 3 says "Intel macOS also requires developer tools for bottle installation" (E-7). On the audience this project started for, an x86_64 Mac, the developer tools matter to any Homebrew `ADD_DESTINATION`, not only to a source build. DP-050 and D7 key the block on a source-build step only. Whether a Homebrew destination on Intel with no tools is a `MANUAL_REVIEW` for a bottle too is a question this note raises and does not answer. It is a dated fact (INV-20), so if it is acted on, it belongs in `data/policy/` with `source` and `read_on`, not in code.
 - **`F-1-homebrew-support-tiers.md` E2 is stale** on the requirements list (E-7's note: macOS 15 now, and the CLT requirement now conditioned on source builds). That note's re-check applies.
 
+*Outcome, 2026-11-21 (work order 16 part K-7):* findings 14 and 15 are built (the risk text, `doctor`'s wording). Finding 13's block is not: a recording carries process invocations and cannot carry the `stat`, so a replayed run could not reproduce it (INV-15); it waits for an owner capture (SE-109). The Intel bottle question above is raised and not acted on.
+
 ## Re-check when
 
 - Apple changes the Command Line Tools' install location or the "one version at a time" statement (E-6), or `man xcode-select` gains an exit-status section.

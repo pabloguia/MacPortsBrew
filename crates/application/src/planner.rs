@@ -30,6 +30,7 @@ pub const REASON_IDS: &[&str] = &[
     "reason.destination_deprecated",
     "reason.destination_artifact_unavailable",
     "reason.availability_unknown",
+    "reason.destination_source_build",
     "reason.provider_configuration_outranks",
     "reason.provider_configuration_unreadable",
     "reason.provider_configuration_unknown",
@@ -765,11 +766,33 @@ pub fn plan_outcome(
             );
         }
         if !dest_row.availability.is_prebuilt() {
-            risks.push(PlanRisk {
-                id: "destination_source_build".into(),
-                reason: Reason::new("reason.availability_unknown")
+            // A known source build names its cause and what the build needs
+            // (work order 16 part K-7, D7; DP-050); anything else keeps the
+            // unknown's text. Non-blocking either way: R-29 found a read that
+            // proves the tools absent, but a recording cannot carry it, so the
+            // block DP-050 allows is not built (SE-109, SE-114).
+            let reason = match &dest_row.availability.availability {
+                ArtifactAvailability::SourceBuildRequired { reason } => {
+                    Reason::new("reason.destination_source_build")
+                        .with("provider", &request.to)
+                        .with("package", &unit.name)
+                        .with(
+                            "cause",
+                            &macportsbrew_policy::labels::source_build_reason(*reason),
+                        )
+                }
+                ArtifactAvailability::BinaryAvailable
+                | ArtifactAvailability::Unavailable
+                | ArtifactAvailability::UnsupportedPlatform
+                | ArtifactAvailability::Deprecated
+                | ArtifactAvailability::Disabled
+                | ArtifactAvailability::Unknown => Reason::new("reason.availability_unknown")
                     .with("provider", &request.to)
                     .with("package", &unit.name),
+            };
+            risks.push(PlanRisk {
+                id: "destination_source_build".into(),
+                reason,
                 blocking: false,
             });
         }

@@ -1944,6 +1944,77 @@ fn source_build_and_unknown_are_not_manual_review() {
     }
 }
 
+/// INV-17, part K-7: a known source build names what it costs, the same way in
+/// either direction. Its risk carries `reason.destination_source_build`, with
+/// the destination as `provider` and the cause as the policy label the
+/// `source_build.*` family renders; an unknown availability keeps
+/// `reason.availability_unknown`, so the user is never told a build will happen
+/// when nobody knows. Neither blocks (DP-050's default).
+#[test]
+fn invariant_17_a_source_build_names_its_cost_in_either_direction() {
+    use macportsbrew_domain::SourceBuildReason as Why;
+    let causes = [
+        (
+            Why::NoArtifactForThisPlatform,
+            "NO_ARTIFACT_FOR_THIS_PLATFORM",
+        ),
+        (Why::NonDefaultOptions, "NON_DEFAULT_OPTIONS"),
+        (Why::LicenceRestricted, "LICENCE_RESTRICTED"),
+        (Why::ForcedByConfiguration, "FORCED_BY_CONFIGURATION"),
+    ];
+    for (source, destination) in [(HB, MP), (MP, HB)] {
+        for (reason, label) in causes {
+            let plan = with_destination_availability_keeping(
+                source,
+                ArtifactAvailability::SourceBuildRequired { reason },
+                false,
+                false,
+                true,
+            );
+            let risk = plan
+                .risks
+                .iter()
+                .find(|r| r.id == "destination_source_build")
+                .unwrap_or_else(|| panic!("{reason:?} from {source}: the risk is raised"));
+            assert!(
+                !risk.blocking,
+                "{reason:?} from {source}: it does not block"
+            );
+            assert_eq!(
+                risk.reason.id.as_str(),
+                "reason.destination_source_build",
+                "{reason:?} from {source}"
+            );
+            let param = |k: &str| risk.reason.params.get(k).map(String::as_str);
+            assert_eq!(
+                param("provider"),
+                Some(destination),
+                "{reason:?} from {source}"
+            );
+            assert_eq!(param("cause"), Some(label), "{reason:?} from {source}");
+            assert!(param("package").is_some_and(|p| !p.is_empty()));
+        }
+        let plan = with_destination_availability_keeping(
+            source,
+            ArtifactAvailability::Unknown,
+            false,
+            false,
+            true,
+        );
+        let risk = plan
+            .risks
+            .iter()
+            .find(|r| r.id == "destination_source_build")
+            .expect("an unknown availability keeps the risk");
+        assert_eq!(
+            risk.reason.id.as_str(),
+            "reason.availability_unknown",
+            "unknown from {source}: never told a build will happen"
+        );
+        assert!(!risk.reason.params.contains_key("cause"));
+    }
+}
+
 /// INV-18, part K-3 (DP-048 (c)): coexistence is what a migration ends in unless
 /// removal is asked for. In both directions a plan that keeps the source has no
 /// `REMOVE_SOURCE`, `VERIFY_REMOVAL` or `CLEANUP_REVIEW` and records
