@@ -915,6 +915,65 @@ treated as the home's owner.
 any generated `.codex` mirror of `.claude/rules/` is regenerated in the same
 staged patch.
 
+## Amendments after R-31 (I-1)
+
+R-31 (`docs/research/R-31-macos-shell-startup.md`, 2026-11-22) answers D5 and
+D6's questions. Four findings change the plan; the rest confirm it. A18
+records R-30's answer to D11.
+
+**A14 — The block's guard tests *first*, not *present*** (D6, D7; R-31). In a
+nested login shell `path_helper` rebuilds `PATH` with the system entries ahead of
+everything the parent shell had, so the shim directory is present but behind
+`/usr/local/bin`, and D6's `case` skips it. The guarded line becomes: if the
+directory is already the first entry, nothing; otherwise remove every occurrence
+of it and prepend it once. That is how `brew shellenv` guards its own prefix. It
+never duplicates an entry and touches only the entry MacPortsBrew owns, so spec
+05's "never duplicate" and "never reorder entries the user placed" hold.
+Re-running changes nothing (INV-16). The exact text is fixed in I-4 with a test
+that runs the block under `/bin/zsh` and `/bin/bash` with a scratch `HOME`, after
+a nested `path_helper`, and asserts the directory is first exactly once. The
+block's form is a Tier 3 reading of 05 `:201-209`; SE-115 names it.
+
+**A15 — An unexported `ZDOTDIR`** (D6; R-31). A `ZDOTDIR` assigned inside the
+home's `.zshenv` without `export` is invisible to the tool's environment, which
+would then write a `.zprofile` in the home that shell never reads. Capture scans
+that `.zshenv` as bounded text (the 1 MiB bound of D6, never sourced, never
+shown) for the token `ZDOTDIR`. If it appears and the environment carries no
+`ZDOTDIR`, the writer refuses with `SHELL_FILE_UNDETERMINED`. A scan cannot
+evaluate the shell, so this is a refusal on sight, not a parse; it is declared,
+with its test and mutant.
+
+**A16 — Placement, settled** (D6, D7; R-31). zsh: the end of
+`${ZDOTDIR:-$HOME}/.zprofile`, after `/etc/zprofile`'s `path_helper` and after any
+`brew shellenv` line the file holds. bash: the end of the first existing of
+`.bash_profile`, `.bash_login`, `.profile`. `.zshenv` and `.bashrc` are never
+chosen. Creating a zsh file shadows nothing (each is read independently), so
+`invariant_03_creating_the_shell_file_never_shadows_another_startup_file` has a
+bash case that refuses and a zsh case that creates. An interactive non-login
+shell (a bash started from a login zsh, say) does not read the block; D7's report
+says so.
+
+**A17 — Module builtins are reported, not refused** (D5; R-31). zsh's
+`module_builtins` (`mv`, `rm`, `ln`, …) become builtins only when the user's own
+configuration loads `zsh/files` or another module, which the tool cannot see.
+Refusing them would forbid shims for ordinary tools. D5 refuses `builtins` and
+`reserved_words`; a `module_builtins` name is admitted, and D7's report names the
+module that would take it over.
+
+**A18 — D11's branch, taken** (R-30, 2026-11-22). Homebrew's `post_install`,
+`post_install_steps` and cask `install_steps` run with exactly the user's `PATH`,
+and `env :std` builds with it ahead of Homebrew's prefix; MacPorts replaces the
+caller's `PATH` with `binpath` before every phase. So the second branch applies
+for Homebrew and the first for MacPorts, and DP-058 records it for the owner. The
+default meanwhile is the one D11 fixed: `LAYER4_SHIM_OFFER_ADMITTED = false`, a
+domain constant named after DP-058, read only by the planner's offer; every shim
+offer stays `PRIMARY_NEEDS_SHIM`, and tests reach it through D1's allowance. The
+recommendation is DP-058 (d). One correction: D11's "a shimmed `git` reaches
+`brew update`" is wrong by default, since `brew update` runs an absolute `git`
+(R-30 finding 6); a shimmed `git` is reached by a `post_install` step that runs
+`git` by name. F-2's E-9 citation of `formula.rb:1729-1738` is stale (now
+`:1785-1787`, R-30); F-2 itself is not edited.
+
 ## Research, before code (I-1)
 
 - **R-30 — what reaches each provider's phases from the user's `PATH`, and in

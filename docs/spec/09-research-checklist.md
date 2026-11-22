@@ -534,6 +534,25 @@ is recorded and not acted on without the owner.
 *Answered 2026-11-19, partially, with its open states listed in the note:
 [R-29](../research/R-29-command-line-tools-presence.md) (work order 16 part K, D7; DP-050).*
 
+### R-30 · Which provider phases inherit the user's `PATH`, and in what order
+For each provider, every phase that runs with any part of the caller's `PATH`
+(builds, `env :std`, `post_install`, cask steps, the provider's own helpers,
+MacPorts' `binpath`, the elevated route) and whether the provider's own
+directories come ahead of it — the fact layer 4's INV-07 question rests on.
+*Answered 2026-11-22, partially, with its open states listed in the note:
+[R-30](../research/R-30-provider-phases-and-user-path.md) (work order 16 part I,
+D11, amendment A18; DP-058).*
+
+### R-31 · macOS shell startup, for layer 4's managed block
+Which file zsh and bash read for login and interactive shells, with and without
+`ZDOTDIR`; bash's first-of-three rule; whether Terminal.app and iTerm2 open login
+shells; what `path_helper` does to an inherited `PATH` and where a block must sit
+to come first after it; what each provider's installer writes there; each shell's
+builtins and reserved words, as dated data (`data/policy/shell-builtins.toml`).
+*Answered 2026-11-22, partially, with its open states listed in the note:
+[R-31](../research/R-31-macos-shell-startup.md) (work order 16 part I, D5, D6,
+amendments A14-A17).*
+
 ## Non-blocking research
 
 - Homebrew and MacPorts release cadence and how often their output formats change.
