@@ -319,7 +319,9 @@ Each write step needs its own consent, the analogue of elevation's
   Comparison uses H's inode- and firmlink-aware comparison (`invariant_07_a_firmlink_spelling_…`,
   `…_unicode_fold_…`), by `(st_dev, st_ino)` ancestry, never component strings
   *(rev. SR-H2 / SG-16)*. A test covers both prefixes, a custom one under the
-  home, and `/usr/local/bin` itself (spec 05 `:68-73`).
+  home, and `/usr/local/bin` itself (spec 05 `:68-73`), and is named
+  `invariant_07_a_shim_link_is_never_written_inside_a_provider_prefix`: it
+  holds a Tier 1 boundary the `Stop` gate cannot see (D14).
 - **No symlink can lead out** *(rev. SR-M6)*.
   - The home must be a real directory, owned by `effective_uid()`
     (`machine.rs:163`, not whatever `$HOME` claims), and not group- or
@@ -713,8 +715,8 @@ everywhere:
 **Complete:**
 
 - the generated `.codex/hooks/` copy, or the drift stage fails, as P/03 did;
-- cases in both `scripts/test-gates.sh` and `.claude/hooks/test-hooks.sh`, for
-  each side of the exemption, and that `setuid`, `launchctl` and `osascript`
+- cases in `.claude/hooks/test-hooks.sh` *(rev. I-stage: not
+  `scripts/test-gates.sh`, below)*, for each side of the exemption, and that `setuid`, `launchctl` and `osascript`
   still fail in `link.rs`;
 - `.claude/rules/adapters.md`'s "nothing here … creates a symlink", amended
   through the same staging if its path is guarded.
@@ -724,6 +726,35 @@ everywhere:
 **Ordering.** Only I-6 needs the patch applied. If it is not applied when I-6
 starts, part I becomes `waiting on owner docs/passes/16-staged/I/`, resuming as
 `wo16/I-6-…` (§3 item 5.3).
+
+**Revised in I-stage** (`security-reviewer`, then `spec-guardian`, on the
+patch, 2026-11-22). `symlink` is not split out of the shared regex after all:
+the scan keeps one token list, and the exemption is decided per hit, by file,
+count and line shape, so it can only remove the one hit it names. It also
+requires that `link.rs` name neither `macro_rules` nor `include` as a word
+(Rust allows whitespace, even a line break, before a macro's `!`). Every code
+`include!` under `src/` fails, and so does every `#[path]` but a bare sibling
+`<name>_tests.rs` literal on one line, spaced, split and `cfg_attr` forms
+included: either can compile a file under a module the scans attribute
+elsewhere, the shim's writer or a file outside `src/` that no scan reads.
+`SYS_symlink`, `SYS_symlinkat`, the rest of the uid and gid family
+(`seteuid`, `setreuid`, `setresuid`, `setgid`, `setegid`, `setregid`,
+`setresgid`) and their `SYS_` forms join `soft_link`. Two older holes are
+closed in the same patch: the comment filters no longer drop lines starting
+with `#` (a Rust attribute can carry a call), and a symlink under `src/`, or a
+`build.rs` that is one, fails, since macOS's recursive grep does not follow
+one. **What the gate cannot see**, recorded in SE-115: reach (a function
+wrapping the call can be called from anywhere in `adapters`), which the I-9
+tripwire `the_switch_needs_consented_writes` holds, with review; a syscall
+named by its bare number; and destination, since the gate pins the call's
+shape, not where it writes, which I-6's prefix refusal holds
+(`invariant_07_a_shim_link_is_never_written_inside_a_provider_prefix`) and
+I-6's home test (`invariant_06_no_write_of_layer_4_leaves_the_home`). The
+exemption admits nothing until `link.rs` exists, and I-6 lands `link.rs` in
+the same pull request as both tests, so the call never stands without them.
+No case goes in
+`scripts/test-gates.sh`, which tests the `scripts/` gates' parsers and not
+the `Stop` gate.
 
 **Rejected:** a wrapper-script shim. It deviates from spec 05's "symlinks", it
 hides the target from `read_link`, and choosing it to avoid a guard is the
@@ -745,6 +776,12 @@ rewording `CLAUDE.md` forbids. D11 (c) would reopen this, and says so.
     a user file that refuses on sight without parsing (A15);
   - the placement choice and the declared interactive non-login gap (A16);
   - zsh module builtins admitted and reported, not refused (A17).
+- **The gate's exemption (D14).** The one symlink call admitted in
+  `shim/link.rs` and how it is pinned; the two older holes the same patch
+  closes (`#`-led lines, symlinks under `src/`) and the `include!`/`#[path]`
+  refusal; and what the gate cannot see — reach, bare syscall numbers,
+  destination — with the test that holds each. Written at I-stage, since the
+  patch the owner applies cites it.
 - **The state machine.** AGENTS.md's diagram gains the two kinds and the revert
   form. 04 `:10-17` already places them under "ACTIVATE (primary)", so 04 is
   not violated, and SE-115 says so.
@@ -1058,6 +1095,8 @@ the real ones.
 - **INV-07:**
   - `invariant_07_the_shim_directory_never_enters_a_provider_invocations_path`,
     unconditionally;
+  - `invariant_07_a_shim_link_is_never_written_inside_a_provider_prefix` (D4,
+    I-6);
   - more as D11's branch decides.
 - **INV-11:** `invariant_11_a_shim_transfers_no_ownership`.
 - **INV-12:**

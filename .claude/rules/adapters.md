@@ -95,7 +95,12 @@ provider's executable comes from its detected prefix. Path-prefix matching for
 This layer reads. No install, uninstall, upgrade, link, activate, selfupdate or
 sync verb appears in it, and the `Stop` gate greps for exactly those literals.
 Nothing here elevates (INV-06), creates a symlink, or writes into a provider
-prefix (INV-07, INV-08).
+prefix (INV-07, INV-08). The one planned exception is layer 4's link writer,
+`shim/link.rs` (work order 16 part I, D14), which creates the symlink a shim
+is, inside MacPortsBrew's own shim directory and never in a prefix. The `Stop`
+gate's exemption (c) admits that one call, of its pinned shape, and nothing
+else (SE-115); until the owner applies `docs/passes/16-staged/I/`, the gate
+refuses it.
 
 Tests in this crate run against `fixtures/recordings/*.json` and never against a
 live installation (INV-05). Capture one with `scripts/capture-fixture.sh`;
