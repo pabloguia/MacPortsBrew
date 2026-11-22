@@ -510,8 +510,8 @@ These are for the main agent to judge. Nothing in `docs/spec/` was edited.
   A `ZDOTDIR` outside `HOME` is already refused by D6.
 - **`$SHELL` versus the login shell** (finding 8): MacPorts' own installer uses `dscl UserShell` (a spawn of `/usr/bin/dscl`). That is a third route besides `getpwuid` and a new program; D6's "declared, not claimed" stands.
 - **D5's builtin refusal** has its data. The `module_builtins` split is a decision for D5, and it is the main agent's: refusing them would forbid shims named `mv`, `rm` or `ln`.
-- **Required with the data file, outside this note's two files:**
-  - `data/policy/policy.toml`'s `version` (now `2026.11.04-4`) must become `2026.11.22-1` in the same change. `invariant_20_the_policy_version_names_the_newest_read_date_in_the_data` (`crates/policy/tests/invariants.rs`) fails otherwise, since the new file's `read_on` is the newest in the directory.
+- **Required with the data file, outside this note's two files** (all three done in I-1):
+  - `data/policy/policy.toml`'s `version` (then `2026.11.04-4`) had to become `2026.11.22-1` in the same change. `invariant_20_the_policy_version_names_the_newest_read_date_in_the_data` (`crates/policy/tests/invariants.rs`) fails otherwise, since the new file's `read_on` is the newest in the directory.
   - `.claude/rules/policy-data.md`'s file table should gain a `shell-builtins.toml` row.
   - `docs/spec/09-research-checklist.md` needs the R-31 entry that `I.md` asks for.
 

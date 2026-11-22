@@ -737,7 +737,14 @@ rewording `CLAUDE.md` forbids. D11 (c) would reopen this, and says so.
     (D10);
   - 05 `:24-26`, the shim check before following symlinks (D1a);
   - "self-repairing" as a consented repair plan (D1a);
-  - fish not offered (D6).
+  - fish not offered (D6);
+  - 05 `:201-209`, the guard removes every occurrence of the shim directory
+    and prepends it once, which can move an occurrence the user placed
+    themselves (A14);
+  - the bounded text scan of the home's `.zshenv` for `ZDOTDIR`, a new read of
+    a user file that refuses on sight without parsing (A15);
+  - the placement choice and the declared interactive non-login gap (A16);
+  - zsh module builtins admitted and reported, not refused (A17).
 - **The state machine.** AGENTS.md's diagram gains the two kinds and the revert
   form. 04 `:10-17` already places them under "ACTIVATE (primary)", so 04 is
   not violated, and SE-115 says so.
@@ -926,7 +933,7 @@ nested login shell `path_helper` rebuilds `PATH` with the system entries ahead o
 everything the parent shell had, so the shim directory is present but behind
 `/usr/local/bin`, and D6's `case` skips it. The guarded line becomes: if the
 directory is already the first entry, nothing; otherwise remove every occurrence
-of it and prepend it once. That is how `brew shellenv` guards its own prefix. It
+of it and prepend it once. `brew shellenv` also tests *first*, but re-prepends without removing, at the cost of a duplicate (R-31 finding 7); this form adds the removal 05 asks for. It
 never duplicates an entry and touches only the entry MacPortsBrew owns, so spec
 05's "never duplicate" and "never reorder entries the user placed" hold.
 Re-running changes nothing (INV-16). The exact text is fixed in I-4 with a test
@@ -973,6 +980,16 @@ recommendation is DP-058 (d). One correction: D11's "a shimmed `git` reaches
 (R-30 finding 6); a shimmed `git` is reached by a `post_install` step that runs
 `git` by name. F-2's E-9 citation of `formula.rb:1729-1738` is stale (now
 `:1785-1787`, R-30); F-2 itself is not edited.
+
+**A19 — from the I-1 reviews** (2026-11-22). The slice that loads
+`shell-builtins.toml` (D5) rejects a table missing `source` or a valid
+`read_on`, with its own test. The consumer matches a table by `binary` and
+`version`, not only by `$SHELL`'s base name: a provider-installed bash 5.x
+whose base name is `bash` gets an undetermined list (reported, the shim refused
+as undetermined), never 3.2.57's. A15's `SHELL_FILE_UNDETERMINED` gets a stable
+`ErrorId` and a catalogue message (en, pt-BR) in I-4, like D6's other refusals.
+R-31's iTerm2 and tmux login-shell claims are paraphrase and general knowledge;
+I-4 quotes or observes them before its nested-login-shell test relies on them.
 
 ## Research, before code (I-1)
 

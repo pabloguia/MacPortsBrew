@@ -3,8 +3,9 @@
 # Names each supported shell resolves without consulting PATH: its builtins and
 # its reserved words, as shipped with macOS, as dated data (INV-20;
 # docs/research/R-31-macos-shell-startup.md, finding 12). Work order 16 part I,
-# D5: a shim whose name is in the detected shell's lists is refused with
-# SHIM_NAME_IS_SHELL_BUILTIN, because a shim the shell never looks up on PATH
+# D5: a shim whose name is in the detected shell's builtins or reserved words
+# is refused with SHIM_NAME_IS_SHELL_BUILTIN (module builtins are reported,
+# not refused, A17), because a shim the shell never looks up on PATH
 # can never take effect.
 #
 # The lists are what the shell itself reported, not a transcription of its

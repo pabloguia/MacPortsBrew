@@ -458,7 +458,7 @@ It also states the option "is disabled by default". That last phrase is relayed 
   - `post_install` is now deprecated in favour of `post_install_steps`, with the same environment.
   - Row 501 ("not investigated") is now answered here: git, curl and Ruby are not reached; the helpers in finding 8 are.
   - Do not edit F-2 from here; this is reported.
-- **`docs/spec/09-research-checklist.md`** has no R-30 entry. A grep for `R-30` matched nothing. The main agent may want to add one.
+- **`docs/spec/09-research-checklist.md`** had no R-30 entry when this note was written; I-1 added it.
 - **INV-07 and `docs/spec/05-environment-and-primary-provider.md`**: nothing here contradicts their text. The note supplies the fact D11 conditions on.
 
 ## Re-check when
