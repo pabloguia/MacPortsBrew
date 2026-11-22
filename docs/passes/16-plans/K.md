@@ -737,6 +737,58 @@ Nothing blocks K. Two items may appear:
   first release already ships opt-in removal, and SE-109's compatibility
   sentence ("if v0.1.0 ships before part K") no longer applies; SE-114 says so.
 
+## As built (K-8)
+
+- **The tripwire is positive.** `the_switch_needs_removal_opt_in`
+  (`crates/cli/tests/history_preconditions.rs`) holds whatever the switch, over
+  the production code of `crates/*/src` (`code_of`, and no `*tests.rs` file,
+  each of the four a test module today). Three checks: (1) the CLI names
+  `SourceFate::Remove` once, in `source_fate`, on the `remove_source` branch
+  with no `else` before it; (2) the shell calls `.perform(` once, and
+  `mutation_dispatch` (read with `body_of`) takes
+  `removal: Option<RemovalCleared>` and calls `removal_witness_admits(` before
+  `.perform(`; (3) `RemovalCleared` is defined once anywhere in `crates/*/src`,
+  has no field visible outside it (`pub(crate)` included), carries no
+  attribute or hand-written impl of `Clone`, `Copy`, `Default` or
+  `Deserialize`, and is built only in `clear_removal`, never by `Self {` in its
+  impls.
+- **What the scan does not carry, and what does.** The plan's "the CLI's
+  default plans keep the source in both directions" is held for `plan` and
+  `migrate`; an inversion at a `source_fate(` call site, and the behaviour in
+  both directions, are
+  `invariant_18_migrate_without_remove_source_plans_coexistence`'s and the unit
+  test beside `source_fate`. `restore` removes from the record (D4), in the
+  application, which check (1) does not scan. A `let _ =` around the witness
+  check is `a_removal_command_without_its_witness_is_never_handed_over`'s, and
+  the `MutationSite::perform(` form
+  `the_mutation_site_is_reached_only_through_mutation_dispatch`'s.
+  `source_build_and_unknown_are_not_manual_review` was already rewritten in K-3
+  (kept and removed sequences), so K-8 does not touch it.
+- **Mutants.** `the_removal_opt_in_tripwire_fires_on_its_mutants` kills
+  seventeen constructed ones: the default swapped; `Remove` chosen outside
+  `source_fate`; the witness check after the hand-over, or missing; a second
+  `.perform(`; no `mutation_dispatch`; the dispatch taking no witness; a
+  public and a `pub(crate)` field; `Clone`, `Clone` and `Copy`, a second
+  `#[derive(Default)]`, a `cfg_attr` `Deserialize`, a hand-written `Clone`; a
+  witness minted elsewhere, through `Self {` in its impl, or defined twice.
+  Against the real source: the default swapped in `source_fate` first
+  **survived** (`Remove` still followed `if remove_source`, in its `else`), and
+  the check now refuses an `else` between the two; a `Self {` constructor added
+  to the real impl is refused; a `Clone` on the real `RemovalCleared` does not
+  compile, because the application already asserts it is not `Clone`.
+- **D8's M-1 consequence** is recorded for part L's proposal as an item of
+  H.md's "When the switch flips" checklist, and SE-114 says so.
+- **Still handed, to part L:** E's two tests, (1) needing a fixture whose
+  `SET_PRIMARY` is decidable, which is a recapture (F's recapture is an owner
+  item), and (2) a terminal seam in `confirm_the_plan` and a lock answer a
+  replay can give; and K-3's mutant 7a, the re-plan under the lock
+  (`migrate.rs:292`), handed to K-6 and then to K-8 (SE-114), reachable only
+  past this build's gate. Each needs switch-on work, and nothing switch-on is
+  committed: `THIS_BUILD_DISPATCHES_MUTATIONS` stays `false`.
+- **Owed before the flip, not by K-8:** the independent review of K-6 and K-7
+  (both reviewed in-session), and K-7's toolchain capture, now under the
+  ledger's Needs the owner (K-7's review row said it was there; it was not).
+
 ## Reviews
 
 | Reviewer | Commit reviewed | Findings | Resolution |
@@ -759,4 +811,5 @@ Nothing blocks K. Two items may appear:
 | review (K-6, in-session) | `3ad3cab` | **Not by the subagents**: auto mode could not check their calls (a plugin hook rewrites a subagent's prompt after review), and the owner chose an in-session review. Findings: 1 `invariant_03_a_removal_without_its_witness_ends_partial_with_the_source_kept` missing; 2 `invariant_01_no_removal_dispatches_unless_the_lock_probe_answered_immediately_before_it` not asserting through the witness (`provider_locks_at_halt`); 3 the lock-sample scan accepted a `locks.sample()` judged anywhere later in the file. No invariant violated: every refusal in the loop breaks before dispatch, a removal with no witness fails closed at `removal_witness_admits`, the product dependents seam is the adapter's own inventory read, and 04's "Met (K-6)" matches the code | 1 added (application); 2 the assertion added; 3 judged after the sample and before the next dispatch, or it does not count. Not done: an independent reviewer's read; named as owed before the flip with part L |
 | mutation proof (K-6, in-session) | `3ad3cab` + the review's tests | 15 mutants (29, 30, 31, 32, 33a-c, 34, 34a, 35, 35a-d, 36), run in a scratch worktree: **all killed** after the review's tests. Before them 32, 33a, 33b, 34 and 35 survived: the "another command" case used an index the step did not have, the "another step" case was refused by kind before `covers`, the foreign verify position was also incomplete, the incomplete-contract case was conditional, and `mutation_dispatch`'s own check had no direct test. Mutant 30a (the sample moved before the re-read) is not expressible: the sample is judged only inside `clear_removal`, which takes the dependents link by value | Each survivor killed by a sharpened case: a two-command removal step, `covers` with another position, a dependents link from a complete first verify step, a verify step without its linkage check, and `a_removal_command_without_its_witness_is_never_handed_over` (`crates/cli/src/executor/mod.rs`). 30a held by type, and its order by `invariant_01_each_removal_command_passes_its_boundaries_in_order` |
 | review and mutation proof (K-7, in-session) | `809cddc` | Spec: the toolchain block is not built (D7's filesystem-read bullet: the recorder carries process invocations, not a `stat`), declared in 04 and SE-109; the owner capture stands under Needs the owner. Security: no new process read or path; the one change in the adapter narrows `Missing` to a non-zero exit. Docs: two wiki `doctor` samples still showed the old wording. Mutants 36, 36b (one cause for every source build), 36c (the source named as the builder), 38 and A1 (a timed-out `xcode-select` read as `Missing`): **all killed**, every one compiling. 37 and 39-41 are moot with no block | Wiki samples fixed in this PR. Independent review owed with K-6's before the flip |
+| review (K-8) | this PR | **spec-guardian: approve with changes.** No invariant violation, no Tier 1-3 change, switch `false`. 1 a `Self {` constructor in an impl unseen; 2 the definition's checks skipped if it moved crates; 3 `pub(crate)` unseen; 4 only the last `#[derive(` read, no hand-written impls; 5 "the CLI's plans" overbroad, `restore` removes from the record (D4); 6 the `*tests.rs` filter; 7 the body boundary, and the companion tests unnamed; 8 the branch match loose; 9 the `let _`. **docs-auditor: nothing blocking.** 1 K-3's 7a dropped; 2 SE-114 still handed E's tests to K-8; 3 the report pointed at K-1 and K-2 rows that are not here; 4 the CHANGELOG line overbroad; 5 a stale ledger sentence; 6 mutants did not pin every trait named; 7 this row; 8 "every build" | 1-4 and 6 (both): check 3 rewritten, `witness_forgery_violations`, eight mutants added, a real `Self {` refused. 5 and 4: wording scoped to `plan` and `migrate`, D4 named. 7: `body_of`, companions named. 8 accepted, the behaviour test carries it. 9 commented. 6 (guardian) accepted: the four such files are test modules. docs 1-3, 5, 7, 8 folded |
 | E's handed tests (K-5, scratch switch-on worktree, uncommitted) | `de6df78` | (1) `--yes` with no terminal and no `--plan-digest` is `USAGE` (exit 2), stdout empty, nothing written: **buildable and passes**, but only on an edited snapshot (a replay context with the committed live capture, history on this machine, and the source's executable list set known and empty), because a replayed row is `SAFETY_UNVERIFIABLE` and the live capture's `SET_PRIMARY` is `PRIMARY_REFUSED` (`EXECUTABLES_UNKNOWN`, then `PRIMARY_UNPREDICTABLE`). (2) an interactively confirmed plan reaching the run loop: **not buildable through `migrate_with`** (`confirm_the_plan` reads the process's own `is_terminal()`, no seam); one level down, `consent::confirm_plan` with scripted streams then `execute_mutating` passes `admits`, the history probe and the run lock, and halts at the first provider-lock sample, `PROVIDER_LOCKS_NOT_DETERMINED` (a replayed lock probe answers `UNKNOWABLE`). With the switch on, 46 existing tests fail, each a test that pins this build's refusals | Recorded; nothing committed. **Still handed, to K-8:** (1) needs a fixture whose `SET_PRIMARY` is decidable, (2) a terminal seam in `confirm_the_plan` and a lock answer a replay can give; the destination contract is no longer the blocker |

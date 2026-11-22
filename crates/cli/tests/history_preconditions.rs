@@ -2590,25 +2590,356 @@ fn the_shell_never_derives_a_command() {
     }
 }
 
-/// Fails while the switch is on (work order 16 part S, V3): DP-048 (c) is not
-/// yet whole. It bounds the residual window by making removal opt-in
-/// (`--remove-source`, with a confirmation stronger than an install's) and by
-/// dispatching `REMOVE_SOURCE` only when the re-read ran, DP-030's probe
-/// answered and all six destination checks were evaluated. It replaces slice 6
-/// part D's planned flip tripwire. Part K-3 made removal opt-in
-/// (`invariant_18_migrate_without_remove_source_plans_coexistence`); the
-/// stronger confirmation (K-4, K-5) and the removal witness (K-6) are still
-/// owed, and K-8 turns this positive once K-6's witness exists.
+/// A positive structural check, held whatever the switch is (work order 16
+/// part S, V3; made positive in part K-8). DP-048 (c) bounds the residual
+/// window by making removal opt-in and by handing a removal command over only
+/// with the witness minted for it. Three facts hold that in place:
+///
+/// 1. `plan` and `migrate` keep the source unless `--remove-source` is given:
+///    the CLI names `SourceFate::Remove` once, in `source_fate`, on the
+///    `remove_source` branch (K-3). The behaviour, and an inversion at a call
+///    site, are `invariant_18_migrate_without_remove_source_plans_coexistence`'s.
+///    `restore` removes only what its run added, from the record (D4), in the
+///    application, which this item does not scan.
+/// 2. `mutation_dispatch` takes the witness and asks `removal_witness_admits(`
+///    before `.perform(`, and nothing else in the shell calls `.perform(` (K-6).
+/// 3. The witness cannot be forged: `RemovalCleared` is defined once in
+///    `crates/*/src`, no field is visible outside it, nothing copies, defaults
+///    or deserialises it, derived or by hand, and it is built in
+///    `clear_removal` and nowhere else, `Self {` in its impls included (K-6,
+///    D6).
+///
+/// It replaces slice 6 part D's planned flip tripwire.
 #[test]
 fn the_switch_needs_removal_opt_in() {
-    let switch = THIS_BUILD_DISPATCHES_MUTATIONS;
+    // Tied to the switch by name; the check holds whichever way it is set.
+    let _ = THIS_BUILD_DISPATCHES_MUTATIONS;
+    let violations = removal_opt_in_violations(&source_files());
+    assert!(violations.is_empty(), "{violations:?}");
+}
+
+/// What is wrong with removal's opt-in and witness in `files` (paths relative
+/// to the repository, code already through `code_of`). A file named
+/// `*tests.rs` is a test module declared elsewhere and is not production code.
+fn removal_opt_in_violations(files: &[SourceFile]) -> Vec<String> {
+    let mut violations = Vec::new();
+    let production = || files.iter().filter(|(name, _)| !name.ends_with("tests.rs"));
+    // 1. One `Remove`, in `source_fate`, on the flag's branch.
+    let removes: Vec<(&str, usize)> = production()
+        .filter(|(name, _)| name.starts_with("crates/cli/src/"))
+        .flat_map(|(name, code)| {
+            code.match_indices("SourceFate::Remove")
+                .filter(|(at, _)| {
+                    !code[at + "SourceFate::Remove".len()..]
+                        .starts_with(|c: char| c.is_alphanumeric() || c == '_')
+                })
+                .map(move |(at, _)| (name.as_str(), at))
+        })
+        .collect();
+    match removes.as_slice() {
+        [(name, at)] => {
+            let code = &production()
+                .find(|(n, _)| n == name)
+                .expect("the file just read")
+                .1;
+            let before = &code[..*at];
+            let fate = before.rfind("fn source_fate(");
+            let branch = before.rfind("if remove_source");
+            let other_fn = before.rfind("fn ");
+            match (fate, branch) {
+                (Some(f), Some(b))
+                    if f < b && other_fn == Some(f) && !before[b..].contains("else") => {}
+                _ => violations.push(format!(
+                    "{name}: SourceFate::Remove must be chosen in source_fate, on the \
+                     `if remove_source` branch"
+                )),
+            }
+        }
+        other => violations.push(format!(
+            "the CLI names SourceFate::Remove {} times; it must once, in source_fate",
+            other.len()
+        )),
+    }
+    // 2. The dispatch asks for the witness before the hand-over, and is the
+    //    shell's only hand-over (`the_mutation_site_is_reached_only_through_mutation_dispatch`
+    //    also holds the `MutationSite::perform(` form; the behaviour is
+    //    `a_removal_command_without_its_witness_is_never_handed_over`).
+    let shell: Vec<&SourceFile> = production()
+        .filter(|(name, _)| name.starts_with("crates/cli/src/executor/"))
+        .collect();
+    let performs: usize = shell
+        .iter()
+        .map(|(_, c)| c.matches(".perform(").count())
+        .sum();
+    if performs != 1 {
+        violations.push(format!(
+            "the shell calls .perform( {performs} times; only mutation_dispatch may"
+        ));
+    }
+    match shell.iter().find_map(|(name, code)| {
+        let start = code.find("fn mutation_dispatch(")?;
+        let body = body_of(code, "mutation_dispatch")?;
+        Some((name, &code[start..], body))
+    }) {
+        Some((name, signature, body)) => {
+            let takes = signature
+                .find('{')
+                .is_some_and(|open| signature[..open].contains("removal: Option<RemovalCleared>"));
+            match (body.find("removal_witness_admits("), body.find(".perform(")) {
+                (Some(admits), Some(perform)) if takes && admits < perform => {}
+                _ => violations.push(format!(
+                    "{name}: mutation_dispatch must take `removal: Option<RemovalCleared>` and \
+                     call removal_witness_admits( before .perform("
+                )),
+            }
+        }
+        None => violations.push("the shell has no fn mutation_dispatch(".to_string()),
+    }
+    violations.extend(witness_forgery_violations(
+        &production().collect::<Vec<_>>(),
+    ));
+    violations
+}
+
+/// The traits that would copy, default or read a witness from outside.
+const WITNESS_COPYING_TRAITS: [&str; 4] = ["Clone", "Copy", "Default", "Deserialize"];
+
+/// Whether `text` holds the word `pub`, `pub(crate)` and the like included.
+fn has_pub_word(text: &str) -> bool {
+    text.match_indices("pub").any(|(at, _)| {
+        let before_ok = text[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+        let after_ok = text[at + 3..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_whitespace() || c == '(');
+        before_ok && after_ok
+    })
+}
+
+/// Check 3: `RemovalCleared` is defined once, anywhere in `crates/*/src`, with
+/// no field visible outside it and nothing that copies, defaults or
+/// deserialises it, derived or written by hand; and it is built only in
+/// `clear_removal`, never through `Self { .. }` in one of its own impls.
+fn witness_forgery_violations(files: &[&SourceFile]) -> Vec<String> {
+    let mut violations = Vec::new();
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let mut definitions = Vec::new();
+    let mut built = Vec::new();
+    for (name, code) in files {
+        for (at, _) in code.match_indices("RemovalCleared") {
+            if code[at + "RemovalCleared".len()..].starts_with(ident) || code[..at].ends_with(ident)
+            {
+                continue;
+            }
+            let before = &code[..at];
+            let after = code[at + "RemovalCleared".len()..].trim_start();
+            // The item text before this name, back to the end of the last item.
+            let header = &before[before.rfind(['{', '}', ';']).map_or(0, |e| e + 1)..];
+            if before.ends_with("struct ") {
+                definitions.push(name.as_str());
+                let open = at + code[at..].find(['{', ';', '(']).unwrap_or(0);
+                let close = open + code[open..].find('}').unwrap_or(code.len() - open);
+                if has_pub_word(&code[open..close]) {
+                    violations.push(format!("{name}: RemovalCleared has a visible field"));
+                }
+                // Every attribute on the struct, `cfg_attr` included.
+                for copying in WITNESS_COPYING_TRAITS {
+                    if header.contains(copying) {
+                        violations.push(format!("{name}: RemovalCleared derives {copying}"));
+                    }
+                }
+            } else if (header.contains("impl ") || header.contains("impl<"))
+                && after.starts_with('{')
+            {
+                // One of its own impl blocks: a trait impl by hand, or `Self {`.
+                for copying in WITNESS_COPYING_TRAITS {
+                    if header.contains(copying) {
+                        violations.push(format!("{name}: RemovalCleared implements {copying}"));
+                    }
+                }
+                let open = code.len() - after.len();
+                if let Some(block) = body_of(&format!("fn x(){}", &code[open..]), "x") {
+                    for (self_at, _) in block.match_indices("Self {") {
+                        if !block[..self_at].ends_with("-> ") {
+                            violations.push(format!(
+                                "{name}: an impl of RemovalCleared builds one with `Self {{`"
+                            ));
+                        }
+                    }
+                }
+            } else if after.starts_with('{') && !before.ends_with("-> ") {
+                let function = before.rfind("fn ").map(|f| &before[f..]);
+                built.push((
+                    name.as_str(),
+                    function.is_some_and(|f| f.starts_with("fn clear_removal(")),
+                ));
+            }
+        }
+    }
+    if definitions.len() != 1 {
+        violations.push(format!(
+            "RemovalCleared is defined at {definitions:?}; it must be defined exactly once"
+        ));
+    }
+    match built.as_slice() {
+        [(_, true)] => {}
+        _ => violations.push(format!(
+            "RemovalCleared is built at {built:?}; only clear_removal may"
+        )),
+    }
+    violations
+}
+
+#[test]
+fn the_removal_opt_in_tripwire_fires_on_its_mutants() {
+    let cli = "pub(crate) const fn source_fate(remove_source: bool) -> SourceFate { \
+               if remove_source { SourceFate::Remove } else { SourceFate::Keep } }";
+    let shell = "fn mutation_dispatch(site: &dyn MutationSite, removal: Option<RemovalCleared>) \
+                 { if let Err(why) = removal_witness_admits(removal.as_ref()) { return; } \
+                 site.perform(); }\nfn other() {}";
+    let app = "#[derive(Debug)]\n#[must_use]\npub struct RemovalCleared { position: usize }\n\
+               impl RemovalCleared { fn position(&self) {} }\n\
+               pub fn clear_removal(x: usize) -> RemovalCleared { RemovalCleared { position: x } }";
+    let files = |cli: &str, shell: &str, app: &str| {
+        vec![
+            ("crates/cli/src/app/mod.rs".to_string(), cli.to_string()),
+            (
+                "crates/cli/src/executor/mod.rs".to_string(),
+                shell.to_string(),
+            ),
+            (
+                "crates/application/src/executor.rs".to_string(),
+                app.to_string(),
+            ),
+        ]
+    };
     assert!(
-        !switch,
-        "DP-048 (c) is built (opt-in in K-3, the levels in K-4 and K-5, the per-command \
-         removal witness in K-6) but not yet held positively: K-8 turns this tripwire into the \
-         structural check that the CLI's default plans keep the source and that \
-         mutation_dispatch cannot take a removal command without its witness (SE-107, SE-114)"
+        removal_opt_in_violations(&files(cli, shell, app)).is_empty(),
+        "{:?}",
+        removal_opt_in_violations(&files(cli, shell, app))
     );
+    let mutants: Vec<(&str, String, String, String)> = vec![
+        (
+            "the default is Remove",
+            cli.replace(
+                "{ SourceFate::Remove } else { SourceFate::Keep }",
+                "{ SourceFate::Keep } else { SourceFate::Remove }",
+            ),
+            shell.to_string(),
+            app.to_string(),
+        ),
+        (
+            "Remove chosen outside source_fate",
+            format!("{cli} fn plan() {{ let s = SourceFate::Remove; }}"),
+            shell.to_string(),
+            app.to_string(),
+        ),
+        (
+            "the witness check after the hand-over",
+            cli.to_string(),
+            shell.replace(
+                "if let Err(why) = removal_witness_admits(removal.as_ref()) { return; } site.perform();",
+                "site.perform(); if let Err(why) = removal_witness_admits(removal.as_ref()) { return; }",
+            ),
+            app.to_string(),
+        ),
+        (
+            "no witness check",
+            cli.to_string(),
+            shell.replace("if let Err(why) = removal_witness_admits(removal.as_ref()) { return; }", ""),
+            app.to_string(),
+        ),
+        (
+            "a second hand-over",
+            cli.to_string(),
+            shell.replace("fn other() {}", "fn other(site: &dyn MutationSite) { site.perform(); }"),
+            app.to_string(),
+        ),
+        (
+            "a public field",
+            cli.to_string(),
+            shell.to_string(),
+            app.replace("{ position: usize }", "{ pub position: usize }"),
+        ),
+        (
+            "a cloneable witness",
+            cli.to_string(),
+            shell.to_string(),
+            app.replace("#[derive(Debug)]", "#[derive(Debug, Clone)]"),
+        ),
+        (
+            "minted elsewhere",
+            cli.to_string(),
+            shell.to_string(),
+            format!("{app}\nfn forge() -> RemovalCleared {{ RemovalCleared {{ position: 0 }} }}"),
+        ),
+        (
+            "no dispatch",
+            cli.to_string(),
+            shell.replace("fn mutation_dispatch(", "fn hand_over("),
+            app.to_string(),
+        ),
+        (
+            "minted through Self in its own impl",
+            cli.to_string(),
+            shell.to_string(),
+            app.replace(
+                "fn position(&self) {}",
+                "pub fn new(x: usize) -> Self { Self { position: x } }",
+            ),
+        ),
+        (
+            "a crate-visible field",
+            cli.to_string(),
+            shell.to_string(),
+            app.replace("{ position: usize }", "{ pub(crate) position: usize }"),
+        ),
+        (
+            "a copyable witness",
+            cli.to_string(),
+            shell.to_string(),
+            app.replace("#[derive(Debug)]", "#[derive(Debug, Clone, Copy)]"),
+        ),
+        (
+            "a defaultable witness",
+            cli.to_string(),
+            shell.to_string(),
+            app.replace("#[derive(Debug)]", "#[derive(Debug)]\n#[derive(Default)]"),
+        ),
+        (
+            "a witness read from outside",
+            cli.to_string(),
+            shell.to_string(),
+            app.replace("#[derive(Debug)]", "#[cfg_attr(test, derive(Deserialize))]\n#[derive(Debug)]"),
+        ),
+        (
+            "a hand-written Clone",
+            cli.to_string(),
+            shell.to_string(),
+            format!("{app}\nimpl Clone for RemovalCleared {{ fn clone(&self) -> Self {{ todo!() }} }}"),
+        ),
+        (
+            "the dispatch takes no witness",
+            cli.to_string(),
+            shell.replace(", removal: Option<RemovalCleared>", ""),
+            app.to_string(),
+        ),
+        (
+            "defined twice",
+            cli.to_string(),
+            format!("{shell}\npub struct RemovalCleared {{ pub position: usize }}"),
+            app.to_string(),
+        ),
+    ];
+    for (label, cli, shell, app) in mutants {
+        assert!(
+            !removal_opt_in_violations(&files(&cli, &shell, &app)).is_empty(),
+            "{label}"
+        );
+    }
 }
 
 /// Detection: a release is built without the `test-support` feature (slice 4

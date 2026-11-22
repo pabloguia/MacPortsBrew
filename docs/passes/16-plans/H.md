@@ -414,6 +414,7 @@ On `wo16/H-8-observe`, stacked on L1 (`wo16/H-7-l1`, PR #75, merged into `main` 
 - [ ] `data/policy/liveness-probes.toml`'s header: "nothing in this build runs a row".
 - [ ] `CHANGELOG.md`'s H-5 line: "Nothing in this build runs a probe".
 - [ ] And, per security M-1, that change's security review covers the probe as well as mutation dispatch, or sets `THIS_BUILD_OBSERVES_LIVENESS_PROBE` back to `false` first.
+- [ ] Per M-1 with the source kept by default (part K, D8; recorded by K-8): a default plan still carries `VERIFY_DESTINATION`, so once the switch flips, a default `migrate` onto a destination that already holds the package probes under the lock and dispatches nothing. With `--remove-source` opt-in that is the common shape of such a run, not an edge, and the proposal says so; the security review above covers it.
 
 ## The claim and the exit
 
