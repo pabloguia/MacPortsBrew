@@ -776,6 +776,145 @@ named refusal `LAYER4_FACTS_UNKNOWN`, never an inferred `Absent` slot or file.
 `--from-snapshot` and `--replay` therefore give byte-identical plans without
 touching the home. Test: `invariant_15_a_replayed_plan_never_reads_or_writes_the_home`.
 
+## Amendments after the second review (`8ffe78b`)
+
+Each item **overrides** the text of the decision it names. A slice implements the
+decision as amended here.
+
+**A1 — Only a recorded entry is this tool's** (D1a, D2, D4, D5; SR-N1).
+
+- Capture labels a winner `MacportsbrewShim` only when it meets all of:
+  - it is a symlink;
+  - its path and its `read_link` are named by a qualifying history record.
+- Any other entry in the shim directory is **foreign**: a link nobody recorded, a
+  regular file, anything else. It is:
+  - refused as a non-provider winner;
+  - never offered for `Replace`;
+  - reported by `doctor`.
+- An unrecorded link that happens to point at the destination is still foreign
+  to `decide`. `doctor` shows it as unrecorded.
+- Mutant: an unrecorded entry offered for `Replace`.
+
+**A2 — The home identity is digest input, never a field** (D3, D16; SR-N2,
+SG-N2).
+
+- **The digest.** The identity, `(st_dev, st_ino)` of the home plus its
+  absolute path, is fed into `writeDigest`'s and the plan digest's computation
+  beside the plan bytes. It is never serialised: not into `--json`, the plan,
+  history, a snapshot or `doctor --report`. "Undisplayed" means exactly that.
+- **`snapshot.v2`.** Neither the hashed path nor the inode is kept. `XDG_DATA_HOME`,
+  `ZDOTDIR` and the block's bytes are home-redacted the way `PATH` is.
+  `capture-fixture.sh` keeps that redaction.
+- **Writers.** The writers check the run's home against the identity the digest
+  was computed with.
+- **Test.** `no_document_contains_the_home_path_or_an_unkeyed_hash_of_it`.
+
+**A3 — Reverses are data inside the forward step** (D2, D3; SG-N1, SR-N3, SG-N7).
+
+- **Scope.** A reverse is not a step. `check_ordering` does not see it, and
+  rule 1 does not apply to it. D5 and D6's checks do apply, at the moment it
+  runs.
+- **Consent.** The forward step's `WriteConsented` is consumed at its dispatch
+  together with a `ReverseCovered{plan_digest, step}`. That token is minted from
+  the same consent, is not `Clone`, and is held only by the run loop until the
+  run ends. A reverse runs only with it.
+- **The reverses:**
+  - a block `Replace` restores the previous block;
+  - a block `Create` on a file that was absent removes the file only if its bytes
+    equal exactly what was written, including the newline D6 adds; otherwise it
+    removes only the block;
+  - a shim `Replace` restores `from`, after D5's three checks on `from`;
+  - a shim `Create` removes the link only while `read_link` equals what was
+    written.
+- **Order.** Reverses run in reverse order of the writes, so the block comes
+  before the shims, mirroring rule 3.
+- **Semantics.** This changes 04 `:37-38`'s failure semantics: the executor runs
+  planned reverses instead of only halting. It is a Tier 3 change, added to D15.
+- **Mutants:**
+  - a reverse run without its token;
+  - a `Create` reverse deleting a file whose bytes changed.
+
+**A4 — Restore's ordering rule** (D2, D9; SG-N1).
+
+- **The rule.** A restore plan's `WRITE_SHIM Replace` back to an earlier provider
+  needs no `VERIFY_DESTINATION`. In its place, D5's three target checks run at
+  planning and again at write, and a `VERIFY_RESOLUTION` must be present after it.
+- **Placement.** `check_ordering` gains this as rule 6, keyed on the plan's kind
+  (`restore`), so a `migrate` plan cannot use it.
+- **Mutant:** rule 6 admitted for a `migrate` plan.
+
+**A5 — The way back inside `migrate`** (D1a, D2; SG-N4).
+
+- **The rule.** A `WRITE_SHIM Remove` in a `migrate` plan requires a
+  `VERIFY_RESOLUTION` after it, rule 7. That check is evaluated on the managed
+  `PATH` without the removed name.
+- **The block.** It stays while any other recorded shim remains. It is removed,
+  as a `WRITE_PATH_BLOCK Remove` before the shim removals, only when none
+  remains.
+
+**A6 — `LAYER4_FACTS_UNKNOWN` has a scope** (D16, INV-15; SG-N3, SR-N4).
+
+- **When it refuses.** It refuses an executable only if that executable would
+  otherwise be offered a shim or recognised as one. Every other plan is
+  unchanged. Existing `--replay` and `--from-snapshot` cases keep their outputs,
+  which the test suite pins.
+- **Old snapshots.** `snapshot.v1` still loads, and reads as "no `layer4`
+  facts".
+- **A replayed shim winner.** Under replay, a winner in a directory capture
+  could not check is `Unknown`, never classified by its target's owner. So a
+  replayed shimmed machine cannot read as `NothingToChange` through step 3.
+- **New facts for D5 and D12.** `layer4` gains, for each `PATH` entry, the folded
+  name set (names only) and each name's resolved `(dev, ino)`. "The same
+  executable" means the same resolved `(dev, ino)`. These facts are absent under
+  `Elsewhere`, and their absence is `LAYER4_FACTS_UNKNOWN`.
+- **Reading at capture.** Capture reads the shell-file candidates with the
+  bounded, no-follow reader and its non-regular refusal (SR-N6), so a FIFO cannot
+  hang `plan`.
+
+**A7 — `SHIM_NAME_SHADOWS_ANOTHER`, worded narrowly** (D5; SG-N5). It refuses
+when a **different spelling** folds to the planned name and does not resolve to
+the same executable. The planned name's own byte-equal entries, the source's copy
+among them, never refuse.
+
+**A8 — The formula component has its own class** (D5; SR-N5). It uses Homebrew's
+formula-name characters plus `@`: `python@3.12` is admitted. `/`, `..`, a
+leading `-`, NUL, whitespace and control characters stay refused.
+
+**A9 — D13's fallback** (SG-N6). If I-3 finds no captured case, the test edits
+the Homebrew row's **placement** to `NotLinked`, the keg-only shape, and declares
+that edit. `PATH` is never permuted, which `primary_decision.rs:196-199` rules out
+(SG-14).
+
+**A10 — `--write-digest`, named** (D3, D15, 06; SG-N8).
+
+- **The flag.** `--write-digest <hex>` is required beside `--yes --plan-digest`
+  whenever a write step is present. It is named in 06's synopsis.
+- **With `--removal-digest`.** It is independent of `--removal-digest`: a plan
+  with both a removal and a write needs both.
+- **`ADVANCED_REMOVAL`.** A plan at that level keeps no script route, with or
+  without writes (`NO_SCRIPT_ROUTE`, SE-114).
+
+**A11 — `effective_uid()` is `None`** (D4; SG-N9). The writer refuses with
+`SHIM_DIRECTORY_UNSAFE`, and capture records the uid as unknown. Mutant: `None`
+treated as the home's owner.
+
+**A12 — Intents are maybe-written** (D8; SG-N10, SR-N6).
+
+- **A shim.** Restore from an intent acts only when the slot matches the
+  intent's after-state. A slot still matching the before-state, or holding no
+  link at all, is a no-op.
+- **The block.** The file may match the before-digest, which is a no-op, or the
+  after-digest, which is reversed. Anything else is reported, not touched.
+- **Lifetime.** An intent lives until the history record is durable, as the run
+  marker does.
+- **Which directory.** Revert and restore use the shim directory history
+  recorded, never one recomputed from today's `XDG_DATA_HOME`.
+- **Tests:** both halves, for both kinds.
+
+**A13 — Mirrors** (D14; SG-13). If `.claude/rules/adapters.md` is amended,
+any generated `.codex` mirror of `.claude/rules/` is regenerated in the same
+staged patch.
+
 ## Research, before code (I-1)
 
 - **R-30 — what reaches each provider's phases from the user's `PATH`, and in
@@ -975,3 +1114,5 @@ the real ones.
 |---|---|---|---|
 | security-reviewer | `42780c5` | **approve with changes.** H1 creating a shell file can shadow another startup file (bash's first-of-three), `path_helper`; H2 case- and normalisation-insensitive APFS breaks INV-12 and plans colliding names; H3 revert removes a slot that no longer holds the recorded link, restore links an unchecked recorded target, created directories never removed; H4 directory creation not in the plan. M1 `write_atomic` preserves no mode, owner, xattr or hard link, FIFO and flags; M2 the digest covers redacted paths, so another `HOME` admits; M3 the name class admits control characters, ESC, whitespace, a leading dot; the formula component and target unchecked; M4 the diff's context leaks rc secrets, history and errors unredacted; M5 rename into an `Absent` slot replaces a late arrival; M6 the walk skips `HOME` itself, `XDG_DATA_HOME` with `..`, the shell file's parents, ACLs, euid 0; M7 prefixes: the union and both directions; M8 whole-line markers, CRLF, bounded read, `:` and control characters in the directory. L1 token-specific, `soft_link`; L2 dot-name backups, retention; L3 `$SHELL` not the login shell; L4 keep `doctor`'s writable-entry warning, sensitive names; L5 leftover temporaries; L6 bind the witness to the plan; L7 edits inside the markers lost on revert. Info: the tool's own pinned `PATH`; builtins, aliases; fish | All folded: H1 D6 and R-31; H2 D4, D5, D12; H3 D9; H4 D4 and D2; M1 D6's dedicated writer (ACLs and xattrs declared, D15); M2 D3's home identity; M3 D5's allowlist; M4 D2 zero-context, D8 redaction, D6 backups never shown; M5 D5; M6 D4, D6; M7 D4; M8 D6, D4. L1 D14; L2 D6; **L3 declared, not built** (`getpwuid` needs `libc`; the question names the file); L4, L5 D10; L6 D3; L7 D9. Info: D11's unconditional test, D5's builtins, fish refused (D6) |
 | spec-guardian | `42780c5` | **approve with changes.** 1 `decide` reads a shim winner as `NON_PROVIDER_ENTRY_WINS`, so INV-16 holds only through history, `RecordedShim` is unreachable, no way back, no repair; capture never assigns `MacportsbrewShim`. 2 planning's facts are not in the snapshot (INV-15); privacy of the shell file. 3 no rollback story, no intent before a write (a crash leaves an unrecorded shim). 4 `check_ordering` must require presence, every occurrence, five lists equal; revert has no step form. 5 the plan digest consenting to shell writes is in tension with SE-114's removal digest; K-6's test name. 6 rename into an `Absent` slot; the name class misses a leading dot, control characters, `:` in the directory; per-check tests. 7 `write_atomic` cited wrongly; the creation-mode seam is test-only; the shell file's parents; `ZDOTDIR` outside the home. 8 the INV-17 test is infeasible on the cited snapshot; option (d) needs dated data. 9 an unconditional INV-07 test; widen R-30. 10 the Tier 3 deviations SE-115 must name. 11 the impact preview without recorded shims; placement and `path_helper`. 12 created directories as writes. 13 the patch token-specific and complete (`.codex`, both test scripts, `rules/adapters.md`). 14 the version line and INV-16. 15 `sbin` targets; `port select` names. 16 inode- and firmlink-aware comparison. 17 tests cannot flip a constant. 18 escaping. 19 the run's home equals the plan's. 20 the windows the lock does not close; backups' retention. **D11 advisory:** (b) not compatible with INV-07's text except where the shim changes nothing; the DP is the owner's alone. Citations accurate except `plan.rs:614` (the constant) and `write_atomic`'s mode | All folded: 1 D1a, D8; 2 D16, D2; 3 D2's rollback, D8's intent record; 4 D2's five rules, the revert form, the five-list check; 5 D3's `writeDigest`, the rename; 6 D5; 7 D6; 8 D13 and an owner capture item; 9 D11, R-30; 10 D15; 11 D12, D7; 12 D4; 13 D14; 14 D6; 15 D5; 16 D4; 17 D1; 18 D3, D5; 19 D3; 20 D15, D6. The advisory taken: the DP states that (b) is an interpretation of a Tier 1 invariant, the owner's alone. Citations corrected |
+| security-reviewer (re-review) | `8ffe78b` | **approve with changes.** Every earlier finding resolved or declared (L3, ACLs). New: N1 any entry in the shim directory read as this tool's, so a foreign link is `Replace`d; N2 the home identity's hash and `snapshot.v2` leak the user name, and `XDG_DATA_HOME`, `ZDOTDIR` and the block are unredacted; N3 reverse semantics, order, the way back's ordering; N4 D12 and D5 need `PATH` listings the snapshot lacks; N5 the class refuses every `@` formula; N6 a FIFO at capture, maybe-written intents, the recorded directory | Folded: N1 A1; N2 A2; N3 A3, A5; N4 A6; N5 A8; N6 A6, A12 |
+| spec-guardian (re-review) | `8ffe78b` | **approve with changes (minor).** All 20 addressed; 2, 3, 4 and 8 with residuals. New: N1 rule 1 against restore's `Replace` and the rollback's consent; N2 the home identity is a privacy leak; N3 `LAYER4_FACTS_UNKNOWN` would refuse every replay; N4 the way-back `Remove` unordered in `migrate`; N5 `SHIM_NAME_SHADOWS_ANOTHER` matches the shimmed name itself; N6 D13's fallback misdescribed; N7 rollback changes 04's failure semantics; N8 `--write-digest` unnamed; N9 `effective_uid()` can be `None`; N10 restore from an intent, both halves | Folded: N1 A3, A4; N2 A2; N3 A6; N4 A5; N5 A7; N6 A9; N7 A3 (and D15); N8 A10; N9 A11; N10 A12. Not re-reviewed a third time: each amendment narrows or names, none adds a write path; each slice's own review reads D-sections and amendments together |
