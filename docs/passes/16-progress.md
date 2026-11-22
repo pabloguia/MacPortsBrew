@@ -213,3 +213,4 @@ session stopped and why.
 - 2026-11-21: PR #84 (K-6, removal witness) merged as `bfdb937`, every required check green; K-7 started on `wo16/K-7-source-build`.
 - 2026-11-21: PR #85 (K-7, the source-build cost) merged as `6113305`, every required check green; K-8 started on `wo16/K-8-close`. K-7's owner capture, claimed in its review row but never added here, is added under Needs the owner.
 - 2026-11-21: PR #86 (K-8, removal opt-in held positively) merged as `9354db3`, every required check green; part K merged. I started on `wo16/I-0-plan`.
+- 2026-11-21: I-0 plan reviewed twice by spec-guardian and security-reviewer (both approve with changes), every finding folded in (D1a, D15, D16, amendments A1-A13).
