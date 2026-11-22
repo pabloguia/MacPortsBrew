@@ -11,6 +11,27 @@ are recorded.
 
 ## Open
 
+### DP-058 — Layer 4 and INV-07: a shim a provider's own install phases can reach
+
+Raised 2026-11-22, work order 16 part I, slice I-1 (plan `docs/passes/16-plans/I.md` D11). Evidence: [R-30](research/R-30-provider-phases-and-user-path.md), read on Homebrew 7.0.15-44-gee32747 and MacPorts 2.12.6.
+
+- **The fact.** Homebrew runs `post_install` and `post_install_steps` (also after a bottle pour) and cask `install_steps` with exactly the user's `PATH`, and `env :std` builds with it ahead of Homebrew's own prefix and the system directories. A few non-build helpers (the attestation `gh`, `ensure_installed!`) also resolve in the user's order. MacPorts replaces the caller's `PATH` with `binpath` before any phase, elevated or not.
+- **What follows.** A layer-4 shim directory first on the user's `PATH`, pointing a name at MacPorts' copy, is reached by those Homebrew phases. A Homebrew `post_install` that runs `pkg-config` or a compiler by name, or an `env :std` build, would then use a MacPorts tool. MacPortsBrew would have configured that, and INV-07 says it never configures cross-provider contamination. A shim pointing at Homebrew's copy reaches only Homebrew's own phases, which is not cross-provider, and MacPorts' phases never see it.
+- **Why it is yours.** Every option below except (a) and (d) is a reading of a Tier 1 invariant, not a Tier 3–5 trade-off. `spec-guardian`'s advisory view (I-0 reviews) is that (b) is not compatible with INV-07's text except where the shim changes nothing.
+
+**Options:**
+
+- **(a) Refuse any shim toward a provider whose name another provider's inheriting phases could reach.** Today that refuses every shim toward MacPorts and admits shims toward Homebrew. Cost: a Homebrew-to-MacPorts primary that needs a shim cannot be expressed at all; layers 1–2 remain.
+- **(d) The same outcome, decided from dated per-provider data** (`which providers' install phases inherit the user's PATH`, with `source` and `read_on`, INV-20), with no direction branch in code, so INV-17 holds by construction. It flips by itself if either provider's behaviour changes and R-30 is re-read. Cost: one data file to keep current, and the same unexpressible direction as (a) until Homebrew stops inheriting.
+- **(c) A shim that defers to the inheriting provider during its own phases.** It needs a marker that phase exposes and a script, not a symlink, which reopens D14, spec 05 `:63` ("symlinks") and the staged gate exemption. Cost: a new executable MacPortsBrew owns on every shimmed name, and a detection that depends on Homebrew's environment staying recognisable.
+- **(b) Disclose the reach and accept it.** The impact preview names the inheriting phases and the user consents. Cost: MacPortsBrew would configure what INV-07 forbids, with consent; only an owner's reading of INV-07 can admit it.
+
+**Recommendation: (d).** It is the least that expresses the requirement, changes no invariant, keeps the two directions in one code path decided by dated facts, and admits the one direction R-30 shows is safe. (a) is the same outcome hardcoded. (c) costs more than layer 4 is worth today. (b) is not mine to recommend.
+
+**What it blocks:** offering a shim. Nothing else in part I: the steps, the writers, consent, verification, history, `env --revert` and `doctor` are built and tested through D1's test allowance.
+
+**Default meanwhile:** the planner refuses every shim offer as `PRIMARY_NEEDS_SHIM`, exactly as today, behind one constant named after this decision (`LAYER4_SHIM_OFFER_ADMITTED = false`, DP-058). The ruling flips one value, or under (d) replaces it with a read of the data file; neither is a redesign.
+
 ### DP-056 — The linkage check: an in-process Mach-O reader, or `otool` on the allowlist?
 
 Raised 2026-11-04, work order 16 part H. R-21 named this the owner's trade-off; **it blocks nothing**, and the review found the choice within the part's authority (no dependency, no `unsafe`, no spawn, no allowlist growth). It is here so the owner can overrule it.

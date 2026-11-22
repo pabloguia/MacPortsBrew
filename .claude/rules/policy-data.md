@@ -45,6 +45,7 @@ the adapter can observe; add one for what it cannot.
 | `runtime-managers.toml` | Runtime families and the managers to suggest |
 | `stateful-packages.toml` | Families that own persistent data outside their prefix |
 | `liveness-probes.toml` | The curated probes: observed rows only, keyed `(provider, package, executable)`. The gate compares a plan's argv with it, and a package any stateful family lists under any provider is a load error (DP-051, `docs/passes/16-liveness-design.md`) |
+| `shell-builtins.toml` | Builtins and reserved words of zsh and bash as shipped on macOS, one table per shell with the version observed (R-31). Layer 4 refuses a shim whose name the shell resolves without `PATH` (work order 16 part I, D5) |
 
 ## Bumping the version
 

@@ -3629,8 +3629,10 @@ fn plan_digest_is_pinned_for_a_fixed_plan() {
 // version went to `2026.11.04-1` with `liveness-probes.toml`. Moved by H-4:
 // the policy version went to `2026.11.04-4` when a probe row was removed.
 // Moved by K-4: the plan carries `sourceOwnership` (work order 16 part K, D3).
+// Moved by I-1: the policy version went to `2026.11.22-1` with
+// `shell-builtins.toml` (R-31).
 const PINNED_DIGEST: &str =
-    "sha256:c7dc4b2e44a4a9f21c941a9839d3fda7be0e175e9d952f25646a7749a76c63f2";
+    "sha256:c9e8c0046b59ade6b1998d3b11317f2bf146c6b0d4941deaf23f8e10b211e26d";
 
 #[test]
 fn a_plan_digest_reads_back_as_written_and_nothing_else() {

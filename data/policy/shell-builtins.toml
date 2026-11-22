@@ -1,0 +1,97 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Names each supported shell resolves without consulting PATH: its builtins and
+# its reserved words, as shipped with macOS, as dated data (INV-20;
+# docs/research/R-31-macos-shell-startup.md, finding 12). Work order 16 part I,
+# D5: a shim whose name is in the detected shell's lists is refused with
+# SHIM_NAME_IS_SHELL_BUILTIN, because a shim the shell never looks up on PATH
+# can never take effect.
+#
+# The lists are what the shell itself reported, not a transcription of its
+# manual; the manual was read alongside as a cross-check (R-31, E-12, E-13).
+# Aliases and functions are user configuration and are not here: they cannot be
+# seen without sourcing the user's startup files, which nothing in this project
+# does (part I, D7, says so in its report).
+#
+# Tables
+#   [zsh], [bash]   one per shell; the key is the base name of $SHELL
+#
+# Fields
+#   binary            the path that was run to produce the lists
+#   version           the shell's own --version line, verbatim
+#   builtins          names the shell runs as builtins with no module loaded by
+#                     the user. For zsh this is ${(k)builtins} in `zsh -f`,
+#                     which includes builtins that autoload from a module on
+#                     first use (compadd, zstyle, zle, ...): they resolve
+#                     without PATH just the same
+#   module_builtins   zsh only: names that become builtins only after the user's
+#                     own configuration runs `zmodload` on a module shipped in
+#                     /usr/lib/zsh/5.9 (zsh/files makes `mv`, `rm`, `ln`,
+#                     `mkdir` builtins). Whether they are loaded depends on the
+#                     user's startup files and cannot be read; whether to refuse
+#                     them is the consumer's decision, not this file's
+#   reserved_words    words the parser recognises before any lookup
+#   source            what was run or read, precise enough to repeat
+#   read_on           YYYY-MM-DD, the day it was observed
+#
+# Several entries (".", ":", "[", "[[", "]]", "{", "}", "!") are already outside
+# part I's shim name class; they are listed because they are the shell's, and
+# the two checks stay independent.
+#
+# Re-check when macOS ships a different /bin/zsh or /bin/bash version.
+
+[zsh]
+binary = "/bin/zsh"
+version = "zsh 5.9 (x86_64-apple-darwin25.0)"
+builtins = [
+  ".", ":", "[", "alias", "autoload", "bg", "bindkey", "break",
+  "builtin", "bye", "cd", "chdir", "command", "compadd", "comparguments", "compcall",
+  "compctl", "compdescribe", "compfiles", "compgroups", "compquote", "compset", "comptags", "comptry",
+  "compvalues", "continue", "declare", "dirs", "disable", "disown", "echo", "echotc",
+  "echoti", "emulate", "enable", "eval", "exec", "exit", "export", "false",
+  "fc", "fg", "float", "functions", "getln", "getopts", "hash", "history",
+  "integer", "jobs", "kill", "let", "limit", "local", "log", "logout",
+  "noglob", "popd", "print", "printf", "private", "pushd", "pushln", "pwd",
+  "r", "read", "readonly", "rehash", "return", "sched", "set", "setopt",
+  "shift", "source", "suspend", "test", "times", "trap", "true", "ttyctl",
+  "type", "typeset", "ulimit", "umask", "unalias", "unfunction", "unhash", "unlimit",
+  "unset", "unsetopt", "vared", "wait", "whence", "where", "which", "zcompile",
+  "zformat", "zle", "zmodload", "zparseopts", "zregexparse", "zstyle",
+]
+module_builtins = [
+  "cap", "chgrp", "chmod", "chown", "clone", "getcap", "ln", "mkdir",
+  "mv", "pcre_compile", "pcre_match", "pcre_study", "rm", "rmdir", "setcap", "stat",
+  "strftime", "sync", "syserror", "sysopen", "sysread", "sysseek", "syswrite", "zcurses",
+  "zdelattr", "zf_chgrp", "zf_chmod", "zf_chown", "zf_ln", "zf_mkdir", "zf_mv", "zf_rm",
+  "zf_rmdir", "zf_sync", "zftp", "zgetattr", "zlistattr", "zprof", "zpty", "zselect",
+  "zsetattr", "zsocket", "zstat", "zsystem", "ztcp",
+]
+reserved_words = [
+  "!", "[[", "case", "coproc", "declare", "do", "done", "elif",
+  "else", "end", "esac", "export", "fi", "float", "for", "foreach",
+  "function", "if", "integer", "local", "nocorrect", "readonly", "repeat", "select",
+  "then", "time", "typeset", "until", "while", "{", "}",
+]
+source = "observed on macOS 26.7.3 (25G342), x86_64: `env -i PATH=/usr/bin:/bin /bin/zsh -f -c 'print -l ${(ko)builtins}'` and `... -c 'print -l ${(ko)reswords}'`; module_builtins is the difference after `zmodload` of every module under /usr/lib/zsh/5.9 in a throwaway `zsh -f`; reserved words cross-checked against `man zshmisc`, RESERVED WORDS (/usr/share/man/man1/zshmisc.1)"
+read_on = "2026-11-22"
+
+[bash]
+binary = "/bin/bash"
+version = "GNU bash, version 3.2.57(1)-release (x86_64-apple-darwin25)"
+builtins = [
+  ".", ":", "[", "alias", "bg", "bind", "break", "builtin",
+  "caller", "cd", "command", "compgen", "complete", "continue", "declare", "dirs",
+  "disown", "echo", "enable", "eval", "exec", "exit", "export", "false",
+  "fc", "fg", "getopts", "hash", "help", "history", "jobs", "kill",
+  "let", "local", "logout", "popd", "printf", "pushd", "pwd", "read",
+  "readonly", "return", "set", "shift", "shopt", "source", "suspend", "test",
+  "times", "trap", "true", "type", "typeset", "ulimit", "umask", "unalias",
+  "unset", "wait",
+]
+reserved_words = [
+  "!", "[[", "]]", "case", "do", "done", "elif", "else",
+  "esac", "fi", "for", "function", "if", "in", "select", "then",
+  "time", "until", "while", "{", "}",
+]
+source = "observed on macOS 26.7.3 (25G342), x86_64: `env -i PATH=/usr/bin:/bin /bin/bash --norc --noprofile -c 'compgen -b'` and `... -c 'compgen -k'`, sorted with LC_ALL=C; reserved words cross-checked against `man bash`, RESERVED WORDS (/usr/share/man/man1/bash.1)"
+read_on = "2026-11-22"
