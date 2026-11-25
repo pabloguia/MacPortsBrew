@@ -172,7 +172,7 @@ if [ ${#scan_paths[@]} -gt 0 ]; then
       fi
     fi
   fi
-  # exempt_hits <scan> <hits>: prints the hits neither exemption covers. It
+  # exempt_hits <scan> <hits>: prints the hits no exemption covers. It
   # can only remove: every hit it does not name is printed unchanged.
   exempt_hits() {
     local scan="$1" h p rest n c
@@ -182,6 +182,9 @@ if [ ${#scan_paths[@]} -gt 0 ]; then
       if [ "$p" = "$probe_tests" ] && [ "$probe_tests_exempt" = yes ]; then
         continue
       fi
+      if [ "$scan" = token ] && [ -n "${shim_link_hit:-}" ] && [ "$h" = "$shim_link_hit" ]; then
+        continue
+      fi
       if [ "$scan" = token ] && [ "$p" = "$probe_rs" ] && [ "$c" = '    "osascript",' ] \
          && [ "$leaves_to" -gt 0 ] && [ "$n" -gt "$leaves_from" ] && [ "$n" -lt "$leaves_to" ]; then
         continue
@@ -189,16 +192,51 @@ if [ ${#scan_paths[@]} -gt 0 ]; then
       printf '%s\n' "$h"
     done <<< "$2"
   }
+  # A hit is dropped as a comment only when its line starts with `//` (which
+  # covers `///` and `//!`): that is Rust's only line comment. A line starting
+  # with `#` is an attribute and can carry a statement after it, so it is
+  # scanned like any other (pass 16 part I, D14 review).
   # Each scan in this block is captured whole, then filtered. Under pipefail,
   # `| head -1 | grep -q .` is false when grep exits 2 (an unreadable file) or
   # a stage takes SIGPIPE (more hits than a pipe holds), and a hit then passed.
   # grep's 1 is "no match"; anything above it means the scan did not run.
+  # Every scan below reads files by name. macOS grep -R does not follow a
+  # symlink, so a link under src/ would hide its target from every scan
+  # locally while CI's GNU grep follows it: refuse one outright (pass 16 part
+  # I, D14 review). And code is compiled only where it lives: `include!`
+  # pulls a file's code in as tokens and `#[path]` builds a file as another
+  # module, so either can compile the shim's link writer, or a file outside
+  # src/ that no scan reads, into a module the scans attribute elsewhere.
+  # Every code `include!` is refused (`include_str!` and `include_bytes!`
+  # embed text, not code, and stay allowed), and so is every `#[path]` but
+  # the one shape this tree uses: a bare sibling `<name>_tests.rs` literal on
+  # one line. Whitespace is tolerated wherever Rust tolerates it, a
+  # `cfg_attr` carrying `path =` is caught, and an attribute split across
+  # lines is caught by its `path = "` line (pass 16 part I, D14 review).
+  links_raw="$(find "${scan_paths[@]}" -type l 2>/dev/null)"; links_rc=$?
+  if [ "$links_rc" -ne 0 ]; then
+    fail+=("The symlink check could not walk every directory under src/ (find exit $links_rc), so it did not run. That is not the same as passing.")
+  elif [ -n "$links_raw" ]; then
+    fail+=("A symbolic link sits under src/ or is build.rs. The scans read files by name and macOS grep does not follow a link, so its target would go unscanned. Replace it with the file.")
+  fi
+  reach_raw="$(grep -RInE '\binclude[[:space:]]*!|#[[:space:]]*!?[[:space:]]*\[[[:space:]]*path\b|\bcfg_attr\b[^]]*\bpath[[:space:]]*=|^[[:space:]]*path[[:space:]]*=[[:space:]]*"' "${scan_paths[@]}" 2>/dev/null)"; reach_rc=$?
+  if [ "$reach_rc" -gt 1 ]; then
+    fail+=("The include!/#[path] check could not read every file under src/ or build.rs (grep exit $reach_rc), so it did not run. That is not the same as passing.")
+  else
+    reach_hits="$(printf '%s\n' "$reach_raw" \
+       | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); sub(/\r$/, "", line); if (line ~ /^[[:space:]]*\/\//) next; if (line ~ /^[[:space:]]*#\[path = "[a-z0-9_]+_tests\.rs"\][[:space:]]*$/) next; if (length(line)) print }')"; reach_filter_rc=$?
+    if [ "$reach_filter_rc" -ne 0 ]; then
+      fail+=("The include!/#[path] filter failed (exit $reach_filter_rc), so the check's hits are unknown. That is not the same as passing.")
+    elif [ -n "$reach_hits" ]; then
+      fail+=("An include! or a #[path] other than a sibling <name>_tests.rs sits under src/ or build.rs. Code is compiled where it lives, so every scan reads it under its own path; the shim's link writer in particular lives in crates/adapters/src/shim/link.rs and nowhere else (pass 16 part I, D14).")
+    fi
+  fi
   mutating_raw="$(grep -RInE "$mutating" "${scan_paths[@]}" 2>/dev/null)"; mutating_rc=$?
   if [ "$mutating_rc" -gt 1 ]; then
     fail+=("The mutating-literal scan could not read every file under src/ or build.rs (grep exit $mutating_rc), so it did not run. That is not the same as passing.")
   fi
   mutating_hits="$(printf '%s\n' "$mutating_raw" \
-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#)/) print }')"; mutating_filter_rc=$?
+     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*\/\//) print }')"; mutating_filter_rc=$?
   if [ "$mutating_filter_rc" -ne 0 ]; then
     fail+=("The mutating-literal comment filter failed (exit $mutating_filter_rc), so the scan's hits are unknown. That is not the same as passing.")
   fi
@@ -213,21 +251,60 @@ if [ ${#scan_paths[@]} -gt 0 ]; then
   # allowlist entry (INV-06; pass 16 part J). Decided on the path grep prints,
   # as a prefix with its trailing slash, so a sibling processes/ or another
   # crate's process/ is not admitted. Every other token is refused everywhere,
-  # process/ included.
-  token_raw="$(grep -RInE '\b(doas|launchctl|symlink|symlinkat|setuid|osascript|AuthorizationExecuteWithPrivileges)\b' "${scan_paths[@]}" 2>/dev/null)"; token_rc=$?
+  # process/ included, with the one exception (c) below. `soft_link` is the
+  # standard library's deprecated alias for the same call, refused with it
+  # (pass 16 part I, D14), and so are the syscall numbers that reach the same
+  # calls without naming them (`\bsymlink\b` does not match `SYS_symlink`, `_`
+  # being a word character). The rest of the uid and gid family is refused
+  # beside `setuid`. A syscall named by its bare number cannot be caught by a
+  # word scan; that limit is recorded with D14's (SE-115).
+  token_list='doas|launchctl|symlink|symlinkat|soft_link|SYS_symlink|SYS_symlinkat|SYS_setuid|setuid|seteuid|setreuid|setresuid|setgid|setegid|setregid|setresgid|SYS_seteuid|SYS_setreuid|SYS_setresuid|SYS_setgid|SYS_setegid|SYS_setregid|SYS_setresgid|osascript|AuthorizationExecuteWithPrivileges'
+  token_raw="$(grep -RInE "\\b($token_list)\\b" "${scan_paths[@]}" 2>/dev/null)"; token_rc=$?
   if [ "$token_rc" -gt 1 ]; then
     fail+=("The elevation, service-control and symlink token scan could not read every file under src/ or build.rs (grep exit $token_rc), so it did not run. That is not the same as passing.")
   fi
   token_hits="$(printf '%s\n' "$token_raw" \
-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }')"; token_filter_rc=$?
+     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*\/\//) print }')"; token_filter_rc=$?
   if [ "$token_filter_rc" -ne 0 ]; then
     fail+=("The token-scan comment filter failed (exit $token_filter_rc), so the scan's hits are unknown. That is not the same as passing.")
+  fi
+  # (c) The layer-4 shim's link writer, token scan only (pass 16 part I, D14;
+  #     a shim is a symlink by spec 05). Exactly one hit is admitted: in
+  #     crates/adapters/src/shim/link.rs, while that file has exactly
+  #     $shim_link_pinned hit(s) of this scan in non-comment code, that hit's
+  #     line starts with the call `std::os::unix::fs::symlink(` and names no
+  #     token of this scan or the elevation program but that one, once, and
+  #     the file names neither `macro_rules` nor `include` anywhere, as a
+  #     word, so the line cannot be a macro body expanded elsewhere or text
+  #     pulled in from another file (Rust allows whitespace, and a line
+  #     break, before a macro's `!`, so the bare words are refused). A second hit, a hit of any other shape, a second token on the
+  #     line or either macro leaves the exemption off, and every hit in the
+  #     file is reported. Nothing else is admitted, there or at any other
+  #     path: symlinkat, soft_link, setuid, launchctl and osascript stay
+  #     refused in link.rs too. What the gate cannot see is reach: a function
+  #     wrapping the call can be called from anywhere in its crate. Holding
+  #     that is the I-9 tripwire's and review's, not the gate's (D14, SE-115).
+  shim_link='crates/adapters/src/shim/link.rs'
+  shim_link_pinned=1
+  shim_link_hit=''
+  shim_link_lines="$(printf '%s\n' "$token_hits" | awk -F: -v p="$shim_link" '$1 == p')"; shim_link_rc=$?
+  if [ "$shim_link_rc" -ne 0 ]; then
+    fail+=("The shim link exemption could not filter the token scan's hits (awk exit $shim_link_rc). That is not the same as passing.")
+  elif [ -n "$shim_link_lines" ] && [ "$(printf '%s\n' "$shim_link_lines" | wc -l | tr -d ' ')" = "$shim_link_pinned" ]; then
+    shim_c="${shim_link_lines#*:}"; shim_c="${shim_c#*:}"
+    shim_tokens="$(grep -oE "\\b($token_list|sudo)\\b" <<< "$shim_c" | wc -l | tr -d ' ')"
+    shim_reach="$(grep -cE '\b(macro_rules|include)\b' "$shim_link" 2>/dev/null)"; shim_reach_rc=$?
+    if [ "$shim_reach_rc" -gt 1 ]; then
+      fail+=("The shim link exemption could not read $shim_link (grep exit $shim_reach_rc). That is not the same as passing.")
+    elif grep -qE '^[[:space:]]*std::os::unix::fs::symlink\(' <<< "$shim_c" && [ "$shim_tokens" = 1 ] && [ "$shim_reach" = 0 ]; then
+      shim_link_hit="$shim_link_lines"
+    fi
   fi
   if ! token_hits="$(exempt_hits token "$token_hits")"; then
     fail+=("The token-scan exemption filter failed, so the hits it would have printed are unknown. That is not the same as passing.")
   fi
   if [ -n "$token_hits" ]; then
-    fail+=("An elevation, service-control or symlink token appears in non-comment code under src/ or build.rs. INV-06 / INV-19: nothing in this pass elevates, controls services or creates symlinks.")
+    fail+=("An elevation, service-control or symlink token appears in non-comment code under src/ or build.rs. INV-06 / INV-19: nothing here elevates or controls services, and the one symlink call admitted is the shim link writer's, in crates/adapters/src/shim/link.rs, of its pinned shape (pass 16 part I, D14).")
   fi
   # Captured whole: under pipefail, `| head -1 | grep -q .` is false when grep
   # exits 2 (an unreadable file) or a stage takes SIGPIPE, and a hit passes.
@@ -237,7 +314,7 @@ if [ ${#scan_paths[@]} -gt 0 ]; then
   fi
   elevation_hits="$(printf '%s\n' "$elevation_raw" \
      | awk -F: -v admitted='crates/adapters/src/process/' 'index($1, admitted) != 1' \
-     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*(\/\/|#|\/\/\/|\/\/!)/) print }')"
+     | awk -F: '{ line=$0; sub(/^[^:]*:[^:]*:/, "", line); if (line !~ /^[[:space:]]*\/\//) print }')"
   if [ -n "$elevation_hits" ]; then
     fail+=("The elevation program is named in non-comment code outside crates/adapters/src/process/. INV-06: only the process executor names it, as its allowlist entry; nothing else names the program or its path.")
   fi

@@ -439,6 +439,103 @@ boundary_case "the refusal list in another process/ file blocks" block 'elevatio
 printf 'fn f() { %s(a, b); }\n' "$SYM" > "$boundary/crates/adapters/src/process/tests.rs"
 boundary_case "a real hit beside both exempt ones blocks" block 'elevation, service-control or symlink token'
 rm -f "$boundary/crates/adapters/src/process/tests.rs"
+# The shim link exemption (pass 16 part I, D14): one call of the symlink
+# token in crates/adapters/src/shim/link.rs, of the pinned shape, while it is
+# the file's only hit. Every case changes one thing from the passing fixture.
+SETUID="set""uid"; LCTL="launch""ctl"; SOFT="soft""_""link"; SYMAT="sym""linkat"
+AEWP="AuthorizationExecute""WithPrivileges"; SYSSYM="SYS_""sym""link"
+SYSSYMAT="SYS_""sym""linkat"; SYSSETUID="SYS_""set""uid"; SETEUID="sete""uid"; SETGID="set""gid"
+mkdir -p "$boundary/crates/adapters/src/shim" "$boundary/crates/cli/src/shim"
+shim_link="$boundary/crates/adapters/src/shim/link.rs"
+shim_call="    std::os::unix::fs::$SYM(target, &tmp)?;"
+shim_fixture() {  # shim_fixture [extra line ...] - the passing shape, plus each extra line
+  {
+    printf '%s\n' "$SPDX"
+    printf '// writes the one %s a layer-4 shim is\n' "$SYM"
+    printf 'pub(crate) fn write(target: &Path, tmp: &Path) -> io::Result<()> {\n'
+    printf '%s\n' "$shim_call"
+    for x in "$@"; do printf '%s\n' "$x"; done
+    printf '    Ok(())\n}\n'
+  } > "$shim_link"
+}
+shim_fixture
+boundary_case "shim: the one pinned call in shim/link.rs passes" 0 ''
+shim_fixture "$shim_call"
+boundary_case "shim: a second call blocks" block 'elevation, service-control or symlink token'
+shim_fixture "    use std::os::unix::fs::$SYM;"
+boundary_case "shim: an import beside the call blocks" block 'elevation, service-control or symlink token'
+{ printf '%s\n' "$SPDX"; printf '    fs::%s(target, &tmp)?;\n' "$SYM"; } > "$shim_link"
+boundary_case "shim: a call of another shape blocks" block 'elevation, service-control or symlink token'
+for tok in "$SETUID" "$LCTL" "$OSA" "$SOFT" "$SYMAT" "$DOAS" "$AEWP" "$SYSSYM" "$SYSSYMAT" "$SYSSETUID" "$SETEUID" "$SETGID"; do
+  shim_fixture "    run(\"$tok\");"
+  boundary_case "shim: $tok beside the call blocks" block 'elevation, service-control or symlink token'
+  { printf '%s\n' "$SPDX"; printf '%s run("%s");\n' "$shim_call" "$tok"; } > "$shim_link"
+  boundary_case "shim: $tok on the call's line blocks" block 'elevation, service-control or symlink token'
+done
+shim_fixture "    #[allow(unused_must_use)] std::os::unix::fs::$SYM(c, d);"
+boundary_case "shim: a second call behind an attribute blocks" block 'elevation, service-control or symlink token'
+shim_fixture
+awk '{ printf "%s\r\n", $0 }' "$shim_link" > "$shim_link.tmp" && mv "$shim_link.tmp" "$shim_link"
+boundary_case "shim: the pinned call with CRLF endings passes" 0 ''
+# The $a and $b below are Rust macro metavariables, written literally.
+# shellcheck disable=SC2016
+{ printf '%s\n' "$SPDX"; printf 'macro_rules! mk { ($a:expr, $b:expr) => {\n'; printf '%s\n' "$shim_call"; printf '}}\n'; } > "$shim_link"
+boundary_case "shim: the call as a macro body blocks" block 'elevation, service-control or symlink token'
+shim_fixture 'include!("other.rs");'
+boundary_case "shim: an include! in link.rs blocks" block 'elevation, service-control or symlink token'
+# shellcheck disable=SC2016
+{ printf '%s\n' "$SPDX"; printf 'macro_rules ! mk { ($a:expr, $b:expr) => {\n'; printf '%s\n' "$shim_call"; printf '}}\n'; } > "$shim_link"
+boundary_case "shim: the call as a macro body, spaced before !, blocks" block 'elevation, service-control or symlink token'
+# shellcheck disable=SC2016
+{ printf '%s\n' "$SPDX"; printf 'macro_rules\n! mk { ($a:expr, $b:expr) => {\n'; printf '%s\n' "$shim_call"; printf '}}\n'; } > "$shim_link"
+boundary_case "shim: the call as a macro body, ! on the next line, blocks" block 'elevation, service-control or symlink token'
+rm -f "$shim_link"
+printf '%s\n%s\n' "$SPDX" "$shim_call" > "$boundary/crates/adapters/src/shim/other.rs"
+boundary_case "shim: the call in another shim/ file blocks" block 'elevation, service-control or symlink token'
+rm -f "$boundary/crates/adapters/src/shim/other.rs"
+printf '%s\n%s\n' "$SPDX" "$shim_call" > "$boundary/crates/cli/src/shim/link.rs"
+boundary_case "shim: the call in another crate's shim/link.rs blocks" block 'elevation, service-control or symlink token'
+rm -f "$boundary/crates/cli/src/shim/link.rs"
+reach_case() {  # reach_case <label> <file under crates/domain/src> <content> <want>
+  printf '%s\n' "$3" > "$boundary/crates/domain/src/$2"
+  if [ "$4" = 0 ]; then boundary_case "$1" 0 ''; else boundary_case "$1" block 'include! or a #\[path\]'; fi
+  rm -f "$boundary/crates/domain/src/$2"
+}
+reach_case "shim: a #[path] naming shim/ elsewhere blocks" reach.rs '#[path = "../../adapters/src/shim/link.rs"]
+mod l;' block
+reach_case "a #[path] to a file outside src/ blocks" reach.rs '#[path = "../tests/x.rs"] mod x;' block
+reach_case "a spaced #[ path ] blocks" reach.rs '#[ path = "plan_tests.rs"] mod x;' block
+reach_case "a #[path] split across lines blocks" reach.rs '#[
+    path = "plan_tests.rs"
+]
+mod x;' block
+reach_case "a #[path] under cfg_attr blocks" reach.rs '#[cfg_attr(test, path = "plan_tests.rs")] mod x;' block
+reach_case "a #[path] with an escape in its literal blocks" reach.rs '#[path = "pl\x61n_tests.rs"] mod x;' block
+reach_case "an include! of code anywhere blocks" reach.rs 'include!("../../adapters/src/shim/link.rs");' block
+reach_case "a spaced include ! blocks" reach.rs 'include !("x.rs");' block
+reach_case "a sibling #[path] to a _tests.rs file passes" reach.rs '#[path = "plan_tests.rs"]
+mod tests;' 0
+reach_case "include_str! of a data file passes" reach.rs 'const S: &str = include_str!("../../../data/x.toml");' 0
+mkdir -p "$boundary/crates/adapters/src/shim"
+printf '#[path = "link.rs"] mod again;\n' > "$boundary/crates/adapters/src/shim/mod.rs"
+boundary_case "a same-directory #[path] inside shim/ blocks" block 'include! or a #\[path\]'
+rm -f "$boundary/crates/adapters/src/shim/mod.rs"
+printf '#[allow(dead_code)] fn f() { let s = "%s"; }\n' "$INST" > "$boundary/crates/domain/src/plan.rs"
+boundary_case "a mutating literal behind an attribute blocks" block 'mutating subcommand literal'
+printf '#[allow(dead_code)] fn f() { run("%s"); }\n' "$SUDO" > "$boundary/crates/domain/src/plan.rs"
+boundary_case "the elevation program behind an attribute outside process/ blocks" block 'elevation program is named'
+printf 'fn f() { %s(a, b); }\n' "$SOFT" > "$boundary/crates/domain/src/plan.rs"
+boundary_case "the deprecated alias anywhere blocks" block 'elevation, service-control or symlink token'
+printf '#[allow(dead_code)] fn f() { %s(a, b); }\n' "$SOFT" > "$boundary/crates/domain/src/plan.rs"
+boundary_case "a token behind an attribute anywhere blocks" block 'elevation, service-control or symlink token'
+printf 'fn f() {}\n' > "$boundary/crates/domain/src/plan.rs"
+ln -s plan.rs "$boundary/crates/domain/src/alias.rs"
+boundary_case "a symbolic link under src/ blocks" block 'symbolic link sits under src/'
+rm -f "$boundary/crates/domain/src/alias.rs"
+printf 'fn main() {}\n' > "$boundary/crates/domain/real-build.rs"
+ln -s real-build.rs "$boundary/crates/domain/build.rs"
+boundary_case "a build.rs that is a symbolic link blocks" block 'symbolic link sits under src/'
+rm -f "$boundary/crates/domain/build.rs" "$boundary/crates/domain/real-build.rs"
 # macOS awk dies on a newline in a `-v` value; the gate must never hand it
 # one. And an awk that fails in either exemption's own read must fail the
 # gate rather than drop the hits: each stub fails one read and no other.
@@ -458,6 +555,24 @@ probe_awk_stub() {  # probe_awk_stub <label> <argument that makes it fail> <need
   fi
 }
 probe_awk_stub "the test-file read failing blocks" 'NR <= 2' 'probe tests exemption could not read'
+probe_awk_stub "the shim link filter failing blocks" 'p=crates/adapters/src/shim/link.rs' 'shim link exemption could not filter'
+tool_stub() {  # tool_stub <tool> <label> <argument that makes it fail> <needle>
+  # shellcheck disable=SC2016  # $a and $@ are the stub's own, expanded when it runs
+  printf '#!/bin/sh\nfor a; do [ "$a" = "%s" ] && exit 2; done\nexec /usr/bin/%s "$@"\n' "$3" "$1" > "$stub/$1"
+  chmod +x "$stub/$1"
+  out="$(printf '{}' | PATH="$stub:$PATH" CLAUDE_PROJECT_DIR="$boundary" "$HERE/stop-gate.sh" 2>&1)"; rc=$?
+  rm -f "$stub/$1"
+  if gate_rc_matches "$rc" block "$out" && printf '%s' "$out" | grep -q "$4"; then
+    pass=$((pass + 1))
+  else
+    failures+=("boundary: $2: rc=$rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)")
+  fi
+}
+rm -f "$stub/awk"
+tool_stub find "the symlink walk failing blocks" '-type' 'symlink check could not walk'
+shim_fixture
+tool_stub grep "the shim link file read failing blocks" '\b(macro_rules|include)\b' 'shim link exemption could not read'
+rm -f "$shim_link"
 probe_awk_stub "the refusal-list read failing blocks" "s=$(grep -nxF 'const EXCLUDED_LEAVES: &[&str] = &[' "$probe_rs" | cut -d: -f1)" 'refusal-list exemption could not read'
 rm -rf "$stub" "$probe_rs" "$boundary/crates/adapters/src/process/probe"
 rm -rf "$boundary"
