@@ -10,7 +10,7 @@ I-6 is the first that needs it applied.
 
 | Patch | Files | Needed by | Executed by the session? |
 |---|---|---|---|
-| `01-shim-symlink-token.patch` | `.claude/hooks/stop-gate.sh`, `.claude/hooks/test-hooks.sh`, and their `.codex/` mirrors | I-6 (the link writer, `crates/adapters/src/shim/link.rs`) | Written as patch text from the current files; the patched copies were checked with `bash -n`; the patched `test-hooks.sh` was run beside the patched `stop-gate.sh` in a scratch directory outside the repository, 299/299 (243 today, plus 56 new cases), and the patched `stop-gate.sh` passes on `a393cc6` plus this staging |
+| `01-shim-symlink-token.patch` | `.claude/hooks/stop-gate.sh`, `.claude/hooks/test-hooks.sh`, and their `.codex/` mirrors | I-6 (the link writer, `crates/adapters/src/shim/link.rs`) | Written as patch text from the current files; the patched copies were checked with `bash -n`; the patched `test-hooks.sh` was run beside the patched `stop-gate.sh` in a scratch directory outside the repository, 299/299 (243 today, plus 56 new cases), and the patched `stop-gate.sh` passes on `a393cc6` plus this staging. After the first apply (2026-11-24), `validate.sh`'s `shellcheck -x -P SCRIPTDIR` was run on the patched copies too, and passes (see "First apply") |
 
 ## Why it is needed
 
@@ -136,6 +136,18 @@ To have a session apply it instead, send it a message containing exactly:
 
 > MPB_ALLOW_GUARD_EDIT=1 Apply the patch in docs/passes/16-staged/I/ on a
 > topic branch, run the checks its README lists, and open a pull request.
+
+## First apply
+
+On 2026-11-24 a session applied the patch, armed by the owner, on
+`wo16/I-stage-apply`. `test-hooks.sh` gave 299/299 and the codex-layer check
+passed, but `validate.sh` failed at its `shellcheck` stage: SC2016 on the three
+macro-body cases, whose `printf` writes `$a:expr, $b:expr` in single quotes on
+purpose (Rust macro metavariables, not shell expansions). The patch was
+reverted as this README says. The fix adds a `# shellcheck disable=SC2016`
+line before each of the three, with one comment saying why, in both
+`test-hooks.sh` copies, and moves the hunk headers by four lines. No case or
+verdict changes.
 
 ## Reviews
 
