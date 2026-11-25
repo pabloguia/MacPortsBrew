@@ -302,7 +302,7 @@ diff --git a/.claude/hooks/test-hooks.sh b/.claude/hooks/test-hooks.sh
 index 2fa699e..c3ad35c 100755
 --- a/.claude/hooks/test-hooks.sh
 +++ b/.claude/hooks/test-hooks.sh
-@@ -433,6 +433,99 @@ boundary_case "the refusal list in another process/ file blocks" block 'elevatio
+@@ -433,6 +433,103 @@ boundary_case "the refusal list in another process/ file blocks" block 'elevatio
  printf 'fn f() { %s(a, b); }\n' "$SYM" > "$boundary/crates/adapters/src/process/tests.rs"
  boundary_case "a real hit beside both exempt ones blocks" block 'elevation, service-control or symlink token'
  rm -f "$boundary/crates/adapters/src/process/tests.rs"
@@ -344,12 +344,16 @@ index 2fa699e..c3ad35c 100755
 +shim_fixture
 +awk '{ printf "%s\r\n", $0 }' "$shim_link" > "$shim_link.tmp" && mv "$shim_link.tmp" "$shim_link"
 +boundary_case "shim: the pinned call with CRLF endings passes" 0 ''
++# The $a and $b below are Rust macro metavariables, written literally.
++# shellcheck disable=SC2016
 +{ printf '%s\n' "$SPDX"; printf 'macro_rules! mk { ($a:expr, $b:expr) => {\n'; printf '%s\n' "$shim_call"; printf '}}\n'; } > "$shim_link"
 +boundary_case "shim: the call as a macro body blocks" block 'elevation, service-control or symlink token'
 +shim_fixture 'include!("other.rs");'
 +boundary_case "shim: an include! in link.rs blocks" block 'elevation, service-control or symlink token'
++# shellcheck disable=SC2016
 +{ printf '%s\n' "$SPDX"; printf 'macro_rules ! mk { ($a:expr, $b:expr) => {\n'; printf '%s\n' "$shim_call"; printf '}}\n'; } > "$shim_link"
 +boundary_case "shim: the call as a macro body, spaced before !, blocks" block 'elevation, service-control or symlink token'
++# shellcheck disable=SC2016
 +{ printf '%s\n' "$SPDX"; printf 'macro_rules\n! mk { ($a:expr, $b:expr) => {\n'; printf '%s\n' "$shim_call"; printf '}}\n'; } > "$shim_link"
 +boundary_case "shim: the call as a macro body, ! on the next line, blocks" block 'elevation, service-control or symlink token'
 +rm -f "$shim_link"
@@ -402,7 +406,7 @@ index 2fa699e..c3ad35c 100755
  # macOS awk dies on a newline in a `-v` value; the gate must never hand it
  # one. And an awk that fails in either exemption's own read must fail the
  # gate rather than drop the hits: each stub fails one read and no other.
-@@ -452,6 +545,24 @@ probe_awk_stub() {  # probe_awk_stub <label> <argument that makes it fail> <need
+@@ -452,6 +549,24 @@ probe_awk_stub() {  # probe_awk_stub <label> <argument that makes it fail> <need
    fi
  }
  probe_awk_stub "the test-file read failing blocks" 'NR <= 2' 'probe tests exemption could not read'
@@ -431,7 +435,7 @@ diff --git a/.codex/hooks/test-hooks.sh b/.codex/hooks/test-hooks.sh
 index e7c22bd..ec30397 100755
 --- a/.codex/hooks/test-hooks.sh
 +++ b/.codex/hooks/test-hooks.sh
-@@ -439,6 +439,99 @@ boundary_case "the refusal list in another process/ file blocks" block 'elevatio
+@@ -439,6 +439,103 @@ boundary_case "the refusal list in another process/ file blocks" block 'elevatio
  printf 'fn f() { %s(a, b); }\n' "$SYM" > "$boundary/crates/adapters/src/process/tests.rs"
  boundary_case "a real hit beside both exempt ones blocks" block 'elevation, service-control or symlink token'
  rm -f "$boundary/crates/adapters/src/process/tests.rs"
@@ -473,12 +477,16 @@ index e7c22bd..ec30397 100755
 +shim_fixture
 +awk '{ printf "%s\r\n", $0 }' "$shim_link" > "$shim_link.tmp" && mv "$shim_link.tmp" "$shim_link"
 +boundary_case "shim: the pinned call with CRLF endings passes" 0 ''
++# The $a and $b below are Rust macro metavariables, written literally.
++# shellcheck disable=SC2016
 +{ printf '%s\n' "$SPDX"; printf 'macro_rules! mk { ($a:expr, $b:expr) => {\n'; printf '%s\n' "$shim_call"; printf '}}\n'; } > "$shim_link"
 +boundary_case "shim: the call as a macro body blocks" block 'elevation, service-control or symlink token'
 +shim_fixture 'include!("other.rs");'
 +boundary_case "shim: an include! in link.rs blocks" block 'elevation, service-control or symlink token'
++# shellcheck disable=SC2016
 +{ printf '%s\n' "$SPDX"; printf 'macro_rules ! mk { ($a:expr, $b:expr) => {\n'; printf '%s\n' "$shim_call"; printf '}}\n'; } > "$shim_link"
 +boundary_case "shim: the call as a macro body, spaced before !, blocks" block 'elevation, service-control or symlink token'
++# shellcheck disable=SC2016
 +{ printf '%s\n' "$SPDX"; printf 'macro_rules\n! mk { ($a:expr, $b:expr) => {\n'; printf '%s\n' "$shim_call"; printf '}}\n'; } > "$shim_link"
 +boundary_case "shim: the call as a macro body, ! on the next line, blocks" block 'elevation, service-control or symlink token'
 +rm -f "$shim_link"
@@ -531,7 +539,7 @@ index e7c22bd..ec30397 100755
  # macOS awk dies on a newline in a `-v` value; the gate must never hand it
  # one. And an awk that fails in either exemption's own read must fail the
  # gate rather than drop the hits: each stub fails one read and no other.
-@@ -458,6 +551,24 @@ probe_awk_stub() {  # probe_awk_stub <label> <argument that makes it fail> <need
+@@ -458,6 +555,24 @@ probe_awk_stub() {  # probe_awk_stub <label> <argument that makes it fail> <need
    fi
  }
  probe_awk_stub "the test-file read failing blocks" 'NR <= 2' 'probe tests exemption could not read'
